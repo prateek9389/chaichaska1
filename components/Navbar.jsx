@@ -72,9 +72,10 @@ export default function Navbar() {
             fontFamily: "var(--font-body)",
             letterSpacing: "-0.01em",
             textDecoration: "none",
+            whiteSpace: "nowrap",
           }}
         >
-          ChaiCo
+          Chai Chaska
         </Link>
 
         <ul
@@ -193,7 +194,7 @@ export default function Navbar() {
 
           {/* Auth Button */}
           {user ? (
-            <div style={{ position: "relative" }}>
+            <div className="user-auth-btn" style={{ position: "relative" }}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 style={{
@@ -246,6 +247,7 @@ export default function Navbar() {
           ) : (
             <Link
               href="/login"
+              className="user-auth-btn"
               style={{
                 background: "#f5f0e8",
                 border: "1.5px solid rgba(44,27,13,0.15)",
@@ -303,7 +305,7 @@ export default function Navbar() {
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "40px" }}>
-            <span style={{ fontSize: 22, fontWeight: 700, color: "#2c1b0d" }}>ChaiCo</span>
+            <span style={{ fontSize: 22, fontWeight: 700, color: "#2c1b0d" }}>Chai Chaska</span>
             <button
               onClick={() => setOpen(false)}
               style={{
@@ -427,6 +429,8 @@ export default function Navbar() {
         @media (max-width: 860px) {
           .nav-links { display: none !important; }
           .nav-buy-btn { display: none !important; }
+          .navbar-wallet-btn { display: none !important; }
+          .user-auth-btn { display: none !important; }
           .burger { display: flex !important; }
         }
         @media (min-width: 861px) {

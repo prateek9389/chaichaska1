@@ -177,6 +177,10 @@ export default function AdminDashboard() {
   const [requestNotes, setRequestNotes] = useState("");
   const [toastMsg, setToastMsg] = useState("");
 
+  // Order Queue detailed state
+  const [selectedQueueOrder, setSelectedQueueOrder] = useState(null);
+  const [isQueueSidebarOpen, setIsQueueSidebarOpen] = useState(false);
+  const [deliveryTimeInput, setDeliveryTimeInput] = useState("");
 
   // Add new stock item form state
   const [newStockName, setNewStockName] = useState("");
@@ -471,21 +475,23 @@ export default function AdminDashboard() {
   const [newProdName, setNewProdName] = useState("");
   const [newProdPrice, setNewProdPrice] = useState("");
   const [newProdDesc, setNewProdDesc] = useState("");
-  const [newProdCategory, setNewProdCategory] = useState("Masala");
+  const [newProdCategory, setNewProdCategory] = useState("Chai");
   const [newProdCaffeine, setNewProdCaffeine] = useState("Medium");
   const [newProdSweetness, setNewProdSweetness] = useState("Medium");
   const [newProdSteepTime, setNewProdSteepTime] = useState("5 mins");
   const [newProdPairing, setNewProdPairing] = useState("Biscuits");
   const [newProdRating, setNewProdRating] = useState(4.8);
   const [newProdImage, setNewProdImage] = useState("");
+  const [newProdGallery, setNewProdGallery] = useState([]);
 
   // Product Edit States
   const [editingProduct, setEditingProduct] = useState(null);
   const [editProdName, setEditProdName] = useState("");
   const [editProdPrice, setEditProdPrice] = useState("");
-  const [editProdCategory, setEditProdCategory] = useState("Masala");
+  const [editProdCategory, setEditProdCategory] = useState("Chai");
   const [editProdDesc, setEditProdDesc] = useState("");
   const [editProdImage, setEditProdImage] = useState("");
+  const [editProdGallery, setEditProdGallery] = useState([]);
 
   // Sidebar visibility state
   const [showPendingSidebar, setShowPendingSidebar] = useState(false);
@@ -793,7 +799,8 @@ export default function AdminDashboard() {
       steepTime: newProdSteepTime,
       pairing: newProdPairing,
       rating: parseFloat(newProdRating) || 4.8,
-      image: newProdImage || "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80"
+      image: newProdImage || "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80",
+      gallery: newProdGallery,
     };
     
     try {
@@ -808,6 +815,7 @@ export default function AdminDashboard() {
       setNewProdSteepTime("5 mins");
       setNewProdPairing("Biscuits");
       setNewProdRating(4.8);
+      setNewProdGallery([]);
       setTimeout(() => setToastMsg(""), 4000);
     } catch (err) {
       setToastMsg(`❌ Error: ${err.message}`);
@@ -832,6 +840,10 @@ export default function AdminDashboard() {
       if (data.url) {
         if (target === "edit") {
           setEditProdImage(data.url);
+        } else if (target === "new_gallery") {
+          setNewProdGallery(prev => [...prev, data.url]);
+        } else if (target === "edit_gallery") {
+          setEditProdGallery(prev => [...prev, data.url]);
         } else {
           setNewProdImage(data.url);
         }
@@ -855,6 +867,10 @@ export default function AdminDashboard() {
   const handleSelectLibraryImage = (url) => {
     if (window.libraryTarget === "edit") {
       setEditProdImage(url);
+    } else if (window.libraryTarget === "new_gallery") {
+      setNewProdGallery(prev => [...prev, url]);
+    } else if (window.libraryTarget === "edit_gallery") {
+      setEditProdGallery(prev => [...prev, url]);
     } else {
       setNewProdImage(url);
     }
@@ -885,7 +901,8 @@ export default function AdminDashboard() {
         price: `₹${priceVal}`,
         category: editProdCategory,
         desc: editProdDesc,
-        image: editProdImage
+        image: editProdImage,
+        gallery: editProdGallery
       });
       setToastMsg("Product updated successfully!");
       setEditingProduct(null);
@@ -1552,71 +1569,117 @@ export default function AdminDashboard() {
             {/* TAB: ORDER QUEUE */}
             {activeTab === "queue" && (
               <div className="tab-body-wrapper">
+                <h3 className="section-title">Order Queue (List View)</h3>
+                
+                <div className="queue-list-container">
+                  {orders.length === 0 ? (
+                    <div className="empty-column-msg">No active orders found.</div>
+                  ) : (
+                    orders
+                      .sort((a, b) => b.createdAt - a.createdAt)
+                      .map((o) => (
+                        <div 
+                          key={o.id} 
+                          className="queue-list-item"
+                          onClick={() => {
+                            setSelectedQueueOrder(o);
+                            setDeliveryTimeInput(o.allocatedTime || "");
+                            setIsQueueSidebarOpen(true);
+                          }}
+                        >
+                          <img src={o.image || o.img} alt={o.id} className="queue-list-img" />
+                          <div className="queue-list-info">
+                            <h4>{o.id} - {o.customer}</h4>
+                            <p>{o.item}</p>
+                            <span className="time-elapsed">
+                              {Math.floor((Date.now() - o.createdAt) / 60000)}m ago
+                            </span>
+                          </div>
+                          <div className="queue-list-status">
+                            <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
+                              {o.status || "Received"}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
 
-                {/* Summary of Active Brews on Top - Removed per user request */}
+                {/* SLIDING SIDEBAR FOR ORDER DETAILS */}
+                <div className={`queue-sidebar-overlay ${isQueueSidebarOpen ? "open" : ""}`} onClick={() => setIsQueueSidebarOpen(false)}></div>
+                <div className={`queue-sidebar-panel ${isQueueSidebarOpen ? "open" : ""}`}>
+                  {selectedQueueOrder && (
+                    <div className="queue-sidebar-content">
+                      <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
+                      
+                      <h2>Order {selectedQueueOrder.id}</h2>
+                      <div className="sidebar-detail-group">
+                        <label>Customer</label>
+                        <p>{selectedQueueOrder.customer}</p>
+                        <label>Office</label>
+                        <p>{selectedQueueOrder.office}</p>
+                        <label>Phone</label>
+                        <p>{selectedQueueOrder.phone || "N/A"}</p>
+                      </div>
 
-                <h3 className="section-title">Active Brewing Priority Board</h3>
+                      <div className="sidebar-detail-group">
+                        <label>Items</label>
+                        <p><strong>{selectedQueueOrder.item}</strong></p>
+                        <label>Add-ons</label>
+                        <p>{selectedQueueOrder.addons || "None"}</p>
+                        <label>Preferences</label>
+                        <p>{selectedQueueOrder.sugar} | {selectedQueueOrder.milk}</p>
+                        <label>Total</label>
+                        <p>{selectedQueueOrder.total}</p>
+                      </div>
 
-                <div className="queue-kanban-board">
-                  {/* COLUMN 1: HIGH PRIORITY */}
-                  <div className="kanban-column high-col">
-                    <div className="kanban-column-header">
-                      <span>🚨 High Priority</span>
-                      <span className="kanban-badge red">
-                        {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "High").length}
-                      </span>
-                    </div>
-                    <div className="kanban-cards-stack">
-                      {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "High").length === 0 ? (
-                        <div className="empty-column-msg">No high priority orders</div>
-                      ) : (
-                        orders
-                          .filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "High")
-                          .sort((a, b) => a.id.localeCompare(b.id))
-                          .map((o) => renderQueueCard(o))
-                      )}
-                    </div>
-                  </div>
+                      <div className="sidebar-detail-group">
+                        <label>Update Status</label>
+                        <select 
+                          className="sidebar-select"
+                          value={selectedQueueOrder.status || "Received"}
+                          onChange={(e) => {
+                            const newStatus = e.target.value;
+                            setSelectedQueueOrder({...selectedQueueOrder, status: newStatus});
+                          }}
+                        >
+                          <option value="Received">Received</option>
+                          <option value="Preparing">Preparing</option>
+                          <option value="Out for Delivery">Out for Delivery</option>
+                          <option value="Delivered">Delivered</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
 
-                  {/* COLUMN 2: STANDARD / NORMAL PRIORITY */}
-                  <div className="kanban-column normal-col">
-                    <div className="kanban-column-header">
-                      <span>🕒 Standard Priority</span>
-                      <span className="kanban-badge chocolate">
-                        {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && (o.priority === "Normal" || !o.priority)).length}
-                      </span>
-                    </div>
-                    <div className="kanban-cards-stack">
-                      {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && (o.priority === "Normal" || !o.priority)).length === 0 ? (
-                        <div className="empty-column-msg">No standard orders</div>
-                      ) : (
-                        orders
-                          .filter((o) => o.status !== "Delivered" && o.status !== "Completed" && (o.priority === "Normal" || !o.priority))
-                          .sort((a, b) => a.id.localeCompare(b.id))
-                          .map((o) => renderQueueCard(o))
-                      )}
-                    </div>
-                  </div>
+                      <div className="sidebar-detail-group">
+                        <label>Set Delivery Time</label>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                          <input 
+                            type="text" 
+                            className="sidebar-input"
+                            value={deliveryTimeInput}
+                            onChange={(e) => setDeliveryTimeInput(e.target.value)}
+                            placeholder="e.g. 15 mins"
+                          />
+                          <button 
+                            className="sidebar-save-btn"
+                            onClick={() => {
+                              updateOrder(selectedQueueOrder.id, { 
+                                allocatedTime: deliveryTimeInput,
+                                status: selectedQueueOrder.status || "Received"
+                              });
+                              setIsQueueSidebarOpen(false);
+                              setToastMsg("Order details updated!");
+                              setTimeout(() => setToastMsg(""), 3000);
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
 
-                  {/* COLUMN 3: LOW PRIORITY */}
-                  <div className="kanban-column low-col">
-                    <div className="kanban-column-header">
-                      <span>🌱 Low Priority</span>
-                      <span className="kanban-badge green">
-                        {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "Low").length}
-                      </span>
                     </div>
-                    <div className="kanban-cards-stack">
-                      {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "Low").length === 0 ? (
-                        <div className="empty-column-msg">No low priority orders</div>
-                      ) : (
-                        orders
-                          .filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "Low")
-                          .sort((a, b) => a.id.localeCompare(b.id))
-                          .map((o) => renderQueueCard(o))
-                      )}
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2969,6 +3032,8 @@ export default function AdminDashboard() {
                       <div className="form-group" style={{ marginBottom: "12px" }}>
                         <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Category</label>
                         <select value={newProdCategory} onChange={(e) => setNewProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
+                          <option value="Chai">Chai</option>
+                          <option value="Coffee">Coffee</option>
                           <option value="Masala">Masala</option>
                           <option value="Cardamom">Cardamom</option>
                           <option value="Ginger">Ginger</option>
@@ -3041,6 +3106,35 @@ export default function AdminDashboard() {
                             <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
                             <input type="text" placeholder="https://..." value={newProdImage} onChange={(e) => setNewProdImage(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
                           </div>
+                        </div>
+
+                        <div className="form-group" style={{ marginTop: "20px", display: "flex", gap: "10px", flexDirection: "column" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Gallery Images (Multiple)</label>
+                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+                            <div style={{ flex: 1 }}>
+                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "new_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowImageLibrary(true);
+                                window.libraryTarget = "new_gallery";
+                              }}
+                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
+                            >
+                              📂 Image Library
+                            </button>
+                          </div>
+                          {newProdGallery.length > 0 && (
+                            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
+                              {newProdGallery.map((img, idx) => (
+                                <div key={idx} style={{ position: "relative", width: "60px", height: "60px" }}>
+                                  <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px" }} />
+                                  <button type="button" onClick={() => setNewProdGallery(prev => prev.filter((_, i) => i !== idx))} style={{ position: "absolute", top: "-5px", right: "-5px", background: "red", color: "white", border: "none", borderRadius: "50%", width: "20px", height: "20px", fontSize: "10px", cursor: "pointer" }}>X</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -3116,6 +3210,8 @@ export default function AdminDashboard() {
                         <div className="form-group" style={{ marginBottom: "12px" }}>
                           <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Category</label>
                           <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
+                            <option value="Chai">Chai</option>
+                            <option value="Coffee">Coffee</option>
                             <option value="Masala">Masala</option>
                             <option value="Cardamom">Cardamom</option>
                             <option value="Ginger">Ginger</option>
@@ -3149,6 +3245,35 @@ export default function AdminDashboard() {
                             <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
                             <input type="text" value={editProdImage} onChange={(e) => setEditProdImage(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
                           </div>
+
+                          <div className="form-group" style={{ marginTop: "10px", display: "flex", gap: "10px", flexDirection: "column" }}>
+                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Gallery Images (Multiple)</label>
+                            <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+                              <div style={{ flex: 1 }}>
+                                <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowImageLibrary(true);
+                                  window.libraryTarget = "edit_gallery";
+                                }}
+                                style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
+                              >
+                                📂 Image Library
+                              </button>
+                            </div>
+                            {editProdGallery.length > 0 && (
+                              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
+                                {editProdGallery.map((img, idx) => (
+                                  <div key={idx} style={{ position: "relative", width: "60px", height: "60px" }}>
+                                    <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px" }} />
+                                    <button type="button" onClick={() => setEditProdGallery(prev => prev.filter((_, i) => i !== idx))} style={{ position: "absolute", top: "-5px", right: "-5px", background: "red", color: "white", border: "none", borderRadius: "50%", width: "20px", height: "20px", fontSize: "10px", cursor: "pointer" }}>X</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
                           <button type="button" onClick={() => setEditingProduct(null)} style={{ background: "#ccc", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", color: "#333" }}>Cancel</button>
@@ -3181,6 +3306,7 @@ export default function AdminDashboard() {
                             setEditProdCategory(p.category || "Masala");
                             setEditProdDesc(p.desc || "");
                             setEditProdImage(p.image || "");
+                            setEditProdGallery(p.gallery || []);
                           }}
                           style={{ flex: 1, background: "#2c1b0d", color: "#fff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}
                         >
@@ -5266,6 +5392,160 @@ export default function AdminDashboard() {
             grid-template-columns: repeat(2, 1fr);
           }
         }
+        /* Queue List & Sidebar UI */
+        .queue-list-container {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-top: 20px;
+        }
+
+        .queue-list-item {
+          display: flex;
+          align-items: center;
+          padding: 16px;
+          background: #ffffff;
+          border-radius: 12px;
+          border: 1px solid rgba(44, 27, 13, 0.06);
+          box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+          cursor: pointer;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .queue-list-item:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+        }
+
+        .queue-list-img {
+          width: 60px;
+          height: 60px;
+          border-radius: 10px;
+          object-fit: cover;
+          margin-right: 16px;
+        }
+
+        .queue-list-info {
+          flex: 1;
+        }
+
+        .queue-list-info h4 {
+          margin: 0 0 4px 0;
+          font-size: 16px;
+          color: #2c1b0d;
+        }
+
+        .queue-list-info p {
+          margin: 0 0 6px 0;
+          font-size: 14px;
+          color: #555;
+        }
+
+        .time-elapsed {
+          font-size: 12px;
+          color: #888;
+          background: #fbf9f6;
+          padding: 3px 8px;
+          border-radius: 4px;
+        }
+
+        .queue-list-status {
+          margin-left: 16px;
+        }
+
+        /* Sidebar Styles */
+        .queue-sidebar-overlay {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.4);
+          z-index: 999;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.3s;
+        }
+        .queue-sidebar-overlay.open {
+          opacity: 1;
+          visibility: visible;
+        }
+
+        .queue-sidebar-panel {
+          position: fixed;
+          top: 0; right: -400px;
+          width: 100%;
+          max-width: 400px;
+          height: 100vh;
+          background: #ffffff;
+          z-index: 1000;
+          box-shadow: -4px 0 20px rgba(0,0,0,0.1);
+          transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          overflow-y: auto;
+        }
+        .queue-sidebar-panel.open {
+          right: 0;
+        }
+
+        .queue-sidebar-content {
+          padding: 30px;
+          position: relative;
+        }
+
+        .sidebar-close-btn {
+          position: absolute;
+          top: 20px; right: 20px;
+          background: none; border: none;
+          font-size: 20px;
+          cursor: pointer;
+          color: #888;
+        }
+
+        .queue-sidebar-content h2 {
+          font-size: 22px;
+          margin-bottom: 24px;
+          color: #2c1b0d;
+        }
+
+        .sidebar-detail-group {
+          margin-bottom: 20px;
+          padding-bottom: 20px;
+          border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .sidebar-detail-group label {
+          display: block;
+          font-size: 12px;
+          text-transform: uppercase;
+          color: #888;
+          margin-bottom: 6px;
+          letter-spacing: 0.5px;
+        }
+
+        .sidebar-detail-group p {
+          font-size: 15px;
+          color: #2c1b0d;
+          margin: 0 0 10px 0;
+        }
+
+        .sidebar-select, .sidebar-input {
+          width: 100%;
+          padding: 10px 14px;
+          border-radius: 8px;
+          border: 1px solid rgba(0,0,0,0.1);
+          font-size: 15px;
+          color: #2c1b0d;
+          background: #fdfdfd;
+          outline: none;
+        }
+
+        .sidebar-save-btn {
+          background: #2c1b0d;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          padding: 0 20px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
       `}</style>
     </div>
   );

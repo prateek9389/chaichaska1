@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../state/wallet_state.dart';
 
 class WalletScreen extends StatefulWidget {
@@ -60,7 +62,7 @@ class _WalletScreenState extends State<WalletScreen> {
       builder: (context) {
         return _QRRechargeDialog(
           amount: rechargeAmount,
-          onSuccess: () {
+          onSuccess: () async {
             setState(() {
               WalletState.balance.value += rechargeAmount;
               WalletState.addTransaction(
@@ -69,6 +71,31 @@ class _WalletScreenState extends State<WalletScreen> {
                 isCredit: true,
               );
             });
+            
+            final user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              try {
+                final dt = DateTime.now();
+                final dateString = "${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+                
+                // Update the user's wallet balance in Firestore
+                await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+                  'wallet': FieldValue.increment(rechargeAmount)
+                }, SetOptions(merge: true));
+
+                // Log the recharge
+                await FirebaseFirestore.instance.collection('recharges').add({
+                  'userId': user.uid,
+                  'customer': user.displayName ?? "App User",
+                  'amount': rechargeAmount,
+                  'status': 'Success',
+                  'createdAt': dt.millisecondsSinceEpoch,
+                  'date': dateString,
+                });
+              } catch (e) {
+                debugPrint("Failed to record recharge in Firebase: $e");
+              }
+            }
           },
         );
       },

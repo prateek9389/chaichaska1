@@ -20,24 +20,7 @@ class WalletState {
   ];
 
   // Saved Addresses list ValueNotifier
-  static final ValueNotifier<List<Map<String, String>>> savedAddresses = ValueNotifier<List<Map<String, String>>>([
-    {
-      'id': '1',
-      'label': 'Office (Primary)',
-      'officeNumber': 'Suite 402',
-      'officeName': 'Google India',
-      'floor': '4th Floor',
-      'address': 'Signature Towers, Sector 30, Gurugram',
-    },
-    {
-      'id': '2',
-      'label': 'Co-working Space',
-      'officeNumber': 'Desk 23B',
-      'officeName': 'WeWork BlueOne',
-      'floor': '2nd Floor',
-      'address': 'BlueOne Square, Udyog Vihar, Phase 4, Gurugram',
-    },
-  ]);
+  static final ValueNotifier<List<Map<String, String>>> savedAddresses = ValueNotifier<List<Map<String, String>>>([]);
 
   // Global transaction log shared across screens
   static final List<Map<String, dynamic>> transactions = [

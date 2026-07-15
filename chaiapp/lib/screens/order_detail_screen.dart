@@ -1,10 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class OrderDetailScreen extends StatefulWidget {
-  final String orderId;
+  final Map<String, dynamic> orderData;
 
-  const OrderDetailScreen({super.key, required this.orderId});
+  const OrderDetailScreen({super.key, required this.orderData});
 
   @override
   State<OrderDetailScreen> createState() => _OrderDetailScreenState();
@@ -13,17 +14,49 @@ class OrderDetailScreen extends StatefulWidget {
 class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTickerProviderStateMixin {
   late AnimationController _timerController;
   late Animation<double> _progressAnimation;
+  
+  bool _isDeliveredOrCancelled = false;
 
   @override
   void initState() {
     super.initState();
-    // Simulate a countdown timer animation (e.g. 10 seconds loop representing 10 minutes)
+    final status = widget.orderData['status']?.toString().toLowerCase() ?? '';
+    _isDeliveredOrCancelled = status == 'delivered' || status == 'cancelled';
+    
+    // Parse allocated time (default to 15 mins if not present or unparseable)
+    final String allocatedTimeStr = widget.orderData['allocatedTime']?.toString() ?? '';
+    int allocatedMinutes = 15;
+    final RegExp regExp = RegExp(r'\d+');
+    final match = regExp.firstMatch(allocatedTimeStr);
+    if (match != null) {
+      allocatedMinutes = int.tryParse(match.group(0) ?? '15') ?? 15;
+    }
+
+    // Parse createdAt timestamp
+    final int createdAt = int.tryParse(widget.orderData['createdAt']?.toString() ?? '') 
+        ?? DateTime.now().millisecondsSinceEpoch;
+    
+    int totalSeconds = allocatedMinutes * 60;
+    int elapsedSeconds = (DateTime.now().millisecondsSinceEpoch - createdAt) ~/ 1000;
+    int remainingSeconds = totalSeconds - elapsedSeconds;
+    if (remainingSeconds < 0) remainingSeconds = 0;
+
     _timerController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 15),
-    )..repeat();
-
-    _progressAnimation = Tween<double>(begin: 1.0, end: 0.0).animate(_timerController);
+      duration: Duration(seconds: totalSeconds),
+    );
+    
+    if (!_isDeliveredOrCancelled && remainingSeconds > 0) {
+      // Start reversing from the current remaining proportion
+      _timerController.reverse(from: remainingSeconds / totalSeconds);
+    } else {
+      _timerController.value = 0.0;
+    }
+    
+    _progressAnimation = Tween<double>(
+      begin: 0.0, 
+      end: 1.0
+    ).animate(_timerController);
   }
 
   @override
@@ -33,44 +66,62 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
   }
 
   String _getCountdownText(double progressValue) {
-    // Convert 0.0 - 1.0 progress to a 10-minute timer format, e.g. 09:59 down to 00:00
-    int totalSeconds = (progressValue * 600).toInt();
-    int minutes = totalSeconds ~/ 60;
-    int seconds = totalSeconds % 60;
+    if (_isDeliveredOrCancelled || progressValue <= 0.0) return "00:00";
+    
+    // progressValue is 0.0 to 1.0. Multiply by the total duration to get remaining seconds.
+    int totalSecs = (_timerController.duration!.inSeconds * progressValue).toInt();
+    int minutes = totalSecs ~/ 60;
+    int seconds = totalSecs % 60;
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   String _getStatusText(double progressValue) {
+    final status = widget.orderData['status']?.toString() ?? '';
+    if (status.toLowerCase() == 'delivered') return 'Order Delivered! 🎉';
+    if (status.toLowerCase() == 'cancelled') return 'Order Cancelled ❌';
+    if (status.toLowerCase() == 'out for delivery') return 'Driver is heading your way! 🛵';
+    
+    if (progressValue <= 0.0 && !_isDeliveredOrCancelled) {
+      return 'Driver is heading your way! 🛵';
+    }
+
     if (progressValue > 0.66) {
       return 'Brewing your fresh tea... ☕';
     } else if (progressValue > 0.33) {
       return 'Packing snacks and drinks... 📦';
     } else {
-      return 'Driver is heading your way! 🛵';
+      return 'Preparing for dispatch... ⏳';
     }
+  }
+
+  Widget _buildImage(String imgUrl) {
+    if (imgUrl.isEmpty) {
+      return Image.asset('assets/images/tea_icon.png', fit: BoxFit.cover);
+    }
+    if (imgUrl.startsWith('data:image')) {
+      try {
+        final base64String = imgUrl.split(',').last;
+        final bytes = base64Decode(base64String);
+        return Image.memory(bytes, fit: BoxFit.cover, errorBuilder: (c,e,s) => Image.asset('assets/images/tea_icon.png', fit: BoxFit.cover));
+      } catch (e) {
+        return Image.asset('assets/images/tea_icon.png', fit: BoxFit.cover);
+      }
+    }
+    if (imgUrl.startsWith('http')) {
+      return Image.network(imgUrl, fit: BoxFit.cover, errorBuilder: (c,e,s) => Image.asset('assets/images/tea_icon.png', fit: BoxFit.cover));
+    }
+    return Image.asset(imgUrl, fit: BoxFit.cover, errorBuilder: (c,e,s) => Image.asset('assets/images/tea_icon.png', fit: BoxFit.cover));
   }
 
   @override
   Widget build(BuildContext context) {
-    // Dummy products inside this order
-    final List<Map<String, dynamic>> orderProducts = [
-      {
-        'name': 'Adrak Chai',
-        'qty': 2,
-        'details': 'Regular Sugar, Hot',
-        'price': '₹90.00',
-        'imagePath': 'assets/images/adrak_chai.png',
-        'bgColor': const Color(0xFFF1F7F4),
-      },
-      {
-        'name': 'Elaichi Chai',
-        'qty': 1,
-        'details': 'Less Sugar, Hot',
-        'price': '₹45.00',
-        'imagePath': 'assets/images/elaichi_chai.png',
-        'bgColor': const Color(0xFFF1F7F4),
-      },
-    ];
+    final order = widget.orderData;
+    final String itemSummary = order['item']?.toString() ?? 'Items';
+    final String addons = order['addons']?.toString() ?? '';
+    final String total = order['total']?.toString() ?? '₹0.00';
+    final String imgUrl = order['img']?.toString() ?? '';
+    final String sugar = order['sugar']?.toString() ?? '';
+    final String allocatedTime = order['allocatedTime']?.toString() ?? '';
 
     return Scaffold(
       backgroundColor: const Color(0xFFFDFDFD),
@@ -86,21 +137,13 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
                 color: Color(0xFFF5F5F5),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(
-                Icons.arrow_back_ios_new_rounded,
-                size: 16,
-                color: Colors.black,
-              ),
+              child: const Icon(Icons.arrow_back_ios_new_rounded, size: 16, color: Colors.black),
             ),
           ),
         ),
         title: Text(
           'Track Order',
-          style: GoogleFonts.sora(
-            color: Colors.black,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
+          style: GoogleFonts.sora(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w700),
         ),
         centerTitle: true,
       ),
@@ -111,14 +154,33 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Beautiful Top Timer Animation section
+              // Timer Animation section
               Center(
                 child: Column(
                   children: [
                     Text(
-                      'Estimated Delivery',
+                      _isDeliveredOrCancelled ? 'Status' : 'Estimated Delivery',
                       style: GoogleFonts.outfit(fontSize: 14, color: Colors.grey.shade400, fontWeight: FontWeight.w500),
                     ),
+                    if (allocatedTime.isNotEmpty && !_isDeliveredOrCancelled)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFDE8E1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'Time Allocated: $allocatedTime',
+                            style: GoogleFonts.outfit(
+                              fontSize: 13,
+                              color: const Color(0xFFD35400),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 16),
                     AnimatedBuilder(
                       animation: _timerController,
@@ -130,7 +192,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
                               width: 140,
                               height: 140,
                               child: CircularProgressIndicator(
-                                value: _progressAnimation.value,
+                                value: _progressAnimation.value == 0.0 && !_isDeliveredOrCancelled ? null : _progressAnimation.value,
                                 strokeWidth: 8,
                                 backgroundColor: const Color(0xFFFAF7F4),
                                 valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF8B6B58)),
@@ -149,7 +211,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Minutes Left',
+                                  _isDeliveredOrCancelled ? 'Completed' : 'Minutes Left',
                                   style: GoogleFonts.outfit(
                                     fontSize: 11,
                                     color: Colors.grey.shade500,
@@ -183,16 +245,58 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
 
               const SizedBox(height: 36),
 
-              // Items Ordered Header
               Text(
                 'Items Ordered',
                 style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black),
               ),
               const SizedBox(height: 12),
 
-              // Products list inside order
-              ...orderProducts.map((product) {
-                return Container(
+              // Item Display (Single rich card showing summary since we stored it as string)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.grey.shade100),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withAlpha(4), blurRadius: 8, offset: const Offset(0, 3)),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        width: 54,
+                        height: 54,
+                        color: const Color(0xFFF1F7F4),
+                        padding: const EdgeInsets.all(4),
+                        child: _buildImage(imgUrl),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            itemSummary,
+                            style: GoogleFonts.sora(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            sugar.isNotEmpty ? 'Sugar: $sugar' : 'Standard',
+                            style: GoogleFonts.outfit(fontSize: 12, color: Colors.grey.shade500),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (addons.isNotEmpty)
+                Container(
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -200,11 +304,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Colors.grey.shade100),
                     boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withAlpha(4),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
+                      BoxShadow(color: Colors.black.withAlpha(4), blurRadius: 8, offset: const Offset(0, 3)),
                     ],
                   ),
                   child: Row(
@@ -214,9 +314,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
                         child: Container(
                           width: 54,
                           height: 54,
-                          color: product['bgColor'],
-                          padding: const EdgeInsets.all(4),
-                          child: Image.asset(product['imagePath'], fit: BoxFit.contain),
+                          color: const Color(0xFFFAF7F4),
+                          padding: const EdgeInsets.all(12),
+                          child: const Icon(Icons.cookie, color: Color(0xFF8B6B58)),
                         ),
                       ),
                       const SizedBox(width: 14),
@@ -225,29 +325,23 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              product['name'],
+                              'Add-ons',
                               style: GoogleFonts.sora(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black),
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${product['qty']}x • ${product['details']}',
+                              addons,
                               style: GoogleFonts.outfit(fontSize: 12, color: Colors.grey.shade500),
                             ),
                           ],
                         ),
                       ),
-                      Text(
-                        product['price'],
-                        style: GoogleFonts.sora(fontSize: 13, fontWeight: FontWeight.w700, color: const Color(0xFF8B6B58)),
-                      ),
                     ],
                   ),
-                );
-              }),
+                ),
 
               const SizedBox(height: 28),
 
-              // Pricing Details section
               Text(
                 'Payment Summary',
                 style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black),
@@ -261,34 +355,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: Colors.grey.shade100),
                   boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(4),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
+                    BoxShadow(color: Colors.black.withAlpha(4), blurRadius: 10, offset: const Offset(0, 4)),
                   ],
                 ),
                 child: Column(
                   children: [
-                    _buildPricingRow('Subtotal', '₹135.00'),
-                    const SizedBox(height: 8),
-                    _buildPricingRow('Delivery Fee', '₹30.00'),
-                    const SizedBox(height: 8),
-                    _buildPricingRow('Discount', '-₹15.00', isDiscount: true),
-                    const Divider(height: 24, thickness: 1),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Total Paid',
-                          style: GoogleFonts.sora(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black),
-                        ),
-                        Text(
-                          '₹150.00',
-                          style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w800, color: const Color(0xFF2D1E18)),
-                        ),
-                      ],
-                    ),
+                    _buildPricingRow('Total Paid', total, isTotal: true),
                   ],
                 ),
               ),
@@ -300,20 +372,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> with SingleTicker
     );
   }
 
-  Widget _buildPricingRow(String label, String value, {bool isDiscount = false}) {
+  Widget _buildPricingRow(String label, String value, {bool isTotal = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
-          style: GoogleFonts.outfit(fontSize: 13, color: Colors.grey.shade500),
+          style: GoogleFonts.sora(fontSize: isTotal ? 14 : 13, fontWeight: isTotal ? FontWeight.w700 : FontWeight.w500, color: Colors.black),
         ),
         Text(
           value,
           style: GoogleFonts.sora(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: isDiscount ? Colors.green.shade700 : Colors.black,
+            fontSize: isTotal ? 16 : 13,
+            fontWeight: isTotal ? FontWeight.w800 : FontWeight.w600,
+            color: const Color(0xFF2D1E18),
           ),
         ),
       ],

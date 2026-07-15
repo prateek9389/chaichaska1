@@ -123,7 +123,7 @@ export default function ShopPage() {
           <div className="filter-section">
             <h4 className="filter-title">Category</h4>
             <div className="filter-links">
-              {["All", "Masala", "Cardamom", "Ginger", "Saffron", "Organic Greens", "Herbal Infusions"].map((cat) => (
+              {["All", "Chai", "Coffee", "Masala", "Cardamom", "Ginger", "Saffron", "Organic Greens", "Herbal Infusions"].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}

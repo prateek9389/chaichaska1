@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'checkout_screen.dart';
 
 class ProductDetailScreen extends StatefulWidget {
@@ -21,6 +23,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
   int _quantity = 1;
   String _selectedSugar = 'Regular Sugar';
   final List<String> _sugarOptions = ['No Sugar', 'Less Sugar', 'Regular Sugar'];
+  String? _selectedImageUrl;
 
   late AnimationController _favController;
   late Animation<double> _favScale;
@@ -28,6 +31,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
   @override
   void initState() {
     super.initState();
+    _selectedImageUrl = widget.product['imagePath'];
     _favController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -36,6 +40,30 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
       TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.3), weight: 50),
       TweenSequenceItem(tween: Tween<double>(begin: 1.3, end: 1.0), weight: 50),
     ]).animate(_favController);
+    _checkIfFavourite();
+  }
+
+  Future<void> _checkIfFavourite() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final docId = widget.product['name']?.toString().replaceAll('/', '_');
+      if (docId == null || docId.isEmpty) return;
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('favorites')
+            .doc(docId)
+            .get();
+        if (doc.exists && mounted) {
+          setState(() {
+            _isFavourite = true;
+          });
+        }
+      } catch (e) {
+        debugPrint('Error checking favorite: $e');
+      }
+    }
   }
 
   @override
@@ -44,17 +72,60 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
     super.dispose();
   }
 
-  void _toggleFavourite() {
+  void _toggleFavourite() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to save favourites!')),
+      );
+      return;
+    }
+
+    final docId = widget.product['name']?.toString().replaceAll('/', '_');
+    if (docId == null || docId.isEmpty) return;
+
+    final favRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('favorites')
+        .doc(docId);
+
     setState(() {
       _isFavourite = !_isFavourite;
     });
-    _favController.forward(from: 0.0);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(_isFavourite ? 'Added to Favourites!' : 'Removed from Favourites!'),
-        duration: const Duration(seconds: 1),
-      ),
-    );
+
+    try {
+      if (_isFavourite) {
+        _favController.forward(from: 0.0);
+        // Save Map instead of direct assignment if any weird objects exist, but from(...) ensures string dynamic map
+        final Map<String, dynamic> dataToSave = Map<String, dynamic>.from(widget.product);
+        // Ensure color is not saved since it's a Color object which Firestore can't serialize
+        dataToSave.remove('bgColor'); 
+        dataToSave.remove('cardBgColor');
+        
+        await favRef.set(dataToSave);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Added to Favourites!'), duration: Duration(seconds: 1)),
+          );
+        }
+      } else {
+        await favRef.delete();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Removed from Favourites!'), duration: Duration(seconds: 1)),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error toggling favorite: $e');
+      // Revert state on error
+      if (mounted) {
+        setState(() {
+          _isFavourite = !_isFavourite;
+        });
+      }
+    }
   }
 
   @override
@@ -123,7 +194,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Large 1:1 Aspect Ratio Product Image
+                    // Main Large Product Image
                     AspectRatio(
                       aspectRatio: 1.0,
                       child: Container(
@@ -133,13 +204,51 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(32),
-                          child: Image.asset(
-                            imagePath,
-                            fit: BoxFit.cover,
-                          ),
+                          child: (_selectedImageUrl ?? imagePath).toString().startsWith('http')
+                              ? Image.network((_selectedImageUrl ?? imagePath), fit: BoxFit.cover, cacheWidth: 800)
+                              : Image.asset((_selectedImageUrl ?? imagePath), fit: BoxFit.cover),
                         ),
                       ),
                     ),
+                    if (widget.product['gallery'] != null && widget.product['gallery'].isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 16),
+                        child: SizedBox(
+                          height: 70,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: 1 + (widget.product['gallery'] as List).length,
+                            separatorBuilder: (context, index) => const SizedBox(width: 12),
+                            itemBuilder: (context, index) {
+                              final imgUrl = index == 0 ? imagePath : widget.product['gallery'][index - 1];
+                              final isSelected = (_selectedImageUrl ?? imagePath) == imgUrl;
+                              return GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedImageUrl = imgUrl;
+                                  });
+                                },
+                                child: Container(
+                                  width: 70,
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: isSelected ? const Color(0xFF8A583C) : Colors.transparent,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(14),
+                                    child: imgUrl.toString().startsWith('http')
+                                        ? Image.network(imgUrl, fit: BoxFit.cover, cacheWidth: 200)
+                                        : Image.asset(imgUrl, fit: BoxFit.cover),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 24),
 
                     // Category & Product Title & Rating
@@ -147,27 +256,29 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: GoogleFonts.sora(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.black,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: GoogleFonts.sora(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.black,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              category,
-                              style: GoogleFonts.outfit(
-                                fontSize: 14,
-                                color: Colors.grey.shade400,
-                                fontWeight: FontWeight.w500,
+                              const SizedBox(height: 4),
+                              Text(
+                                category,
+                                style: GoogleFonts.outfit(
+                                  fontSize: 14,
+                                  color: Colors.grey.shade400,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -205,12 +316,25 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Indulge in our carefully selected ingredients brewed to perfection. This authentic beverage gives you a perfect kick start to your day with clean, rich flavor notes and cute aesthetic vibes.',
+                      widget.product['description'] ?? 'Indulge in our carefully selected ingredients brewed to perfection. This authentic beverage gives you a perfect kick start to your day with clean, rich flavor notes and cute aesthetic vibes.',
                       style: GoogleFonts.outfit(
                         fontSize: 13,
                         color: Colors.grey.shade500,
                         height: 1.5,
                       ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8.0,
+                      runSpacing: 8.0,
+                      children: [
+                        if (widget.product['caffeine'] != null && widget.product['caffeine'] != '')
+                          _buildInfoBadge(Icons.bolt, 'Caffeine: ${widget.product['caffeine']}'),
+                        if (widget.product['steepTime'] != null && widget.product['steepTime'] != '')
+                          _buildInfoBadge(Icons.timer_outlined, 'Steep: ${widget.product['steepTime']}'),
+                        if (widget.product['sweetness'] != null && widget.product['sweetness'] != '')
+                          _buildInfoBadge(Icons.opacity, 'Sweetness: ${widget.product['sweetness']}'),
+                      ],
                     ),
                     const SizedBox(height: 24),
 
@@ -385,16 +509,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
                         'sugar': _selectedSugar,
                       };
                       widget.onAddToCart(itemToAdd);
-                      Navigator.of(context).pushReplacement(
-                        MaterialPageRoute(
-                          builder: (context) => CheckoutScreen(
-                            productName: name,
-                            productPrice: priceString,
-                            sugarOption: _selectedSugar,
-                            quantity: _quantity,
-                          ),
-                        ),
-                      );
+                      Navigator.of(context).pop();
                     },
                     child: Container(
                       height: 56,
@@ -422,5 +537,30 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> with SingleTi
     ),
   ),
 );
-}
+  }
+
+  Widget _buildInfoBadge(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.grey.shade600),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: GoogleFonts.outfit(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

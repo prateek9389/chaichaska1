@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'order_detail_screen.dart';
+import 'order_screen.dart';
 
 class ThankYouScreen extends StatefulWidget {
   const ThankYouScreen({super.key});
@@ -98,7 +98,7 @@ class _ThankYouScreenState extends State<ThankYouScreen> with SingleTickerProvid
                   // Direct to OrderDetailScreen tracking
                   Navigator.of(context).pushReplacement(
                     MaterialPageRoute(
-                      builder: (context) => const OrderDetailScreen(orderId: '#CHAI-78401'),
+                      builder: (context) => const OrderScreen(),
                     ),
                   );
                 },

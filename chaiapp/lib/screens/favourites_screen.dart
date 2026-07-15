@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'product_detail_screen.dart';
 
 class FavouritesScreen extends StatelessWidget {
@@ -9,30 +11,7 @@ class FavouritesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Dummy favorites list
-    final List<Map<String, dynamic>> favItems = [
-      {
-        'name': 'Adrak Chai',
-        'category': 'Fresh Tea',
-        'price': '₹45.00',
-        'imagePath': 'assets/images/adrak_chai.png',
-        'bgColor': const Color(0xFFF1F7F4),
-      },
-      {
-        'name': 'Espresso',
-        'category': 'Coffee Cups',
-        'price': '₹85.00',
-        'imagePath': 'assets/images/espresso_coffee.png',
-        'bgColor': const Color(0xFFFAF2EE),
-      },
-      {
-        'name': 'Crispy Namkeen',
-        'category': 'Snacks',
-        'price': '₹35.00',
-        'imagePath': 'assets/images/namkeen_mix.png',
-        'bgColor': const Color(0xFFFDF7F2),
-      },
-    ];
+    final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
       backgroundColor: const Color(0xFFFDFDFD),
@@ -60,24 +39,46 @@ class FavouritesScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               Expanded(
-                child: favItems.isEmpty
+                child: user == null
                     ? Center(
                         child: Text(
-                          'No favorites added yet.',
+                          'Please log in to see your favorites.',
                           style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 16),
                         ),
                       )
-                    : GridView.builder(
-                        physics: const BouncingScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 16,
-                          crossAxisSpacing: 16,
-                          childAspectRatio: 0.66, // 4:6 aspect ratio
-                        ),
-                        itemCount: favItems.length,
-                        itemBuilder: (context, index) {
-                          final item = favItems[index];
+                    : StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('users')
+                            .doc(user.uid)
+                            .collection('favorites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+
+                          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                            return Center(
+                              child: Text(
+                                'No favorites added yet.',
+                                style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 16),
+                              ),
+                            );
+                          }
+
+                          final favItems = snapshot.data!.docs;
+
+                          return GridView.builder(
+                            physics: const BouncingScrollPhysics(),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 16,
+                              crossAxisSpacing: 16,
+                              childAspectRatio: 0.66, // 4:6 aspect ratio
+                            ),
+                            itemCount: favItems.length,
+                            itemBuilder: (context, index) {
+                              final item = favItems[index].data() as Map<String, dynamic>;
                           return GestureDetector(
                             onTap: () {
                               Navigator.of(context).push(
@@ -109,11 +110,17 @@ class FavouritesScreen extends StatelessWidget {
                                     child: AspectRatio(
                                       aspectRatio: 1.0, // 1:1 image aspect ratio
                                       child: Container(
-                                        color: item['bgColor'],
-                                        child: Image.asset(
-                                          item['imagePath'],
-                                          fit: BoxFit.cover,
-                                        ),
+                                        color: item['bgColor'] != null ? Color(item['bgColor']) : const Color(0xFFFAF7F4),
+                                        child: (item['imagePath'] ?? '').toString().startsWith('http')
+                                            ? Image.network(
+                                                item['imagePath'],
+                                                fit: BoxFit.cover,
+                                                cacheWidth: 600,
+                                              )
+                                            : Image.asset(
+                                                item['imagePath'] ?? 'assets/images/placeholder.png',
+                                                fit: BoxFit.cover,
+                                              ),
                                       ),
                                     ),
                                   ),
@@ -178,7 +185,9 @@ class FavouritesScreen extends StatelessWidget {
                             ),
                           );
                         },
-                      ),
+                      );
+                    },
+                  ),
               ),
             ],
           ),

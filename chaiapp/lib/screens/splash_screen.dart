@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'onboarding_screen.dart';
+import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -38,12 +40,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _controller.forward();
 
-    // Navigate to Onboarding after 3 seconds
+    // Navigate to Onboarding or Home after 3 seconds depending on auth state
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
+        final user = FirebaseAuth.instance.currentUser;
+        final nextScreen = user != null ? const HomeScreen() : const OnboardingScreen();
+
         Navigator.of(context).pushReplacement(
           PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) => const OnboardingScreen(),
+            pageBuilder: (context, animation, secondaryAnimation) => nextScreen,
             transitionsBuilder: (context, animation, secondaryAnimation, child) {
               const begin = Offset(0.0, 0.1);
               const end = Offset.zero;

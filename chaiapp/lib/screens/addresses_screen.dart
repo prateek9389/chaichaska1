@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../state/wallet_state.dart';
 
 class AddressesScreen extends StatefulWidget {
@@ -91,7 +93,7 @@ class _AddressesScreenState extends State<AddressesScreen> {
                 backgroundColor: const Color(0xFF1E1E1E),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              onPressed: () {
+              onPressed: () async {
                 if (_formKey.currentState!.validate()) {
                   final newAddress = {
                     'id': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -101,12 +103,30 @@ class _AddressesScreenState extends State<AddressesScreen> {
                     'floor': _floorController.text,
                     'address': _addressController.text,
                   };
-                  setState(() {
-                    final currentList = List<Map<String, String>>.from(WalletState.savedAddresses.value);
-                    currentList.add(newAddress);
-                    WalletState.savedAddresses.value = currentList;
-                  });
-                  Navigator.of(context).pop();
+                  
+                  // Save to Firebase
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    try {
+                      await FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(user.uid)
+                          .collection('addresses')
+                          .doc(newAddress['id'])
+                          .set(newAddress);
+                    } catch (e) {
+                      debugPrint('Error saving address to Firebase: $e');
+                    }
+                  }
+
+                  if (mounted) {
+                    setState(() {
+                      final currentList = List<Map<String, String>>.from(WalletState.savedAddresses.value);
+                      currentList.add(newAddress);
+                      WalletState.savedAddresses.value = currentList;
+                    });
+                    Navigator.of(context).pop();
+                  }
                 }
               },
               child: Text(

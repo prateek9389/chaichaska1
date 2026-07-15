@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'product_detail_screen.dart';
@@ -20,94 +22,50 @@ class ShopScreen extends StatefulWidget {
 
 class _ShopScreenState extends State<ShopScreen> {
   int _activeCategoryIndex = 0;
-  final List<String> _categories = ['All', 'Tea / Chai', 'Coffee', 'Namkeen', 'Biscuits'];
+  final List<String> _categories = ['All', 'Chai', 'Coffee', 'Masala', 'Cardamom', 'Ginger', 'Saffron', 'Organic Greens', 'Herbal Infusions'];
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   String _searchQuery = '';
+  StreamSubscription? _productsSubscription;
 
-  final List<Map<String, dynamic>> _allProducts = [
-    {
-      'name': 'Adrak Chai',
-      'category': 'Tea / Chai',
-      'price': '₹45.00',
-      'imagePath': 'assets/images/adrak_chai.png',
-      'bgColor': const Color(0xFFF1F7F4),
-    },
-    {
-      'name': 'Elaichi Chai',
-      'category': 'Tea / Chai',
-      'price': '₹45.00',
-      'imagePath': 'assets/images/elaichi_chai.png',
-      'bgColor': const Color(0xFFF1F7F4),
-    },
-    {
-      'name': 'Masala Chai',
-      'category': 'Tea / Chai',
-      'price': '₹50.00',
-      'imagePath': 'assets/images/masala_chai.png',
-      'bgColor': const Color(0xFFF1F7F4),
-    },
-    {
-      'name': 'Espresso',
-      'category': 'Coffee',
-      'price': '₹85.00',
-      'imagePath': 'assets/images/espresso_coffee.png',
-      'bgColor': const Color(0xFFFAF2EE),
-    },
-    {
-      'name': 'Cappuccino',
-      'category': 'Coffee',
-      'price': '₹120.00',
-      'imagePath': 'assets/images/cappuccino_coffee.png',
-      'bgColor': const Color(0xFFFAF2EE),
-    },
-    {
-      'name': 'Latte',
-      'category': 'Coffee',
-      'price': '₹135.00',
-      'imagePath': 'assets/images/latte_coffee.png',
-      'bgColor': const Color(0xFFFAF2EE),
-    },
-    {
-      'name': 'Sev Namkeen',
-      'category': 'Namkeen',
-      'price': '₹35.00',
-      'imagePath': 'assets/images/namkeen_mix.png',
-      'bgColor': const Color(0xFFFAF6F2),
-    },
-    {
-      'name': 'Peanut Masala',
-      'category': 'Namkeen',
-      'price': '₹40.00',
-      'imagePath': 'assets/images/namkeen_mix.png',
-      'bgColor': const Color(0xFFFAF6F2),
-    },
-    {
-      'name': 'Choco Chip Cookies',
-      'category': 'Biscuits',
-      'price': '₹60.00',
-      'imagePath': 'assets/images/biscuits_cookies.png',
-      'bgColor': const Color(0xFFFBF4ED),
-    },
-    {
-      'name': 'Oatmeal Biscuits',
-      'category': 'Biscuits',
-      'price': '₹55.00',
-      'imagePath': 'assets/images/biscuits_cookies.png',
-      'bgColor': const Color(0xFFFBF4ED),
-    },
-  ];
+  final List<Map<String, dynamic>> _allProducts = [];
 
   @override
   void initState() {
     super.initState();
+    _listenToProducts();
     if (widget.focusSearch) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _searchFocusNode.requestFocus();
         widget.onSearchFocusedHandled();
       });
     }
+  }
+
+  void _listenToProducts() {
+    _productsSubscription = FirebaseFirestore.instance.collection('products').snapshots().listen((snapshot) {
+      if (mounted) {
+        setState(() {
+          _allProducts.clear();
+          for (var doc in snapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>? ?? {};
+            _allProducts.add({
+              'name': data['name'] ?? 'Unknown',
+              'category': data['category'] ?? 'Uncategorized',
+              'price': data['price'] ?? '₹0.00',
+              'imagePath': data['image'] ?? 'assets/images/placeholder.png',
+              'bgColor': const Color(0xFFF1F7F4),
+              'description': data['description'] ?? 'No description provided.',
+              'caffeine': data['caffeine'] ?? 'Medium',
+              'sweetness': data['sweetness'] ?? 'Medium',
+              'steepTime': data['steepTime'] ?? '5 mins',
+              'gallery': (data['gallery'] is List) ? (data['gallery'] as List).map((e) => e.toString()).toList() : <String>[],
+            });
+          }
+        });
+      }
+    });
   }
 
   @override
@@ -123,6 +81,7 @@ class _ShopScreenState extends State<ShopScreen> {
 
   @override
   void dispose() {
+    _productsSubscription?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -310,10 +269,16 @@ class _ShopScreenState extends State<ShopScreen> {
                                       aspectRatio: 1.0, // 1:1 image aspect ratio
                                       child: Container(
                                         color: product['bgColor'],
-                                        child: Image.asset(
-                                          product['imagePath'],
-                                          fit: BoxFit.cover,
-                                        ),
+                                        child: product['imagePath'].toString().startsWith('http')
+                                            ? Image.network(
+                                                product['imagePath'],
+                                                fit: BoxFit.cover,
+                                                cacheWidth: 600,
+                                              )
+                                            : Image.asset(
+                                                product['imagePath'],
+                                                fit: BoxFit.cover,
+                                              ),
                                       ),
                                     ),
                                   ),
