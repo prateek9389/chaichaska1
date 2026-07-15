@@ -4,20 +4,17 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { db, updateOrder } from "@/lib/firestore";
+import { db, updateOrder, updateSubscription } from "@/lib/firestore";
 import { collection, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function OrdersPage() {
-  const [activeTab, setActiveTab] = useState("subscriptions"); // "subscriptions" | "orders"
-  const [subscriptions, setSubscriptions] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const { user, loading: authLoading } = useAuth();
 
   useEffect(() => {
     let unsubOrders = () => {};
-    let unsubSubs = () => {};
 
     if (!authLoading && user) {
       unsubOrders = onSnapshot(collection(db, "orders"), (snap) => {
@@ -27,12 +24,7 @@ export default function OrdersPage() {
         setOrders(myOrders);
       });
 
-      unsubSubs = onSnapshot(collection(db, "subscriptions"), (snap) => {
-        const s = [];
-        snap.forEach(d => s.push({ ...d.data(), id: d.id }));
-        const mySubs = s.filter((sub) => sub.userId === user.uid);
-        setSubscriptions(mySubs);
-      });
+
       setLoading(false);
     } else if (!authLoading && !user) {
       setLoading(false);
@@ -40,13 +32,8 @@ export default function OrdersPage() {
 
     return () => {
       unsubOrders();
-      unsubSubs();
     };
   }, [user, authLoading]);
-
-  const handlePauseSub = (id) => {
-    alert(`Subscription ${id} has been paused successfully.`);
-  };
 
   return (
     <div style={{ background: "#fcfaf7", minHeight: "100vh", color: "#2c1b0d", overflowX: "hidden" }}>
@@ -60,59 +47,12 @@ export default function OrdersPage() {
           <p>Manage your active recurring cycles or view past boutique tea collections.</p>
         </section>
 
-        {/* Tab Controls */}
-        <div className="tabs-wrapper">
-          <button
-            onClick={() => setActiveTab("subscriptions")}
-            className={`tab-btn ${activeTab === "subscriptions" ? "active" : ""}`}
-          >
-            🔄 Active Subscriptions ({subscriptions.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("orders")}
-            className={`tab-btn ${activeTab === "orders" ? "active" : ""}`}
-          >
-            📦 Order History ({orders.length})
-          </button>
-        </div>
-
-        {/* Subscriptions Content */}
-        {activeTab === "subscriptions" && (
-          <div className="orders-list-grid">
-            {subscriptions.map((sub) => (
-              <div key={sub.id} className="order-item-card">
-                <img src={sub.image} alt={sub.name} className="order-card-img" />
-                <div style={{ flexGrow: 1 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span className="status-indicator active">{sub.status}</span>
-                    <strong style={{ fontSize: "14.5px", color: "#8a583c" }}>{sub.price}</strong>
-                  </div>
-                  
-                  <h3 className="card-title-name">{sub.name}</h3>
-                  <div className="card-meta-list">
-                    <p>📅 Start Date: <strong>{sub.start}</strong></p>
-                    <p>🔁 Cycle: <strong>{sub.frequency}</strong></p>
-                    <p>⏰ Slot: <strong>{sub.time}</strong></p>
-                  </div>
-
-                  <div className="card-action-row">
-                    <button onClick={() => handlePauseSub(sub.id)} className="card-btn secondary">
-                      Pause Delivery
-                    </button>
-                    <Link href={`/subscribe?productId=1`} className="card-btn primary">
-                      Edit Blends
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Orders Content */}
-        {activeTab === "orders" && (
-          <div className="orders-list-grid">
-            {orders.map((ord) => (
+        {/* Orders Content (Unified) */}
+        <div className="orders-list-grid">
+          {orders.map((ord) => {
+            const isSubscription = ord.type === "subscription" || (ord.item && ord.item.includes("Subscription"));
+            
+            return (
               <div key={ord.id} className="order-item-card">
                 <img src={ord.image} alt={ord.id} className="order-card-img" />
                 <div style={{ flexGrow: 1 }}>
@@ -120,11 +60,11 @@ export default function OrdersPage() {
                     <span 
                       className="status-indicator"
                       style={{
-                        background: ord.status === "Cancelled" ? "rgba(231,76,60,0.1)" : 
-                                    ord.status === "Shipped" || ord.status === "Delivered" ? "rgba(39,174,96,0.1)" : 
+                        background: ord.status === "Cancelled" || ord.status === "Paused" ? "rgba(231,76,60,0.1)" : 
+                                    ord.status === "Shipped" || ord.status === "Delivered" || ord.status === "Active" ? "rgba(39,174,96,0.1)" : 
                                     ord.status === "Pending" ? "rgba(241,196,15,0.15)" : "rgba(44,27,13,0.08)",
-                        color: ord.status === "Cancelled" ? "#e74c3c" : 
-                               ord.status === "Shipped" || ord.status === "Delivered" ? "#27ae60" : 
+                        color: ord.status === "Cancelled" || ord.status === "Paused" ? "#e74c3c" : 
+                               ord.status === "Shipped" || ord.status === "Delivered" || ord.status === "Active" ? "#27ae60" : 
                                ord.status === "Pending" ? "#d35400" : "#2c1b0d",
                       }}
                     >
@@ -137,6 +77,7 @@ export default function OrdersPage() {
                   <div className="card-meta-list">
                     <p>📅 Placed Date: <strong>{ord.date}</strong></p>
                     <p>🛍️ Blend Items: <strong>{ord.item}</strong></p>
+                    {isSubscription && <p>🔁 Type: <strong>Subscription Plan</strong></p>}
                   </div>
 
                   <div className="card-action-row" style={{ marginTop: "20px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
@@ -144,32 +85,22 @@ export default function OrdersPage() {
                       View Order Invoice & Tracking →
                     </Link>
 
-                    {(ord.status === "Received" || !ord.status) && (
-                      <>
-                        <button onClick={() => updateOrder(ord.id, { status: "Cancelled" })} className="card-btn secondary" style={{ color: "#e74c3c", border: "1px solid #e74c3c" }}>
-                          Reject
-                        </button>
-                        <button onClick={() => updateOrder(ord.id, { status: "Pending" })} className="card-btn primary" style={{ background: "#27ae60" }}>
-                          Accept & Prepare
-                        </button>
-                      </>
-                    )}
-                    {(ord.status === "Pending" || ord.status === "Preparing") && (
-                      <button onClick={() => updateOrder(ord.id, { status: "Shipped" })} className="card-btn primary" style={{ background: "#f39c12" }}>
-                        Ready to Dispatch
-                      </button>
-                    )}
-                    {(ord.status === "Shipped" || ord.status === "In Transit") && (
-                      <button onClick={() => updateOrder(ord.id, { status: "Delivered" })} className="card-btn primary" style={{ background: "#8a583c" }}>
-                        Mark Delivered
+                    {isSubscription && (
+                      <button 
+                        onClick={() => updateOrder(ord.id, { status: ord.status === "Paused" ? "Received" : "Paused" })} 
+                        className="card-btn secondary"
+                      >
+                        {ord.status === "Paused" ? "Resume Delivery" : "Pause Delivery"}
                       </button>
                     )}
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
+
+
 
       </div>
 
@@ -202,33 +133,7 @@ export default function OrdersPage() {
           color: #666;
         }
 
-        /* Tab options */
-        .tabs-wrapper {
-          display: flex;
-          justify-content: center;
-          gap: 16px;
-          margin-bottom: 36px;
-          border-bottom: 1px solid rgba(0,0,0,0.06);
-          padding-bottom: 16px;
-        }
 
-        .tab-btn {
-          background: #ffffff;
-          border: 1.5px solid rgba(0,0,0,0.08);
-          border-radius: 99px;
-          padding: 12px 24px;
-          font-size: 14px;
-          font-weight: 700;
-          color: #555;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .tab-btn.active {
-          border-color: #2c1b0d;
-          background: #2c1b0d;
-          color: #ffffff;
-        }
 
         /* Cards list grid */
         .orders-list-grid {

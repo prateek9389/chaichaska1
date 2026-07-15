@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { getProductById, getAddons, getCoupons, createOrder } from "@/lib/firestore";
+import { getProductById, getAddons, getCoupons, createOrder, getUserAddresses, addUserAddress, updateUserCoins, addSubscription } from "@/lib/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
@@ -32,14 +32,35 @@ function CheckoutPortal() {
   }, [user, authLoading]);
 
   const [dbCoupons, setDbCoupons] = useState([]);
+  const [dbAddons, setDbAddons] = useState([]);
+  const [selectedCheckoutAddons, setSelectedCheckoutAddons] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // State (moved up)
+  // Additional States
+  const [savedAddresses, setSavedAddresses] = useState([]);
+  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [deliveryTime, setDeliveryTime] = useState("Morning");
+  const [purchaseType, setPurchaseType] = useState(searchParams.get("type") === "subscription" ? "subscription" : "one-time");
+  const [slotMorning, setSlotMorning] = useState(false);
+  const [slotEvening, setSlotEvening] = useState(false);
+  const [customTime, setCustomTime] = useState("");
+  const [showWalletModal, setShowWalletModal] = useState(false);
+  
+  // Address Modal Fields
+  const [addrLabel, setAddrLabel] = useState("");
+  const [addrOfficeNum, setAddrOfficeNum] = useState("");
+  const [addrOfficeName, setAddrOfficeName] = useState("");
+  const [addrFloor, setAddrFloor] = useState("");
+  const [addrStreet, setAddrStreet] = useState("");
+
   useEffect(() => {
     async function loadData() {
       try {
         const c = await getCoupons();
         setDbCoupons(c);
+        const a = await getAddons();
+        setDbAddons(a);
       } catch (e) {
         console.error(e);
       } finally {
@@ -48,6 +69,15 @@ function CheckoutPortal() {
     }
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (user) {
+      getUserAddresses(user.uid).then(addrs => {
+         setSavedAddresses(addrs);
+         if(addrs.length > 0) setSelectedAddressId(addrs[0].id);
+      });
+    }
+  }, [user]);
 
   // Address Step form
   const [fullname, setFullname] = useState("");
@@ -104,26 +134,66 @@ function CheckoutPortal() {
     }
   };
 
-  const toggleAddonOnCheckout = (addon) => {
-    setSelectedAddons((prev) =>
+  const toggleCheckoutAddon = (addon) => {
+    setSelectedCheckoutAddons((prev) =>
       prev.find((a) => a.id === addon.id)
         ? prev.filter((a) => a.id !== addon.id)
         : [...prev, addon]
     );
   };
 
+  const handleSaveAddress = async (e) => {
+    e.preventDefault();
+    if(!addrLabel || !addrOfficeNum || !addrOfficeName || !addrFloor || !addrStreet) {
+      alert("Please fill all address fields.");
+      return;
+    }
+    if(user) {
+       const newAddr = { 
+         label: addrLabel, 
+         officeNumber: addrOfficeNum, 
+         officeName: addrOfficeName, 
+         floor: addrFloor, 
+         address: addrStreet 
+       };
+       const id = await addUserAddress(user.uid, newAddr);
+       const finalAddr = { ...newAddr, id };
+       setSavedAddresses(prev => [...prev, finalAddr]);
+       setSelectedAddressId(id);
+       setShowAddressModal(false);
+       
+       setAddrLabel(""); setAddrOfficeNum(""); setAddrOfficeName(""); setAddrFloor(""); setAddrStreet("");
+    } else {
+       alert("Please log in to save addresses.");
+    }
+  };
+
   if (loading || !cartLoaded) return <div style={{ background: "#fcfaf7", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}><h2>Loading Checkout...</h2></div>;
   if (cartItems.length === 0 && checkoutStep !== "thankyou") return null;
 
   // Cost calculations
-  const subtotal = getCartTotal();
-  const deliveryCharge = subtotal > 500 ? 0 : 50;
-  const finalPayable = Math.max(0, subtotal - appliedDiscount + deliveryCharge);
+  const cartSub = getCartTotal();
+  const addonsTotal = selectedCheckoutAddons.reduce((acc, a) => acc + (parseInt(a.priceVal) || 0), 0);
+  let subtotal = cartSub + addonsTotal;
+  let finalPayable = 0;
+  let deliveryCharge = 0;
+  
+  if (purchaseType === "subscription") {
+    const discounted = Math.round(subtotal * 0.9);
+    finalPayable = Math.max(0, discounted - appliedDiscount);
+  } else {
+    deliveryCharge = subtotal > 500 ? 0 : 50;
+    finalPayable = Math.max(0, subtotal - appliedDiscount + deliveryCharge);
+  }
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (checkoutStep === "shipping") {
-      if (!fullname || !address || !phone) {
-        alert("Please complete the address details to continue.");
+      if ((!fullname || !phone) && savedAddresses.length === 0) {
+        alert("Please provide contact details.");
+        return;
+      }
+      if (savedAddresses.length > 0 && !selectedAddressId) {
+        alert("Please select a delivery address.");
         return;
       }
       setCheckoutStep("payment");
@@ -131,32 +201,89 @@ function CheckoutPortal() {
     }
 
     if (checkoutStep === "payment") {
+      if (purchaseType === "subscription" || paymentMethod === "wallet") {
+         if ((profile?.coins || 0) < finalPayable) {
+            setShowWalletModal(true);
+            return;
+         }
+      }
+
       setCheckoutStep("processing");
+      
+      let finalAddress = address;
+      if (savedAddresses.length > 0) {
+         const sel = savedAddresses.find(a => a.id === selectedAddressId);
+         if(sel) finalAddress = `${sel.officeNumber}, ${sel.officeName}, Floor ${sel.floor}, ${sel.address}`;
+      }
+
+      const combinedAddons = [
+         ...cartItems.map(i => i.addons).filter(Boolean),
+         ...selectedCheckoutAddons.map(a => a.name)
+      ].join(", ");
+
       const orderData = {
         userId: user?.uid || "guest",
-        customer: fullname,
-        phone,
-        pincode,
-        office: address,
-        item: cartItems.map(i => `${i.name} x${i.quantity}`).join(" + "),
+        customer: fullname || profile?.name || "Guest",
+        phone: phone || profile?.phone || "",
+        pincode: pincode || "N/A",
+        office: finalAddress,
+        item: purchaseType === "subscription" ? `Subscription: ${cartItems.map(i => i.name).join(", ")}` : cartItems.map(i => `${i.name} x${i.quantity}`).join(" + "),
         sugar: cartItems.map(i => i.sugar).join(", ") || "Normal Sugar",
         milk: "Whole Milk",
         img: cartItems[0]?.image || "/chai-ingredients.png",
-        priority: "Normal",
+        priority: purchaseType === "subscription" ? "Subscription" : "Normal",
         total: `₹${finalPayable}`,
-        addons: cartItems.map(i => i.addons).join(", "),
-        coupon: couponCode || "None"
+        addons: combinedAddons,
+        coupon: couponCode || "None",
+        deliveryTime: deliveryTime,
+        purchaseType: purchaseType
       };
       
-      createOrder(orderData).then((id) => {
+      try {
+        if (purchaseType === "subscription") {
+           const startDate = new Date();
+           const endDate = new Date(startDate);
+           endDate.setDate(endDate.getDate() + 30);
+           
+           const timeSlotStr = slotMorning ? "09:00" : slotEvening ? "16:00" : customTime || "09:00";
+           
+           const subData = {
+              userId: user?.uid || "guest",
+              customer: fullname || profile?.name || "Guest User",
+              phone: phone || profile?.phone || "",
+              office: finalAddress,
+              item: cartItems[0]?.name || "Tea",
+              items: `${cartItems.map(i => `${i.name} (${i.sugar}) x${i.quantity}`).join(", ")} ${combinedAddons ? " + " + combinedAddons : ""}`,
+              sugar: cartItems.map(i => i.sugar).join(", ") || "Normal Sugar",
+              milk: "Whole Milk",
+              total: finalPayable,
+              cost: finalPayable,
+              price: finalPayable,
+              timeSlot: timeSlotStr,
+              frequency: "MONTHLY",
+              startDate: startDate.toLocaleDateString('en-GB'),
+              endDateIso: endDate.toISOString(),
+              endDate: endDate.toLocaleDateString('en-GB'),
+              status: "Active",
+              img: cartItems[0]?.image || "/chai-ingredients.png",
+              image: cartItems[0]?.image || "/chai-ingredients.png",
+           };
+           await addSubscription(subData);
+        }
+
+        const id = await createOrder(orderData);
+        
+        if (purchaseType === "subscription" || paymentMethod === "wallet") {
+          await updateUserCoins(user.uid, -finalPayable, `Order ${id}`);
+        }
         setOrderRef(id);
         clearCart();
         setCheckoutStep("thankyou");
-      }).catch(err => {
+      } catch (err) {
         console.error(err);
         alert("Order placement failed.");
         setCheckoutStep("payment");
-      });
+      }
     }
   };
 
@@ -202,51 +329,55 @@ function CheckoutPortal() {
                     </button>
                   </div>
 
-                  <div className="address-inputs-grid">
+                  <div className="address-inputs-grid" style={{ marginBottom: "16px" }}>
                     <div className="form-group">
                       <label>Receiver Full Name</label>
-                      <input
-                        type="text"
-                        placeholder="John Doe"
-                        value={fullname}
-                        onChange={(e) => setFullname(e.target.value)}
-                        className="checkout-text-input"
-                      />
+                      <input type="text" placeholder="John Doe" value={fullname} onChange={(e) => setFullname(e.target.value)} className="checkout-text-input" />
                     </div>
-
                     <div className="form-group">
                       <label>Contact Phone Number</label>
-                      <input
-                        type="tel"
-                        placeholder="+91 XXXXX XXXXX"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="checkout-text-input"
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label>Pincode / Postal Code</label>
-                      <input
-                        type="text"
-                        placeholder="302001"
-                        value={pincode}
-                        onChange={(e) => setPincode(e.target.value)}
-                        className="checkout-text-input"
-                      />
-                    </div>
-
-                    <div className="form-group full-width">
-                      <label>Street Address, Apartment, Landmark</label>
-                      <textarea
-                        rows="3"
-                        placeholder="Suite #, street details, nearby landmark..."
-                        value={address}
-                        onChange={(e) => setAddress(e.target.value)}
-                        className="checkout-text-input area"
-                      />
+                      <input type="tel" placeholder="+91 XXXXX XXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} className="checkout-text-input" />
                     </div>
                   </div>
+
+                  {savedAddresses.length > 0 ? (
+                    <div className="saved-addresses-grid" style={{ marginBottom: "20px" }}>
+                      <h4 style={{ fontSize: "14px", marginBottom: "12px", color: "#555" }}>Select Delivery Address</h4>
+                      <div style={{ display: "flex", gap: "12px", overflowX: "auto", paddingBottom: "10px" }}>
+                        {savedAddresses.map(addr => (
+                          <div 
+                            key={addr.id} 
+                            onClick={() => setSelectedAddressId(addr.id)}
+                            style={{ 
+                              minWidth: "220px", 
+                              border: selectedAddressId === addr.id ? "2px solid #8a583c" : "1.5px solid #eee",
+                              background: selectedAddressId === addr.id ? "rgba(138, 88, 60, 0.05)" : "#fff",
+                              padding: "12px", borderRadius: "12px", cursor: "pointer", flexShrink: 0 
+                            }}
+                          >
+                            <strong>{addr.label}</strong>
+                            <p style={{ fontSize: "12px", color: "#666", marginTop: "4px", lineHeight: "1.4" }}>
+                              {addr.officeNumber}, {addr.officeName}<br/>
+                              {addr.address}
+                            </p>
+                          </div>
+                        ))}
+                        <div 
+                          onClick={() => setShowAddressModal(true)}
+                          style={{ minWidth: "150px", border: "1.5px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "12px", cursor: "pointer", flexShrink: 0, padding: "12px", color: "#8a583c", fontWeight: 700 }}
+                        >
+                          + Add New
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginBottom: "20px" }}>
+                       <button onClick={() => setShowAddressModal(true)} style={{ background: "#8a583c", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>
+                         + Add Delivery Address
+                       </button>
+                    </div>
+                  )}
+
 
                   <button onClick={handlePlaceOrder} className="btn-continue-checkout">
                     Proceed to Payment Options
@@ -257,6 +388,51 @@ function CheckoutPortal() {
               {/* STEP 2: PAYMENT METHOD */}
               {checkoutStep === "payment" && (
                 <div className="checkout-card">
+                  <div style={{ marginBottom: "28px" }}>
+                    <h3 className="card-title" style={{ marginBottom: "16px" }}>Purchase Type</h3>
+                    <div style={{ display: "flex", gap: "12px" }}>
+                      <div
+                        onClick={() => setPurchaseType("one-time")}
+                        style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "one-time" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "one-time" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
+                      >
+                        <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>One-Time Purchase</h4>
+                        <p style={{ fontSize: "12px", color: "#666" }}>Standard delivery</p>
+                      </div>
+                      <div
+                        onClick={() => setPurchaseType("subscription")}
+                        style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "subscription" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "subscription" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
+                      >
+                        <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>Subscribe &amp; Save</h4>
+                        <p style={{ fontSize: "12px", color: "#5c7a4d", fontWeight: 700 }}>Earn Loyalty Coins</p>
+                      </div>
+                      </div>
+                  </div>
+
+                  {purchaseType === "subscription" && (
+                    <div style={{ marginBottom: "28px" }}>
+                      <h3 className="card-title" style={{ marginBottom: "16px" }}>Select Delivery Slots</h3>
+                      <div style={{ display: "flex", gap: "12px" }}>
+                        <div
+                          onClick={() => setSlotMorning(!slotMorning)}
+                          style={{ flex: 1, padding: "12px", borderRadius: "12px", border: slotMorning ? "2px solid #5c7a4d" : "1.5px solid #eee", background: slotMorning ? "rgba(92,122,77,0.05)" : "#fff", cursor: "pointer" }}
+                        >
+                          <h4 style={{ fontSize: "13px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>🌅 Morning</h4>
+                          <p style={{ fontSize: "11px", color: "#666" }}>8AM - 11AM</p>
+                        </div>
+                        <div
+                          onClick={() => setSlotEvening(!slotEvening)}
+                          style={{ flex: 1, padding: "12px", borderRadius: "12px", border: slotEvening ? "2px solid #8a583c" : "1.5px solid #eee", background: slotEvening ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer" }}
+                        >
+                          <h4 style={{ fontSize: "13px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>🌇 Evening</h4>
+                          <p style={{ fontSize: "11px", color: "#666" }}>4PM - 7PM</p>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: "12px" }}>
+                         <input type="text" placeholder="Or custom time (e.g. 2:00 PM)" value={customTime} onChange={(e) => setCustomTime(e.target.value)} style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ddd" }} />
+                      </div>
+                    </div>
+                  )}
+
                   <h3 className="card-title" style={{ marginBottom: "20px" }}>Choose Payment Method</h3>
                   
                   <div className="payment-options-grid">
@@ -349,6 +525,34 @@ function CheckoutPortal() {
 
 
 
+              {/* CHECKOUT ADD-ONS */}
+              {dbAddons.length > 0 && (
+                <div className="checkout-card compact">
+                  <h4 style={{ fontSize: "14px", fontWeight: 800, marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Frequently Added Together
+                  </h4>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {dbAddons.slice(0, 3).map((addon) => {
+                      const isSelected = selectedCheckoutAddons.find(a => a.id === addon.id);
+                      return (
+                        <div key={addon.id} onClick={() => toggleCheckoutAddon(addon)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px", borderRadius: "10px", border: isSelected ? "1.5px solid #8a583c" : "1.5px solid #f0f0f0", background: isSelected ? "rgba(138, 88, 60, 0.05)" : "#fbf9f6", cursor: "pointer", transition: "all 0.2s" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                            <img src={addon.imgUrl} alt={addon.name} style={{ width: "40px", height: "40px", borderRadius: "8px", objectFit: "cover" }} />
+                            <div>
+                              <strong style={{ display: "block", fontSize: "13px" }}>{addon.name}</strong>
+                              <span style={{ fontSize: "11px", color: "#666" }}>₹{addon.priceVal}</span>
+                            </div>
+                          </div>
+                          <div style={{ width: "20px", height: "20px", borderRadius: "50%", border: isSelected ? "none" : "2px solid #ccc", background: isSelected ? "#8a583c" : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            {isSelected && <span style={{ color: "#fff", fontSize: "12px" }}>✓</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* COUPONS SECTION */}
               <div className="checkout-card compact">
                 <h4 style={{ fontSize: "14px", fontWeight: 800, marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
@@ -406,6 +610,13 @@ function CheckoutPortal() {
                           <span>₹{parseInt(String(item.price).replace(/[^0-9]/g, "")) * item.quantity}</span>
                         </div>
                       )}
+                    </div>
+                  ))}
+
+                  {selectedCheckoutAddons.length > 0 && selectedCheckoutAddons.map((a, i) => (
+                    <div key={`chk-addon-${i}`} className="breakdown-row" style={{ paddingBottom: "8px", color: "#8a583c", fontSize: "13.5px", fontWeight: "600" }}>
+                      <span>+ {a.name} (Checkout Addon)</span>
+                      <span>₹{a.priceVal}</span>
                     </div>
                   ))}
 
@@ -477,7 +688,9 @@ function CheckoutPortal() {
                 </div>
                 <div className="receipt-row" style={{ borderTop: "1px dashed rgba(0,0,0,0.08)", paddingTop: "12px", marginTop: "12px" }}>
                   <span>Delivery Address:</span>
-                  <span style={{ fontSize: "12px", textAlign: "right", maxWidth: "220px", color: "#555" }}>{address}</span>
+                  <span style={{ fontSize: "12px", textAlign: "right", maxWidth: "220px", color: "#555" }}>
+                    {savedAddresses.find(a => a.id === selectedAddressId) ? `${savedAddresses.find(a => a.id === selectedAddressId).officeNumber}, ${savedAddresses.find(a => a.id === selectedAddressId).officeName}, Floor ${savedAddresses.find(a => a.id === selectedAddressId).floor}, ${savedAddresses.find(a => a.id === selectedAddressId).address}` : address}
+                  </span>
                 </div>
               </div>
 
@@ -504,6 +717,39 @@ function CheckoutPortal() {
         )}
 
       </div>
+
+      {showAddressModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", padding: "24px", borderRadius: "16px", width: "90%", maxWidth: "400px" }}>
+            <h3 style={{ fontSize: "18px", fontWeight: 800, marginBottom: "16px", color: "#2c1b0d" }}>Add Delivery Address</h3>
+            <form onSubmit={handleSaveAddress} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <input type="text" placeholder="Label (e.g. Gurugram Office)" value={addrLabel} onChange={(e) => setAddrLabel(e.target.value)} className="checkout-text-input" required />
+              <input type="text" placeholder="Office / Room Number" value={addrOfficeNum} onChange={(e) => setAddrOfficeNum(e.target.value)} className="checkout-text-input" required />
+              <input type="text" placeholder="Office / Company Name" value={addrOfficeName} onChange={(e) => setAddrOfficeName(e.target.value)} className="checkout-text-input" required />
+              <input type="text" placeholder="Floor Level" value={addrFloor} onChange={(e) => setAddrFloor(e.target.value)} className="checkout-text-input" required />
+              <input type="text" placeholder="Street Address" value={addrStreet} onChange={(e) => setAddrStreet(e.target.value)} className="checkout-text-input" required />
+              <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
+                <button type="button" onClick={() => setShowAddressModal(false)} style={{ flex: 1, padding: "12px", border: "1px solid #ccc", borderRadius: "8px", background: "#fff", cursor: "pointer" }}>Cancel</button>
+                <button type="submit" style={{ flex: 1, padding: "12px", border: "none", borderRadius: "8px", background: "#2c1b0d", color: "#fff", fontWeight: 700, cursor: "pointer" }}>Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showWalletModal && (
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", padding: "30px", borderRadius: "16px", width: "90%", maxWidth: "400px", textAlign: "center" }}>
+            <div style={{ width: "60px", height: "60px", background: "rgba(255,0,0,0.1)", color: "red", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", margin: "0 auto 16px" }}>!</div>
+            <h3 style={{ fontSize: "20px", fontWeight: 800, marginBottom: "8px", color: "#2c1b0d" }}>Insufficient Balance</h3>
+            <p style={{ fontSize: "14px", color: "#666", marginBottom: "24px" }}>Your Royal Loyalty Coin Wallet does not have enough balance to process this order. Please recharge to continue.</p>
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button onClick={() => setShowWalletModal(false)} style={{ flex: 1, padding: "12px", border: "1px solid #ccc", borderRadius: "8px", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Cancel</button>
+              <Link href="/wallet" style={{ flex: 1, padding: "12px", border: "none", borderRadius: "8px", background: "#8a583c", color: "#fff", fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "inline-block" }}>Recharge Now</Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Footer />
 

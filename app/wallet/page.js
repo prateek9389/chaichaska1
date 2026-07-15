@@ -1,19 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { useAuth } from "@/contexts/AuthContext";
+import { getUserTransactions, updateUserCoins } from "@/lib/firestore";
 
 export default function WalletPage() {
-  const [balance, setBalance] = useState(550);
+  const { user, profile } = useAuth();
+  const [balance, setBalance] = useState(0);
   const [rechargeAmount, setRechargeAmount] = useState("");
   const [selectedMethod, setSelectedMethod] = useState("upi"); // "upi" | "card" | "netbanking"
-  const [transactions, setTransactions] = useState([
-    { id: "t1", desc: "Welcome Gift Bonus", type: "credit", coins: 50, date: "2026-06-25", status: "Completed" },
-    { id: "t2", desc: "Classic Masala Chai Brew Order", type: "credit", coins: 100, date: "2026-06-28", status: "Completed" },
-    { id: "t3", desc: "Recharged via Card", type: "credit", coins: 500, date: "2026-07-01", status: "Completed" },
-    { id: "t4", desc: "Redeemed Elaichi Rusk pack", type: "debit", coins: 100, date: "2026-07-02", status: "Completed" },
-  ]);
+  const [transactions, setTransactions] = useState([]);
+
+  useEffect(() => {
+    if (profile?.coins !== undefined) {
+      setBalance(profile.coins);
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    if (user) {
+      getUserTransactions(user.uid).then(txs => {
+         setTransactions(txs);
+      });
+    }
+  }, [user]);
 
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -59,20 +71,29 @@ export default function WalletPage() {
       osc.stop(ctx.currentTime + 0.15);
     } catch (err) {}
 
-    setTimeout(() => {
+    setTimeout(async () => {
       const addedCoins = getCoinsForAmount(amt);
-      setBalance((prev) => prev + addedCoins);
-      setTransactions((prev) => [
-        {
-          id: `t${Date.now()}`,
-          desc: `Recharged Wallet via ${selectedMethod.toUpperCase()}`,
-          type: "credit",
-          coins: addedCoins,
-          date: new Date().toISOString().split("T")[0],
-          status: "Completed",
-        },
-        ...prev,
-      ]);
+      
+      if (user) {
+         const newBal = await updateUserCoins(user.uid, addedCoins, `Recharged Wallet via ${selectedMethod.toUpperCase()}`);
+         setBalance(newBal);
+         const txs = await getUserTransactions(user.uid);
+         setTransactions(txs);
+      } else {
+         setBalance((prev) => prev + addedCoins);
+         setTransactions((prev) => [
+           {
+             id: `t${Date.now()}`,
+             desc: `Recharged Wallet via ${selectedMethod.toUpperCase()}`,
+             type: "credit",
+             coins: addedCoins,
+             date: new Date().toISOString().split("T")[0],
+             status: "Completed",
+           },
+           ...prev,
+         ]);
+      }
+      
       setLoading(false);
       setSuccess(true);
       setRechargeAmount("");

@@ -120,11 +120,6 @@ class _AddressesScreenState extends State<AddressesScreen> {
                   }
 
                   if (mounted) {
-                    setState(() {
-                      final currentList = List<Map<String, String>>.from(WalletState.savedAddresses.value);
-                      currentList.add(newAddress);
-                      WalletState.savedAddresses.value = currentList;
-                    });
                     Navigator.of(context).pop();
                   }
                 }
@@ -199,10 +194,20 @@ class _AddressesScreenState extends State<AddressesScreen> {
         ],
       ),
       body: SafeArea(
-        child: ValueListenableBuilder<List<Map<String, String>>>(
-          valueListenable: WalletState.savedAddresses,
-          builder: (context, addressesList, child) {
-            if (addressesList.isEmpty) {
+        child: FirebaseAuth.instance.currentUser == null
+            ? const Center(child: Text("Please log in to manage addresses."))
+            : StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(FirebaseAuth.instance.currentUser!.uid)
+              .collection('addresses')
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator(color: Color(0xFF8B6B58)));
+            }
+            final docs = snapshot.data?.docs ?? [];
+            if (docs.isEmpty) {
               return Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -226,9 +231,10 @@ class _AddressesScreenState extends State<AddressesScreen> {
             return ListView.builder(
               padding: const EdgeInsets.all(24),
               physics: const BouncingScrollPhysics(),
-              itemCount: addressesList.length,
+              itemCount: docs.length,
               itemBuilder: (context, index) {
-                final item = addressesList[index];
+                final item = docs[index].data() as Map<String, dynamic>;
+                item['id'] = docs[index].id;
                 return Container(
                   margin: const EdgeInsets.only(bottom: 16),
                   padding: const EdgeInsets.all(18),
@@ -282,11 +288,15 @@ class _AddressesScreenState extends State<AddressesScreen> {
                       IconButton(
                         icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
                         onPressed: () {
-                          setState(() {
-                            final currentList = List<Map<String, String>>.from(WalletState.savedAddresses.value);
-                            currentList.removeWhere((addr) => addr['id'] == item['id']);
-                            WalletState.savedAddresses.value = currentList;
-                          });
+                          final user = FirebaseAuth.instance.currentUser;
+                          if (user != null) {
+                            FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(user.uid)
+                                .collection('addresses')
+                                .doc(item['id'])
+                                .delete();
+                          }
                         },
                       ),
                     ],

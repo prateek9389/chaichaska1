@@ -9,8 +9,11 @@
   },
   "dependencies": {
     "@babel/parser": "^7.29.7",
+    "@opentelemetry/api": "^1.9.1",
     "cloudinary": "^2.10.0",
     "firebase": "^12.16.0",
+    "firebase-admin": "^14.1.0",
+    "framer-motion": "^12.42.2",
     "gsap": "^3.12.5",
     "next": "14.2.35",
     "react": "^18.3.1",

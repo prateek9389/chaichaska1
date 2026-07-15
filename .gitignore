@@ -24,3 +24,5 @@ pnpm-debug.log*
 # Environment local overrides
 .env*.local
 .env
+service-account.json
+public/chaichaska.apk

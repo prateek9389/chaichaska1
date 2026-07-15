@@ -5,7 +5,7 @@ import { onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteA
 import { loginWithEmail, signUpWithEmail } from "@/lib/auth";
 import Link from "next/link";
 import { db, auth } from "@/lib/firebase";
-import { collection, addDoc, query, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 
 export default function AdminDashboard() {
@@ -32,7 +32,7 @@ export default function AdminDashboard() {
       if (auth.currentUser) {
         const credential = EmailAuthProvider.credential(auth.currentUser.email, currentPassword);
         await reauthenticateWithCredential(auth.currentUser, credential);
-        
+
         await updatePassword(auth.currentUser, newPassword);
         setPasswordMessage("Password updated successfully!");
         setCurrentPassword("");
@@ -56,6 +56,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [timeFilter, setTimeFilter] = useState("Weekly");
   const [queueFilter, setQueueFilter] = useState("All");
+  const [queueTab, setQueueTab] = useState("one-time"); // "one-time" or "subscription"
   const [isOnline, setIsOnline] = useState(true);
 
   // Active Orders Queue with detailed fields (including office number, product image, details, priority, createdAt, allocatedTime)
@@ -342,7 +343,7 @@ export default function AdminDashboard() {
     const customizations = [];
     if (o.sugar) customizations.push(`Sugar: ${o.sugar}`);
     if (o.milk) customizations.push(`Milk: ${o.milk}`);
-    
+
     return {
       id: o.id.startsWith("#") ? o.id : `#${o.id.replace("CHAI-ORD-", "")}`,
       customer: o.customer || "Loyal Customer",
@@ -802,7 +803,7 @@ export default function AdminDashboard() {
       image: newProdImage || "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80",
       gallery: newProdGallery,
     };
-    
+
     try {
       await addProduct(newProductData);
       setToastMsg(`🌱 Added product "${newProdName}" successfully!`);
@@ -826,11 +827,11 @@ export default function AdminDashboard() {
   const handleUploadImage = async (e, target = "new") => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     setToastMsg("Uploading image to Cloudinary...");
     const formData = new FormData();
     formData.append("file", file);
-    
+
     try {
       const res = await fetch("/api/upload", {
         method: "POST",
@@ -848,7 +849,7 @@ export default function AdminDashboard() {
           setNewProdImage(data.url);
         }
         setToastMsg("Image uploaded successfully!");
-        
+
         await addDoc(collection(db, "uploaded_images"), {
           url: data.url,
           uploadedAt: new Date().toISOString(),
@@ -1065,7 +1066,7 @@ export default function AdminDashboard() {
             )}
             {(o.status === "Pending" || o.status === "Preparing") && (
               <button
-                onClick={async () => { try { await updateOrder(o.id, { status: "Shipped" }); } catch (err) {} }}
+                onClick={async () => { try { await updateOrder(o.id, { status: "Shipped" }); } catch (err) { } }}
                 style={{ background: "#f39c12", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
               >
                 Ready to Dispatch
@@ -1073,7 +1074,7 @@ export default function AdminDashboard() {
             )}
             {(o.status === "Shipped" || o.status === "In Transit") && (
               <button
-                onClick={async () => { try { await updateOrder(o.id, { status: "Delivered" }); } catch (err) {} }}
+                onClick={async () => { try { await updateOrder(o.id, { status: "Delivered" }); } catch (err) { } }}
                 style={{ background: "#8a583c", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
               >
                 Mark Delivered
@@ -1207,11 +1208,7 @@ export default function AdminDashboard() {
           {/* FIXED LEFT SIDEBAR */}
           <aside className="dashboard-sidebar">
             <div className="sidebar-logo">
-              <svg width="32" height="32" viewBox="0 0 100 100" fill="none" style={{ display: "inline-block", verticalAlign: "middle" }}>
-                <rect width="100" height="100" rx="20" fill="#fdf5e9" />
-                <path d="M30 30h40v12H30V30zm0 24h40v12H30V54z" fill="#2c1b0d" />
-              </svg>
-              <span className="logo-text">ChaiCo.</span>
+              <img src="/assets/images/logo.png" alt="Chai Chaska Logo" style={{ maxHeight: "70px", width: "auto", objectFit: "contain" }} />
             </div>
 
             <div className="sidebar-menu">
@@ -1269,7 +1266,7 @@ export default function AdminDashboard() {
           </aside>
 
           {/* MAIN CONTAINER */}
-          <div 
+          <div
             className="dashboard-container"
             style={{
               marginRight: showPendingSidebar ? "420px" : "0",
@@ -1291,19 +1288,19 @@ export default function AdminDashboard() {
               </div>
 
               <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                <button 
-                  onClick={() => setShowPendingSidebar(!showPendingSidebar)} 
-                  style={{ 
-                    background: "#2c1b0d", 
-                    color: "#ffffff", 
-                    border: "none", 
-                    padding: "10px 18px", 
-                    borderRadius: "20px", 
-                    fontWeight: "bold", 
-                    fontSize: "12.5px", 
-                    cursor: "pointer", 
-                    display: "flex", 
-                    alignItems: "center", 
+                <button
+                  onClick={() => setShowPendingSidebar(!showPendingSidebar)}
+                  style={{
+                    background: "#2c1b0d",
+                    color: "#ffffff",
+                    border: "none",
+                    padding: "10px 18px",
+                    borderRadius: "20px",
+                    fontWeight: "bold",
+                    fontSize: "12.5px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
                     gap: "8px",
                     boxShadow: "0 4px 10px rgba(44, 27, 13, 0.15)"
                   }}
@@ -1352,10 +1349,10 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="subheader-controls">
-                    <button 
+                    <button
                       className="btn-export-data"
                       onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8," + 
+                        const csvContent = "data:text/csv;charset=utf-8," +
                           "Order ID,Customer,Status,Total,Item,Date\n" +
                           filteredOrders.map(o => `${o.id},${o.customer || "N/A"},${o.status || "N/A"},${o.total || "0"},"${o.item || "N/A"}","${o.date || "N/A"}"`).join("\n");
                         const encodedUri = encodeURI(csvContent);
@@ -1569,39 +1566,89 @@ export default function AdminDashboard() {
             {/* TAB: ORDER QUEUE */}
             {activeTab === "queue" && (
               <div className="tab-body-wrapper">
-                <h3 className="section-title">Order Queue (List View)</h3>
-                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <h3 className="section-title">Order Queue (List View)</h3>
+                  <div className="admin-tabs" style={{ background: 'transparent', padding: 0 }}>
+                    <button className={`admin-tab ${queueTab === "one-time" ? "active" : ""}`} onClick={() => setQueueTab("one-time")}>One-Time Orders</button>
+                    <button className={`admin-tab ${queueTab === "subscription" ? "active" : ""}`} onClick={() => setQueueTab("subscription")}>Subscription Orders</button>
+                  </div>
+                </div>
+
                 <div className="queue-list-container">
-                  {orders.length === 0 ? (
-                    <div className="empty-column-msg">No active orders found.</div>
+                  {queueTab === "one-time" ? (
+                    orders.filter(o => o.priority !== "Subscription").length === 0 ? (
+                      <div className="empty-column-msg">No active one-time orders found.</div>
+                    ) : (
+                      orders
+                        .filter(o => o.priority !== "Subscription")
+                        .sort((a, b) => b.createdAt - a.createdAt)
+                        .map((o) => (
+                          <div
+                            key={o.id}
+                            className="queue-list-item"
+                            onClick={() => {
+                              setSelectedQueueOrder(o);
+                              setDeliveryTimeInput(o.allocatedTime || "");
+                              setIsQueueSidebarOpen(true);
+                            }}
+                          >
+                            <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" />
+                            <div className="queue-list-info">
+                              <h4>{o.id} - {o.customer}</h4>
+                              <p>{o.item}</p>
+                              <span className="time-elapsed">
+                                {Math.floor((Date.now() - o.createdAt) / 60000)}m ago
+                              </span>
+                            </div>
+                            <div className="queue-list-status">
+                              <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
+                                {o.status || "Received"}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                    )
                   ) : (
-                    orders
-                      .sort((a, b) => b.createdAt - a.createdAt)
-                      .map((o) => (
-                        <div 
-                          key={o.id} 
-                          className="queue-list-item"
-                          onClick={() => {
-                            setSelectedQueueOrder(o);
-                            setDeliveryTimeInput(o.allocatedTime || "");
-                            setIsQueueSidebarOpen(true);
-                          }}
-                        >
-                          <img src={o.image || o.img} alt={o.id} className="queue-list-img" />
-                          <div className="queue-list-info">
-                            <h4>{o.id} - {o.customer}</h4>
-                            <p>{o.item}</p>
-                            <span className="time-elapsed">
-                              {Math.floor((Date.now() - o.createdAt) / 60000)}m ago
-                            </span>
+                    subscriptions.length === 0 ? (
+                      <div className="empty-column-msg">No subscriptions found.</div>
+                    ) : (
+                      subscriptions
+                        .sort((a, b) => {
+                          if (a.status === "Active" && b.status !== "Active") return -1;
+                          if (a.status !== "Active" && b.status === "Active") return 1;
+                          return b.createdAt - a.createdAt;
+                        })
+                        .map((sub) => (
+                          <div
+                            key={sub.id}
+                            className="queue-list-item"
+                            style={{
+                              borderLeft: sub.status === "Active" ? "4px solid #8e44ad" : "4px solid #e74c3c",
+                              opacity: sub.status === "Active" ? 1 : 0.6
+                            }}
+                          >
+                            <img src={sub.image || sub.img || "/assets/images/tea_icon.png"} alt={sub.id} className="queue-list-img" />
+                            <div className="queue-list-info">
+                              <h4>{sub.id} - {sub.customer || "Customer"}</h4>
+                              <p>{sub.items || sub.item}</p>
+                              <span className="time-elapsed">
+                                Time Slot: {sub.timeSlot || "N/A"} | {sub.frequency || "Daily"}
+                              </span>
+                            </div>
+                            <div className="queue-list-status">
+                              {sub.status === "Active" ? (
+                                <span className="table-status-pill received" style={{ background: "#f3e5f5", color: "#8e44ad" }}>
+                                  Daily Delivery
+                                </span>
+                              ) : (
+                                <span className="table-status-pill cancelled" style={{ background: "#fce8e6", color: "#e74c3c" }}>
+                                  Paused
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <div className="queue-list-status">
-                            <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
-                              {o.status || "Received"}
-                            </span>
-                          </div>
-                        </div>
-                      ))
+                        ))
+                    )
                   )}
                 </div>
 
@@ -1611,7 +1658,7 @@ export default function AdminDashboard() {
                   {selectedQueueOrder && (
                     <div className="queue-sidebar-content">
                       <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
-                      
+
                       <h2>Order {selectedQueueOrder.id}</h2>
                       <div className="sidebar-detail-group">
                         <label>Customer</label>
@@ -1635,12 +1682,12 @@ export default function AdminDashboard() {
 
                       <div className="sidebar-detail-group">
                         <label>Update Status</label>
-                        <select 
+                        <select
                           className="sidebar-select"
                           value={selectedQueueOrder.status || "Received"}
                           onChange={(e) => {
                             const newStatus = e.target.value;
-                            setSelectedQueueOrder({...selectedQueueOrder, status: newStatus});
+                            setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
                           }}
                         >
                           <option value="Received">Received</option>
@@ -1654,22 +1701,46 @@ export default function AdminDashboard() {
                       <div className="sidebar-detail-group">
                         <label>Set Delivery Time</label>
                         <div style={{ display: "flex", gap: "10px" }}>
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             className="sidebar-input"
                             value={deliveryTimeInput}
                             onChange={(e) => setDeliveryTimeInput(e.target.value)}
                             placeholder="e.g. 15 mins"
                           />
-                          <button 
+                          <button
                             className="sidebar-save-btn"
                             onClick={() => {
-                              updateOrder(selectedQueueOrder.id, { 
+                              const updatedStatus = selectedQueueOrder.status || "Received";
+                              updateOrder(selectedQueueOrder.id, {
                                 allocatedTime: deliveryTimeInput,
-                                status: selectedQueueOrder.status || "Received"
+                                status: updatedStatus
                               });
+
+                              if (selectedQueueOrder.userId || selectedQueueOrder.userId === undefined) {
+                                // Assume userId exists in real data. If so, fetch token and notify
+                                const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
+                                if (uid) {
+                                  getDoc(doc(db, "users", uid)).then(userSnap => {
+                                    if (userSnap.exists() && userSnap.data().fcmToken) {
+                                      fetch("/api/notify", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          token: userSnap.data().fcmToken,
+                                          title: "Order Update",
+                                          body: `Your order is now ${updatedStatus}`,
+                                          orderId: selectedQueueOrder.id,
+                                          userId: uid
+                                        })
+                                      });
+                                    }
+                                  }).catch(e => console.error("Error fetching user for push:", e));
+                                }
+                              }
+
                               setIsQueueSidebarOpen(false);
-                              setToastMsg("Order details updated!");
+                              setToastMsg("Order details updated & notification sent!");
                               setTimeout(() => setToastMsg(""), 3000);
                             }}
                           >
@@ -1837,61 +1908,61 @@ export default function AdminDashboard() {
                   <div style={{ maxWidth: "600px", margin: "0 auto", width: "100%" }}>
 
 
-                      {/* Logs of Raised Requests */}
-                      <h4 style={{ fontSize: "13px", color: "#2c1b0d", marginBottom: "12px", fontWeight: "800" }}>📋 Restock Requests Log</h4>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        {restockRequests.map((r, i) => (
-                          <div key={i} style={{ background: "#ffffff", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.03)", fontSize: "12px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                              <strong>{r.item}</strong>
-                              <span style={{ fontSize: "10px", background: r.urgency === "High" ? "rgba(231,76,60,0.1)" : "rgba(0,0,0,0.05)", color: r.urgency === "High" ? "#e74c3c" : "#555", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
-                                {r.urgency} Urgency
-                              </span>
-                            </div>
-                            <span style={{ display: "block", color: "#666" }}>Qty Requested: {r.qty}</span>
-                            <span style={{ display: "block", color: "#888", fontStyle: "italic", fontSize: "11px", marginTop: "2px" }}>Notes: {r.notes}</span>
-
-                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.02)", paddingTop: "6px", fontSize: "10px" }}>
-                              <span style={{ color: "#27ae60" }}>● {r.status}</span>
-                              <span style={{ color: "#999" }}>{r.date}</span>
-                            </div>
-                            
-                            {/* Admin Controls */}
-                            <div style={{ marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: "8px" }}>
-                              <select 
-                                value={r.status} 
-                                onChange={(e) => updateRestockRequest(r.id, { status: e.target.value })}
-                                style={{ padding: "4px", fontSize: "10px", borderRadius: "4px", width: "100%", marginBottom: "6px", border: "1px solid #ddd" }}>
-                                <option value="Sent to Admin">Sent to Admin</option>
-                                <option value="Approved">Approved</option>
-                                <option value="Ordered">Ordered</option>
-                                <option value="Delivered">Delivered</option>
-                                <option value="Rejected">Rejected</option>
-                              </select>
-                              <div style={{ display: "flex", gap: "4px" }}>
-                                <input 
-                                  type="text" 
-                                  placeholder="Admin reply message..." 
-                                  id={`restock-msg-${r.id}`}
-                                  defaultValue={r.adminMessage || ""}
-                                  style={{ flex: 1, padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid #ccc" }}
-                                />
-                                <button 
-                                  onClick={() => {
-                                    const msg = document.getElementById(`restock-msg-${r.id}`).value;
-                                    updateRestockRequest(r.id, { adminMessage: msg });
-                                    alert("Message sent to Chai Maker!");
-                                  }}
-                                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
-                                >
-                                  Update Message
-                                </button>
-                              </div>
-                            </div>
-
+                    {/* Logs of Raised Requests */}
+                    <h4 style={{ fontSize: "13px", color: "#2c1b0d", marginBottom: "12px", fontWeight: "800" }}>📋 Restock Requests Log</h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                      {restockRequests.map((r, i) => (
+                        <div key={i} style={{ background: "#ffffff", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.03)", fontSize: "12px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                            <strong>{r.item}</strong>
+                            <span style={{ fontSize: "10px", background: r.urgency === "High" ? "rgba(231,76,60,0.1)" : "rgba(0,0,0,0.05)", color: r.urgency === "High" ? "#e74c3c" : "#555", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                              {r.urgency} Urgency
+                            </span>
                           </div>
-                        ))}
-                      </div>
+                          <span style={{ display: "block", color: "#666" }}>Qty Requested: {r.qty}</span>
+                          <span style={{ display: "block", color: "#888", fontStyle: "italic", fontSize: "11px", marginTop: "2px" }}>Notes: {r.notes}</span>
+
+                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.02)", paddingTop: "6px", fontSize: "10px" }}>
+                            <span style={{ color: "#27ae60" }}>● {r.status}</span>
+                            <span style={{ color: "#999" }}>{r.date}</span>
+                          </div>
+
+                          {/* Admin Controls */}
+                          <div style={{ marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: "8px" }}>
+                            <select
+                              value={r.status}
+                              onChange={(e) => updateRestockRequest(r.id, { status: e.target.value })}
+                              style={{ padding: "4px", fontSize: "10px", borderRadius: "4px", width: "100%", marginBottom: "6px", border: "1px solid #ddd" }}>
+                              <option value="Sent to Admin">Sent to Admin</option>
+                              <option value="Approved">Approved</option>
+                              <option value="Ordered">Ordered</option>
+                              <option value="Delivered">Delivered</option>
+                              <option value="Rejected">Rejected</option>
+                            </select>
+                            <div style={{ display: "flex", gap: "4px" }}>
+                              <input
+                                type="text"
+                                placeholder="Admin reply message..."
+                                id={`restock-msg-${r.id}`}
+                                defaultValue={r.adminMessage || ""}
+                                style={{ flex: 1, padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid #ccc" }}
+                              />
+                              <button
+                                onClick={() => {
+                                  const msg = document.getElementById(`restock-msg-${r.id}`).value;
+                                  updateRestockRequest(r.id, { adminMessage: msg });
+                                  alert("Message sent to Chai Maker!");
+                                }}
+                                style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                              >
+                                Update Message
+                              </button>
+                            </div>
+                          </div>
+
+                        </div>
+                      ))}
+                    </div>
 
                   </div>
                 </div>
@@ -1930,7 +2001,7 @@ export default function AdminDashboard() {
                   }
                 }
               });
-              
+
               const maxDaySale = Math.max(...Object.values(weekdaySales), 1);
               const chartData = [
                 { day: "Mon", val: (weekdaySales.Mon / maxDaySale) * 100 || 10, amount: `₹${weekdaySales.Mon.toLocaleString()}` },
@@ -2069,7 +2140,8 @@ export default function AdminDashboard() {
 
                     return (
                       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, overflowY: "auto", padding: "20px" }}>
-                        <style>{`
+                        <style dangerouslySetInnerHTML={{
+                          __html: `
                           @media print {
                             body {
                               background: #ffffff !important;
@@ -2094,7 +2166,7 @@ export default function AdminDashboard() {
                               display: none !important;
                             }
                           }
-                        `}</style>
+                        `}} />
                         {/* Wrapper for Printable card and control buttons */}
                         <div style={{ width: "680px" }}>
 
@@ -2972,7 +3044,7 @@ export default function AdminDashboard() {
 
 
                 <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-                  
+
                   {/* Left Column: Products List */}
                   <div>
                     <h3 className="section-title">Active Shop Products ({productsList.length})</h3>
@@ -2987,7 +3059,7 @@ export default function AdminDashboard() {
                             </div>
                             <span style={{ fontSize: "11px", color: "#666", background: "#f5ece1", padding: "2px 8px", borderRadius: "4px", display: "inline-block", margin: "4px 0" }}>{p.category}</span>
                             <p style={{ fontSize: "12px", color: "#555", margin: "6px 0" }}>{p.desc}</p>
-                            
+
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px", fontSize: "11px", color: "#777", marginTop: "8px" }}>
                               <span>☕ Caffeine: <strong>{p.caffeine || "Medium"}</strong></span>
                               <span>🍬 Sweet: <strong>{p.sweetness || "Medium"}</strong></span>
@@ -3018,7 +3090,7 @@ export default function AdminDashboard() {
                   <div>
                     <h3 className="section-title">Create & Register Product</h3>
                     <form onSubmit={handleAddNewProduct} style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                      
+
                       <div className="form-group" style={{ marginBottom: "12px" }}>
                         <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Product Name</label>
                         <input type="text" value={newProdName} onChange={(e) => setNewProdName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
@@ -3193,7 +3265,7 @@ export default function AdminDashboard() {
                     <span>🚨</span> {toastMsg}
                   </div>
                 )}
-                
+
                 {editingProduct && (
                   <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
                     <div style={{ background: "#fff", padding: "32px", borderRadius: "20px", width: "450px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", position: "relative" }}>
@@ -3330,123 +3402,123 @@ export default function AdminDashboard() {
               </div>
             )}
 
-                      {activeTab === "addons" && (
-            <div className="tab-fade-in" style={{ padding: "30px", maxWidth: "1200px", margin: "0 auto" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
-                <div>
-                  <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#2c1b0d", margin: "0 0 8px" }}>Add-on Products</h1>
-                  <p style={{ color: "#777", margin: 0, fontSize: "15px" }}>Manage cookies, toasts, and extra products to be shown at checkout.</p>
-                </div>
-              </div>
-
-              {/* Add New Addon */}
-              <div className="dashboard-card" style={{ padding: "30px", marginBottom: "40px" }}>
-                <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#2c1b0d", marginBottom: "20px" }}>Add New Add-on</h2>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "20px" }}>
-                  <div className="form-group">
-                    <label>Add-on Name</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. Almond Cookies" 
-                      value={newAddonName}
-                      onChange={(e) => setNewAddonName(e.target.value)}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Price (e.g. ₹89)</label>
-                    <input 
-                      type="text" 
-                      placeholder="₹89" 
-                      value={newAddonPrice}
-                      onChange={(e) => setNewAddonPrice(e.target.value)}
-                      className="admin-input"
-                    />
-                  </div>
-                  <div className="form-group" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <label>Image (Upload or URL)</label>
-                    <input 
-                      type="file" 
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setNewAddonImg(reader.result);
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                      className="admin-input"
-                      style={{ padding: "6px" }}
-                    />
-                    <div style={{ textAlign: "center", fontSize: "11px", color: "#888", fontWeight: "bold" }}>— OR PASTE URL —</div>
-                    <input 
-                      type="text" 
-                      placeholder="https://..." 
-                      value={newAddonImg.startsWith("data:image") ? "" : newAddonImg}
-                      onChange={(e) => setNewAddonImg(e.target.value)}
-                      className="admin-input"
-                    />
-                    {newAddonImg && newAddonImg.startsWith("data:image") && (
-                      <div style={{ fontSize: "11px", color: "#27ae60", fontWeight: "bold", marginTop: "-4px" }}>✓ Image file loaded ready to upload</div>
-                    )}
+            {activeTab === "addons" && (
+              <div className="tab-fade-in" style={{ padding: "30px", maxWidth: "1200px", margin: "0 auto" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
+                  <div>
+                    <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#2c1b0d", margin: "0 0 8px" }}>Add-on Products</h1>
+                    <p style={{ color: "#777", margin: 0, fontSize: "15px" }}>Manage cookies, toasts, and extra products to be shown at checkout.</p>
                   </div>
                 </div>
-                <button 
-                  className="btn-primary" 
-                  style={{ marginTop: "20px", width: "100%", padding: "12px" }}
-                  onClick={async () => {
-                    if (!newAddonName || !newAddonPrice) return alert("Fill required fields");
-                    try {
-                      await addAddon({ name: newAddonName, price: newAddonPrice, image: newAddonImg || "/chai-ingredients.png" });
-                      alert("Add-on created successfully!");
-                      setNewAddonName(""); setNewAddonPrice(""); setNewAddonImg("");
-                      // Refresh
-                      getAddons().then(setAddonsList);
-                    } catch(e) {
-                      console.error(e);
-                      alert("Error adding addon");
-                    }
-                  }}
-                >
-                  + Create Add-on
-                </button>
-              </div>
 
-              {/* Existing Addons Grid */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "20px" }}>
-                {addonsList && addonsList.length > 0 ? addonsList.map((addon) => (
-                  <div key={addon.id} className="dashboard-card" style={{ padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                    <div style={{ height: "140px", background: "#f5f5f7" }}>
-                      <img src={addon.image} alt={addon.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                {/* Add New Addon */}
+                <div className="dashboard-card" style={{ padding: "30px", marginBottom: "40px" }}>
+                  <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#2c1b0d", marginBottom: "20px" }}>Add New Add-on</h2>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "20px" }}>
+                    <div className="form-group">
+                      <label>Add-on Name</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Almond Cookies"
+                        value={newAddonName}
+                        onChange={(e) => setNewAddonName(e.target.value)}
+                        className="admin-input"
+                      />
                     </div>
-                    <div style={{ padding: "20px", display: "flex", flexDirection: "column", flexGrow: 1 }}>
-                      <h3 style={{ fontSize: "16px", fontWeight: 800, margin: "0 0 8px" }}>{addon.name}</h3>
-                      <p style={{ color: "#8a583c", fontWeight: 700, margin: "0 0 16px" }}>{addon.price}</p>
-                      
-                      <button 
-                        style={{ marginTop: "auto", background: "#fcfaf7", border: "1px solid #e74c3c", color: "#e74c3c", padding: "8px", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}
-                        onClick={async () => {
-                          if(confirm("Are you sure you want to delete this addon?")) {
-                            await deleteAddon(addon.id);
-                            getAddons().then(setAddonsList);
+                    <div className="form-group">
+                      <label>Price (e.g. ₹89)</label>
+                      <input
+                        type="text"
+                        placeholder="₹89"
+                        value={newAddonPrice}
+                        onChange={(e) => setNewAddonPrice(e.target.value)}
+                        className="admin-input"
+                      />
+                    </div>
+                    <div className="form-group" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      <label>Image (Upload or URL)</label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setNewAddonImg(reader.result);
+                            };
+                            reader.readAsDataURL(file);
                           }
                         }}
-                      >
-                        Delete Add-on
-                      </button>
+                        className="admin-input"
+                        style={{ padding: "6px" }}
+                      />
+                      <div style={{ textAlign: "center", fontSize: "11px", color: "#888", fontWeight: "bold" }}>— OR PASTE URL —</div>
+                      <input
+                        type="text"
+                        placeholder="https://..."
+                        value={newAddonImg.startsWith("data:image") ? "" : newAddonImg}
+                        onChange={(e) => setNewAddonImg(e.target.value)}
+                        className="admin-input"
+                      />
+                      {newAddonImg && newAddonImg.startsWith("data:image") && (
+                        <div style={{ fontSize: "11px", color: "#27ae60", fontWeight: "bold", marginTop: "-4px" }}>✓ Image file loaded ready to upload</div>
+                      )}
                     </div>
                   </div>
-                )) : (
-                  <div style={{ padding: "40px", textAlign: "center", color: "#777", background: "#fff", borderRadius: "16px" }}>
-                    No add-on products found.
-                  </div>
-                )}
+                  <button
+                    className="btn-primary"
+                    style={{ marginTop: "20px", width: "100%", padding: "12px" }}
+                    onClick={async () => {
+                      if (!newAddonName || !newAddonPrice) return alert("Fill required fields");
+                      try {
+                        await addAddon({ name: newAddonName, price: newAddonPrice, image: newAddonImg || "/chai-ingredients.png" });
+                        alert("Add-on created successfully!");
+                        setNewAddonName(""); setNewAddonPrice(""); setNewAddonImg("");
+                        // Refresh
+                        getAddons().then(setAddonsList);
+                      } catch (e) {
+                        console.error(e);
+                        alert("Error adding addon");
+                      }
+                    }}
+                  >
+                    + Create Add-on
+                  </button>
+                </div>
+
+                {/* Existing Addons Grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "20px" }}>
+                  {addonsList && addonsList.length > 0 ? addonsList.map((addon) => (
+                    <div key={addon.id} className="dashboard-card" style={{ padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <div style={{ height: "140px", background: "#f5f5f7" }}>
+                        <img src={addon.image} alt={addon.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      </div>
+                      <div style={{ padding: "20px", display: "flex", flexDirection: "column", flexGrow: 1 }}>
+                        <h3 style={{ fontSize: "16px", fontWeight: 800, margin: "0 0 8px" }}>{addon.name}</h3>
+                        <p style={{ color: "#8a583c", fontWeight: 700, margin: "0 0 16px" }}>{addon.price}</p>
+
+                        <button
+                          style={{ marginTop: "auto", background: "#fcfaf7", border: "1px solid #e74c3c", color: "#e74c3c", padding: "8px", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}
+                          onClick={async () => {
+                            if (confirm("Are you sure you want to delete this addon?")) {
+                              await deleteAddon(addon.id);
+                              getAddons().then(setAddonsList);
+                            }
+                          }}
+                        >
+                          Delete Add-on
+                        </button>
+                      </div>
+                    </div>
+                  )) : (
+                    <div style={{ padding: "40px", textAlign: "center", color: "#777", background: "#fff", borderRadius: "16px" }}>
+                      No add-on products found.
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
             {/* Feedback Tab */}
             {activeTab === "feedback" && (
@@ -3456,12 +3528,12 @@ export default function AdminDashboard() {
                     <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#2c1b0d", margin: "0 0 8px" }}>Pending Feedback</h1>
                     <p style={{ color: "#777", margin: 0 }}>Review user ratings and feedback before making them public on the product pages.</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => {
                       setLoadingFeedback(true);
                       getPendingFeedback().then(data => { setPendingFeedback(data); setLoadingFeedback(false); });
                     }}
-                    className="btn-primary" 
+                    className="btn-primary"
                     style={{ padding: "8px 16px", background: "#f5f5f7", color: "#2c1b0d", border: "1px solid #ddd" }}
                   >
                     Refresh
@@ -3493,15 +3565,15 @@ export default function AdminDashboard() {
                             Submitted on: {new Date(fb.createdAt).toLocaleDateString()}
                           </div>
                         </div>
-                        
+
                         <div style={{ display: "flex", gap: "8px" }}>
-                          <button 
+                          <button
                             onClick={() => handleApproveFeedback(fb.id)}
                             style={{ background: "#5c7a4d", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}
                           >
                             Approve
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleDeleteFeedback(fb.id)}
                             style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer" }}
                           >
@@ -3522,26 +3594,26 @@ export default function AdminDashboard() {
                 <div className="tab-fade-in" style={{ padding: "30px", maxWidth: "800px", margin: "0 auto" }}>
                   <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#2c1b0d", margin: "0 0 20px" }}>Footer Settings</h1>
                   <p style={{ color: "#777", marginBottom: "30px" }}>Update the branding and contact details shown in the website footer.</p>
-                  
+
                   <div className="dashboard-card" style={{ padding: "30px", background: "#fff", borderRadius: "16px" }}>
-                    
+
                     <h3 style={{ fontSize: "16px", marginBottom: "16px" }}>Brand Details</h3>
                     <div className="form-group" style={{ marginBottom: "16px" }}>
                       <label style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>Brand Name</label>
-                      <input 
-                        type="text" 
-                        value={localContact.brandName || ""} 
-                        onChange={(e) => setLocalContact({...localContact, brandName: e.target.value})} 
-                        className="admin-input" 
+                      <input
+                        type="text"
+                        value={localContact.brandName || ""}
+                        onChange={(e) => setLocalContact({ ...localContact, brandName: e.target.value })}
+                        className="admin-input"
                       />
                     </div>
                     <div className="form-group" style={{ marginBottom: "24px" }}>
                       <label style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>Brand Description</label>
-                      <textarea 
+                      <textarea
                         rows="3"
-                        value={localContact.brandDesc || ""} 
-                        onChange={(e) => setLocalContact({...localContact, brandDesc: e.target.value})} 
-                        className="admin-input" 
+                        value={localContact.brandDesc || ""}
+                        onChange={(e) => setLocalContact({ ...localContact, brandDesc: e.target.value })}
+                        className="admin-input"
                         style={{ resize: "none" }}
                       />
                     </div>
@@ -3549,54 +3621,54 @@ export default function AdminDashboard() {
                     <h3 style={{ fontSize: "16px", marginBottom: "16px", marginTop: "32px", borderTop: "1px solid #eee", paddingTop: "24px" }}>Contact Details</h3>
                     <div className="form-group" style={{ marginBottom: "16px" }}>
                       <label style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>Address Line 1</label>
-                      <input 
-                        type="text" 
-                        value={localContact.address1 || ""} 
-                        onChange={(e) => setLocalContact({...localContact, address1: e.target.value})} 
-                        className="admin-input" 
+                      <input
+                        type="text"
+                        value={localContact.address1 || ""}
+                        onChange={(e) => setLocalContact({ ...localContact, address1: e.target.value })}
+                        className="admin-input"
                       />
                     </div>
                     <div className="form-group" style={{ marginBottom: "16px" }}>
                       <label style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>Address Line 2 (City, Zip)</label>
-                      <input 
-                        type="text" 
-                        value={localContact.address2 || ""} 
-                        onChange={(e) => setLocalContact({...localContact, address2: e.target.value})} 
-                        className="admin-input" 
+                      <input
+                        type="text"
+                        value={localContact.address2 || ""}
+                        onChange={(e) => setLocalContact({ ...localContact, address2: e.target.value })}
+                        className="admin-input"
                       />
                     </div>
                     <div className="form-group" style={{ marginBottom: "16px" }}>
                       <label style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>Phone Number</label>
-                      <input 
-                        type="text" 
-                        value={localContact.phone || ""} 
-                        onChange={(e) => setLocalContact({...localContact, phone: e.target.value})} 
-                        className="admin-input" 
+                      <input
+                        type="text"
+                        value={localContact.phone || ""}
+                        onChange={(e) => setLocalContact({ ...localContact, phone: e.target.value })}
+                        className="admin-input"
                       />
                     </div>
                     <div className="form-group" style={{ marginBottom: "24px" }}>
                       <label style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>Email Address</label>
-                      <input 
-                        type="text" 
-                        value={localContact.email || ""} 
-                        onChange={(e) => setLocalContact({...localContact, email: e.target.value})} 
-                        className="admin-input" 
+                      <input
+                        type="text"
+                        value={localContact.email || ""}
+                        onChange={(e) => setLocalContact({ ...localContact, email: e.target.value })}
+                        className="admin-input"
                       />
                     </div>
-                    
-                    <button 
+
+                    <button
                       onClick={async () => {
                         setSavingContact(true);
                         try {
                           await updateContactInfo(localContact);
                           alert("Contact info updated successfully! (Refresh the page to see changes in the footer)");
-                        } catch(e) {
+                        } catch (e) {
                           alert("Error updating contact info");
                         }
                         setSavingContact(false);
                       }}
                       disabled={savingContact}
-                      className="btn-primary" 
+                      className="btn-primary"
                       style={{ padding: "12px 24px", width: "100%", fontSize: "14px" }}
                     >
                       {savingContact ? "Saving..." : "Save Footer Settings"}
@@ -3620,28 +3692,28 @@ export default function AdminDashboard() {
 
                       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                         {activeSubs.map((sub, i) => (
-                          <div key={i} className="queue-card-detailed-item" style={{ 
-                            background: "#ffffff", 
-                            padding: "20px", 
+                          <div key={i} className="queue-card-detailed-item" style={{
+                            background: "#ffffff",
+                            padding: "20px",
                             borderLeft: sub.status !== "Active" ? "4px solid #777" :
-                                       (!sub.endDate && !sub.expiryDate) ? "4px solid #27ae60" :
-                                       (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? "4px solid #e74c3c" :
-                                       (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 3) ? "4px solid #f39c12" : "4px solid #27ae60"
+                              (!sub.endDate && !sub.expiryDate) ? "4px solid #27ae60" :
+                                (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? "4px solid #e74c3c" :
+                                  (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 3) ? "4px solid #f39c12" : "4px solid #27ae60"
                           }}>
 
                             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", borderBottom: "1px solid rgba(0,0,0,0.03)", paddingBottom: "6px" }}>
                               <span style={{ fontSize: "11px", fontWeight: "bold", color: "#8a583c" }}>{sub.id}</span>
                               <span style={{ fontSize: "11px", color: "#666" }}>
-                                Started: {sub.startDate} | 
-                                <strong style={{ 
-                                  color: !sub.endDate && !sub.expiryDate ? "#27ae60" : 
-                                         (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? "#e74c3c" : 
-                                         (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 3) ? "#f39c12" : "#27ae60",
+                                Started: {sub.startDate} |
+                                <strong style={{
+                                  color: !sub.endDate && !sub.expiryDate ? "#27ae60" :
+                                    (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? "#e74c3c" :
+                                      (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 3) ? "#f39c12" : "#27ae60",
                                   marginLeft: "4px"
                                 }}>
-                                  {!sub.endDate && !sub.expiryDate ? "No Expiry Limit" : 
-                                   (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? `Expired (On ${sub.endDate || sub.expiryDate})` : 
-                                   `Expires: ${sub.endDate || sub.expiryDate} (${Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24))} days left)`}
+                                  {!sub.endDate && !sub.expiryDate ? "No Expiry Limit" :
+                                    (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? `Expired (On ${sub.endDate || sub.expiryDate})` :
+                                      `Expires: ${sub.endDate || sub.expiryDate} (${Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24))} days left)`}
                                 </strong>
                               </span>
                             </div>
@@ -3768,10 +3840,10 @@ export default function AdminDashboard() {
                               <td style={{ padding: "12px 16px", textAlign: "right" }}>
                                 {req.status === "Pending Approval" || !req.status ? (
                                   <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
-                                    <input 
-                                      type="text" 
-                                      placeholder="Admin Note (Optional)" 
-                                      value={adminLeaveReasons[req.id] || ""} 
+                                    <input
+                                      type="text"
+                                      placeholder="Admin Note (Optional)"
+                                      value={adminLeaveReasons[req.id] || ""}
                                       onChange={(e) => setAdminLeaveReasons({ ...adminLeaveReasons, [req.id]: e.target.value })}
                                       style={{ padding: "6px", fontSize: "11px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", width: "150px" }}
                                     />
@@ -4001,7 +4073,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* FIXED RIGHT SIDEBAR (PENDING ORDERS WITH PRODUCT IMAGE & ALL DETAILS) */}
-          <aside 
+          <aside
             className="dashboard-right-sidebar"
             style={{
               transform: showPendingSidebar ? "translateX(0)" : "translateX(100%)",
@@ -4014,14 +4086,14 @@ export default function AdminDashboard() {
                 <h3>📥 Pending Requests</h3>
                 <span className="pending-badge-count" style={{ display: "inline-block", marginTop: "4px" }}>{pendingSidebarOrders.length} Queue</span>
               </div>
-              <button 
+              <button
                 onClick={() => setShowPendingSidebar(false)}
-                style={{ 
-                  background: "transparent", 
-                  border: "none", 
-                  fontSize: "20px", 
-                  cursor: "pointer", 
-                  color: "#e74c3c", 
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  fontSize: "20px",
+                  cursor: "pointer",
+                  color: "#e74c3c",
                   fontWeight: "bold",
                   padding: "4px 8px"
                 }}
@@ -4148,14 +4220,14 @@ export default function AdminDashboard() {
           <div style={{ background: "#fff", padding: "32px", borderRadius: "24px", width: "650px", maxWidth: "90vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f2eee9", paddingBottom: "12px" }}>
               <h3 style={{ margin: 0, color: "#2c1b0d" }}>📁 Uploaded Images Library</h3>
-              <button 
+              <button
                 onClick={() => setShowImageLibrary(false)}
                 style={{ background: "transparent", border: "none", fontSize: "22px", cursor: "pointer", color: "#e74c3c", fontWeight: "bold" }}
               >
                 ✕
               </button>
             </div>
-            
+
             <div style={{ flex: 1, overflowY: "auto", paddingRight: "8px" }}>
               {libraryImages.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px", color: "#888" }}>
@@ -4165,14 +4237,14 @@ export default function AdminDashboard() {
               ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "16px" }}>
                   {libraryImages.map((img) => (
-                    <div 
+                    <div
                       key={img.id}
                       onClick={() => handleSelectLibraryImage(img.url)}
-                      style={{ 
-                        border: "2px solid rgba(44, 27, 13, 0.08)", 
-                        borderRadius: "12px", 
-                        overflow: "hidden", 
-                        cursor: "pointer", 
+                      style={{
+                        border: "2px solid rgba(44, 27, 13, 0.08)",
+                        borderRadius: "12px",
+                        overflow: "hidden",
+                        cursor: "pointer",
                         transition: "all 0.2s ease",
                         background: "#fcfaf7"
                       }}
@@ -4188,9 +4260,9 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
-            
+
             <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "12px" }}>
-              <button 
+              <button
                 onClick={() => setShowImageLibrary(false)}
                 style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
               >
@@ -4202,7 +4274,8 @@ export default function AdminDashboard() {
       )}
 
       {/* Styled JSX */}
-      <style>{`
+      <style dangerouslySetInnerHTML={{
+        __html: `
         /* Authentication Screen */
         .login-gate-container {
           display: flex;
@@ -5546,7 +5619,7 @@ export default function AdminDashboard() {
           cursor: pointer;
         }
 
-      `}</style>
+      `}} />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import Marquee from "@/components/Marquee";
 import ChaiShowcase from "@/components/ChaiShowcase";
-import FarmCTA from "@/components/FarmCTA";
+import AppDownloadCTA from "@/components/AppDownloadCTA";
 import Subscription from "@/components/Subscription";
 import ProductCarousel from "@/components/ProductCarousel";
 import Craftsmanship from "@/components/Craftsmanship";
@@ -18,7 +18,7 @@ export default function Home() {
         <Hero />
         <Marquee />
         <ChaiShowcase />
-        <FarmCTA />
+        <AppDownloadCTA />
         <Subscription />
         <ProductCarousel />
         <Craftsmanship />

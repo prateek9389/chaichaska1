@@ -6,6 +6,7 @@ import 'addresses_screen.dart';
 import 'help_center_screen.dart';
 import 'wallet_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -15,63 +16,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  void _showAvatarPickerDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-          title: Text(
-            'Choose Cartoon Avatar',
-            style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: GridView.builder(
-              shrinkWrap: true,
-              itemCount: WalletState.cartoonAvatars.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemBuilder: (context, index) {
-                final url = WalletState.cartoonAvatars[index];
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      WalletState.avatarUrl.value = url;
-                    });
-                    Navigator.of(context).pop();
-                  },
-                  child: ValueListenableBuilder<String>(
-                    valueListenable: WalletState.avatarUrl,
-                    builder: (context, currentUrl, child) {
-                      final isSelected = currentUrl == url;
-                      return Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: isSelected ? const Color(0xFF8B6B58) : Colors.grey.shade200,
-                            width: isSelected ? 3 : 1.5,
-                          ),
-                        ),
-                        padding: const EdgeInsets.all(4),
-                        child: CircleAvatar(
-                          backgroundColor: const Color(0xFFFAF7F4),
-                          backgroundImage: NetworkImage(url),
-                        ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +91,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         // Dynamic Profile Cartoon Avatar
                         GestureDetector(
-                          onTap: _showAvatarPickerDialog,
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => const UpdateProfileScreen()));
+                          },
                           child: Stack(
                             alignment: Alignment.bottomRight,
                             children: [
@@ -214,22 +161,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     const SizedBox(height: 28),
 
                     // Quick Stats Container
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withAlpha(25),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildHeaderStat('Total Orders', '158'),
-                          Container(width: 1, height: 24, color: Colors.white.withAlpha(50)),
-                          _buildHeaderStat('Cups Brewed', '342 ☕'),
-                          Container(width: 1, height: 24, color: Colors.white.withAlpha(50)),
-                          _buildHeaderStat('Save Rate', '15% Off'),
-                        ],
-                      ),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance.collection('orders').where('userId', isEqualTo: user?.uid).snapshots(),
+                      builder: (context, snapshot) {
+                        int totalOrders = snapshot.hasData ? snapshot.data!.docs.length : 0;
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(25),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              _buildHeaderStat('Total Orders', '$totalOrders'),
+                              Container(width: 1, height: 24, color: Colors.white.withAlpha(50)),
+                              ValueListenableBuilder<double>(
+                                valueListenable: WalletState.balance,
+                                builder: (context, balance, child) {
+                                  return _buildHeaderStat('Wallet Coins', '${balance.toInt()}');
+                                }
+                              ),
+                            ],
+                          ),
+                        );
+                      }
                     ),
                   ],
                 ),

@@ -27,11 +27,31 @@ export default function ProductDetailPage({ params }) {
         const all = await getProducts();
         
         let finalP = p || all.find(item => item.id === productId) || all[0];
-        if (finalP && !finalP.gallery) {
-          finalP.gallery = [
-            { type: "image", url: finalP.image || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg" },
-            { type: "video", url: "/sub-video.mp4" }
-          ];
+        if (finalP) {
+          if (!finalP.gallery || finalP.gallery.length === 0) {
+            finalP.gallery = [
+              { type: "image", url: finalP.imagePath || finalP.image || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg" },
+              { type: "video", url: "/sub-video.mp4" }
+            ];
+          } else {
+            let normalizedGallery = [];
+            let mainImageUrl = finalP.imagePath || finalP.image;
+            if (mainImageUrl) {
+              normalizedGallery.push({ type: "image", url: mainImageUrl });
+            }
+            finalP.gallery.forEach(item => {
+              if (typeof item === 'string') {
+                if (item !== mainImageUrl) {
+                  normalizedGallery.push({ type: item.toLowerCase().endsWith('.mp4') ? 'video' : 'image', url: item });
+                }
+              } else if (item && item.url) {
+                normalizedGallery.push(item);
+              }
+            });
+            finalP.gallery = normalizedGallery.length > 0 ? normalizedGallery : [
+              { type: "image", url: finalP.imagePath || finalP.image || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg" }
+            ];
+          }
         }
         setProduct(finalP);
         setAddons(a);
@@ -150,10 +170,10 @@ export default function ProductDetailPage({ params }) {
       addonsList: selectedAddons.map(a => ({ name: a.name, price: a.price, priceVal: parseInt(String(a.price).replace(/[^0-9]/g, "")) || 0 })),
     };
 
+    addToCart(itemToAdd);
     if (purchaseType === "subscription") {
-      router.push(`/subscribe?productId=${product.id}&addons=${addonIds}&sugar=${sugarLevel}`);
+      router.push(`/checkout?type=subscription`);
     } else {
-      addToCart(itemToAdd);
       router.push(`/checkout`);
     }
     setIsAddonModalOpen(false);
@@ -237,7 +257,7 @@ export default function ProductDetailPage({ params }) {
             </div>
 
             <h1 className="nordic-title">{product.name}</h1>
-            <p className="nordic-desc">{product.desc}</p>
+            <p className="nordic-desc">{product.description || product.desc}</p>
 
             <div className="nordic-price-box">
               <span className="current-price">{product.price}</span>
@@ -255,7 +275,6 @@ export default function ProductDetailPage({ params }) {
                 <div style={{ flexGrow: 1 }}>
                   <h4 style={{ fontSize: "13.5px", fontWeight: 700, color: "#2c1b0d" }}>One-Time Purchase</h4>
                 </div>
-                <span style={{ fontWeight: 800, color: "#2c1b0d" }}>{product.price}</span>
               </div>
 
               <div
@@ -266,7 +285,6 @@ export default function ProductDetailPage({ params }) {
                 <div style={{ flexGrow: 1 }}>
                   <h4 style={{ fontSize: "13.5px", fontWeight: 700, color: "#2c1b0d" }}>Subscribe &amp; Save</h4>
                 </div>
-                <span style={{ fontWeight: 800, color: "#5c7a4d" }}>₹299/mo</span>
               </div>
             </div>
 

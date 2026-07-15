@@ -37,7 +37,8 @@ export default function Navbar() {
   };
 
   return (
-    <header
+    <>
+      <header
       style={{
         position: "absolute",
         top: 0,
@@ -66,16 +67,12 @@ export default function Navbar() {
         <Link
           href="/"
           style={{
-            fontSize: 22,
-            fontWeight: 700,
-            color: "#2c1b0d",
-            fontFamily: "var(--font-body)",
-            letterSpacing: "-0.01em",
+            display: "flex",
+            alignItems: "center",
             textDecoration: "none",
-            whiteSpace: "nowrap",
           }}
         >
-          Chai Chaska
+          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "75px", objectFit: "contain" }} />
         </Link>
 
         <ul
@@ -142,7 +139,7 @@ export default function Navbar() {
             title="View Coin Wallet & Balance"
           >
             <span className="gold-coin-3d" />
-            <span>550 Coins</span>
+            <span>{user ? (profile?.coins || 0) : 0} Coins</span>
           </Link>
 
           {/* Cart Button */}
@@ -287,129 +284,146 @@ export default function Navbar() {
           </button>
         </div>
       </nav>
+      </header>
 
-      {/* Mobile Navigation Drawer */}
-      {open && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "#ffffff",
-            zIndex: 100,
-            display: "flex",
-            flexDirection: "column",
-            padding: "30px 24px",
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "40px" }}>
-            <span style={{ fontSize: 22, fontWeight: 700, color: "#2c1b0d" }}>Chai Chaska</span>
-            <button
-              onClick={() => setOpen(false)}
-              style={{
-                background: "transparent",
-                border: "none",
-                fontSize: 24,
-                fontWeight: "bold",
-                color: "#2c1b0d",
-                cursor: "pointer",
-              }}
-            >
-              ✕
-            </button>
-          </div>
-          <ul
+      {/* Mobile Navigation Drawer Backdrop */}
+      <div
+        onClick={() => setOpen(false)}
+        style={{
+          position: "fixed",
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          zIndex: 90,
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? "auto" : "none",
+          transition: "opacity 0.3s ease",
+        }}
+      />
+
+      {/* Mobile Navigation Drawer Panel */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "85%",
+          maxWidth: "340px",
+          background: "#ffffff",
+          zIndex: 100,
+          display: "flex",
+          flexDirection: "column",
+          padding: "30px 24px",
+          transform: open ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+          boxShadow: "-8px 0 32px rgba(0,0,0,0.15)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "40px" }}>
+          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "65px", objectFit: "contain" }} />
+          <button
+            onClick={() => setOpen(false)}
             style={{
-              listStyle: "none",
-              display: "flex",
-              flexDirection: "column",
-              gap: "24px",
-              fontSize: "20px",
-              fontWeight: "600",
+              background: "transparent",
+              border: "none",
+              fontSize: 24,
+              fontWeight: "bold",
               color: "#2c1b0d",
-              padding: 0,
-              margin: 0,
+              cursor: "pointer",
             }}
           >
-            {links.map((l) => (
-              <li key={l}>
-                <Link
-                  href={getLinkTarget(l)}
-                  onClick={() => setOpen(false)}
-                  style={{ display: "block", width: "100%", textDecoration: "none", color: "inherit" }}
-                >
-                  {l}
-                </Link>
-              </li>
-            ))}
-          </ul>
-          
-          <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "12px" }}>
-            {/* Wallet for mobile drawer */}
-            <Link
-              href="/wallet"
-              onClick={() => setOpen(false)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                background: "#fffbf0",
-                border: "1.5px solid rgba(220, 160, 40, 0.4)",
-                padding: "14px",
-                borderRadius: "999px",
-                fontSize: "15px",
-                fontWeight: 800,
-                color: "#d35400",
-                textDecoration: "none",
-              }}
-            >
-              <span className="gold-coin-3d" />
-              <span>550 Balance Coins</span>
-            </Link>
-
-            <Link
-              href="/shop"
-              onClick={() => setOpen(false)}
-              style={{
-                background: "#2c1b0d",
-                color: "#ffffff",
-                padding: "16px 32px",
-                borderRadius: "999px",
-                fontSize: 16,
-                fontWeight: 600,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 10,
-                textDecoration: "none",
-              }}
-            >
-              Shop Now
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ overflow: "visible" }}
-              >
-                <path className="steam-line steam-1" d="M8 6c0-1.5 1-1.5 1-3" />
-                <path className="steam-line steam-2" d="M12 6c0-1.5 1-1.5 1-3" />
-                <path className="steam-line steam-3" d="M16 6c0-1.5 1-1.5 1-3" />
-                <path d="M17 9H7c0 0 0 6 5 6s5-6 5-6z" />
-                <path d="M17 11h1.5a1.5 1.5 0 0 1 1.5 1.5v0a1.5 1.5 0 0 1-1.5 1.5H17" />
-                <path d="M5 18h14" />
-              </svg>
-            </Link>
-          </div>
+            ✕
+          </button>
         </div>
-      )}
+        <ul
+          style={{
+            listStyle: "none",
+            display: "flex",
+            flexDirection: "column",
+            gap: "24px",
+            fontSize: "20px",
+            fontWeight: "600",
+            color: "#2c1b0d",
+            padding: 0,
+            margin: 0,
+          }}
+        >
+          {links.map((l) => (
+            <li key={l}>
+              <Link
+                href={getLinkTarget(l)}
+                onClick={() => setOpen(false)}
+                style={{ display: "block", width: "100%", textDecoration: "none", color: "inherit" }}
+              >
+                {l}
+              </Link>
+            </li>
+          ))}
+        </ul>
+        
+        <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "12px" }}>
+          {/* Wallet for mobile drawer */}
+          <Link
+            href="/wallet"
+            onClick={() => setOpen(false)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              background: "#fffbf0",
+              border: "1.5px solid rgba(220, 160, 40, 0.4)",
+              padding: "14px",
+              borderRadius: "999px",
+              fontSize: "15px",
+              fontWeight: 800,
+              color: "#d35400",
+              textDecoration: "none",
+            }}
+          >
+            <span className="gold-coin-3d" />
+            <span>550 Balance Coins</span>
+          </Link>
+
+          <Link
+            href="/shop"
+            onClick={() => setOpen(false)}
+            style={{
+              background: "#2c1b0d",
+              color: "#ffffff",
+              padding: "16px 32px",
+              borderRadius: "999px",
+              fontSize: 16,
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 10,
+              textDecoration: "none",
+            }}
+          >
+            Shop Now
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ overflow: "visible" }}
+            >
+              <path className="steam-line steam-1" d="M8 6c0-1.5 1-1.5 1-3" />
+              <path className="steam-line steam-2" d="M12 6c0-1.5 1-1.5 1-3" />
+              <path className="steam-line steam-3" d="M16 6c0-1.5 1-1.5 1-3" />
+              <path d="M17 9H7c0 0 0 6 5 6s5-6 5-6z" />
+              <path d="M17 11h1.5a1.5 1.5 0 0 1 1.5 1.5v0a1.5 1.5 0 0 1-1.5 1.5H17" />
+              <path d="M5 18h14" />
+            </svg>
+          </Link>
+        </div>
+      </div>
 
       <style>{`
         @keyframes spinCoin {
@@ -437,6 +451,6 @@ export default function Navbar() {
           .nav-container { padding: 0 40px !important; }
         }
       `}</style>
-    </header>
+    </>
   );
 }

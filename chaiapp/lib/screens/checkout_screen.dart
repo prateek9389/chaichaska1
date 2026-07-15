@@ -262,10 +262,41 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               'endDateIso': endDate.toIso8601String(),
               'endDate': "${endDate.day}/${endDate.month}/${endDate.year}",
               'status': "Active",
+              'image': widget.cartItems.first.imagePath.isNotEmpty ? widget.cartItems.first.imagePath : "assets/images/tea_icon.png",
+              'img': widget.cartItems.first.imagePath.isNotEmpty ? widget.cartItems.first.imagePath : "assets/images/tea_icon.png",
               'createdAt': DateTime.now().millisecondsSinceEpoch,
             };
             
             await FirebaseFirestore.instance.collection('subscriptions').add(subData);
+
+            // ALSO Save in Orders collection so it appears in One-Time tab / admin dashboard
+            final orderId = 'CHAI-SUB-${100000 + DateTime.now().millisecondsSinceEpoch % 900000}';
+            final String dateString = "${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year} ${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
+
+            final orderData = {
+              'orderId': orderId,
+              'userId': user?.uid ?? "guest",
+              'customer': user?.displayName ?? "App User",
+              'phone': selectedAddr['officeNumber'] ?? "0000000000",
+              'pincode': "122001",
+              'office': formattedAddress,
+              'item': 'Subscription: $itemsSummary',
+              'sugar': widget.cartItems.map((e) => e.sugar).toSet().join(', ') == "" ? "Normal Sugar" : widget.cartItems.map((e) => e.sugar).toSet().join(', '),
+              'milk': "Whole Milk",
+              'image': widget.cartItems.first.imagePath.isNotEmpty ? widget.cartItems.first.imagePath : "assets/images/tea_icon.png",
+              'img': widget.cartItems.first.imagePath.isNotEmpty ? widget.cartItems.first.imagePath : "assets/images/tea_icon.png",
+              'priority': "Subscription",
+              'total': '₹$orderCost',
+              'priceNum': orderCost,
+              'addons': addonsParam,
+              'coupon': "None",
+              'status': "Received",
+              'date': dateString,
+              'createdAt': DateTime.now().millisecondsSinceEpoch,
+              'updatedAt': DateTime.now().millisecondsSinceEpoch,
+            };
+            
+            await FirebaseFirestore.instance.collection('orders').doc(orderId).set(orderData);
           } else {
             // ONE-TIME ORDER
             final orderId = 'CHAI-ORD-${100000 + DateTime.now().millisecondsSinceEpoch % 900000}';

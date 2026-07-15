@@ -11,21 +11,30 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let profileUnsubscribe;
+
     const unsubscribe = onAuthStateChange(async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
-        try {
-          const prof = await getUserProfile(firebaseUser.uid);
-          setProfile(prof);
-        } catch (e) {
-          setProfile(null);
-        }
+        // Start listening to realtime profile updates
+        import("@/lib/auth").then(({ onUserProfileSnapshot }) => {
+          profileUnsubscribe = onUserProfileSnapshot(firebaseUser.uid, (prof) => {
+            setProfile(prof);
+          });
+        });
       } else {
+        if (profileUnsubscribe) {
+          profileUnsubscribe();
+          profileUnsubscribe = null;
+        }
         setProfile(null);
       }
       setLoading(false);
     });
-    return () => unsubscribe();
+    return () => {
+      if (profileUnsubscribe) profileUnsubscribe();
+      unsubscribe();
+    };
   }, []);
 
   return (

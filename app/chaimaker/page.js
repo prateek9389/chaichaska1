@@ -861,11 +861,7 @@ export default function AdminDashboard() {
           {/* FIXED LEFT SIDEBAR */}
           <aside className="dashboard-sidebar">
             <div className="sidebar-logo">
-              <svg width="32" height="32" viewBox="0 0 100 100" fill="none" style={{ display: "inline-block", verticalAlign: "middle" }}>
-                <rect width="100" height="100" rx="20" fill="#fdf5e9" />
-                <path d="M30 30h40v12H30V30zm0 24h40v12H30V54z" fill="#2c1b0d" />
-              </svg>
-              <span className="logo-text">ChaiCo.</span>
+              <img src="/assets/images/logo.png" alt="Chai Chaska Logo" style={{ maxHeight: "60px", width: "auto", objectFit: "contain" }} />
             </div>
 
             <div className="sidebar-menu">

@@ -99,46 +99,7 @@ class HelpCenterScreen extends StatelessWidget {
                   },
                 ],
               ),
-              const SizedBox(height: 36),
 
-              // Contact support card
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFAF7F4),
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: const Color(0xFFF1EDE9), width: 1.5),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(Icons.headset_mic_rounded, color: Color(0xFF8B6B58), size: 36),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Still need help?',
-                      style: GoogleFonts.sora(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Our customer service tea captains are online 24/7.',
-                      textAlign: TextAlign.center,
-                      style: GoogleFonts.outfit(fontSize: 12, color: Colors.grey.shade500),
-                    ),
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E1E1E),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Text(
-                        'Start Live Chat',
-                        style: GoogleFonts.sora(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
         ),

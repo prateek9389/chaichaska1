@@ -1,34 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'order_detail_screen.dart';
 
 class NotificationScreen extends StatelessWidget {
   const NotificationScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> notifications = [
-      {
-        'title': 'Order Dispatched 🚚',
-        'body': 'Your order #CHAI-78401 is out for delivery. Hot and fresh!',
-        'time': 'Just now',
-        'icon': Icons.delivery_dining_rounded,
-        'color': Colors.green,
-      },
-      {
-        'title': 'Subscription Renewed 🔄',
-        'body': 'Your weekly "Daily Chai Pass" has been renewed automatically.',
-        'time': '2 hours ago',
-        'icon': Icons.autorenew_rounded,
-        'color': Colors.blue,
-      },
-      {
-        'title': 'Grab 20% Off! 🏷️',
-        'body': 'Enjoy 20% discount on all custom tea and snacks orders today.',
-        'time': '1 day ago',
-        'icon': Icons.local_offer_outlined,
-        'color': Colors.redAccent,
-      },
-    ];
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      return const Scaffold(body: Center(child: Text("Not logged in")));
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFFDFDFD),
@@ -63,24 +47,84 @@ class NotificationScreen extends StatelessWidget {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: notifications.isEmpty
-            ? Center(
+        child: StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('notifications')
+              .where('userId', isEqualTo: user.uid)
+              .orderBy('createdAt', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              // Firebase requires a composite index for where+orderBy. Show fallback if error
+              return Center(child: Text('Requires Firestore Index. Please create it in console.'));
+            }
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return Center(
                 child: Text(
                   'No notifications yet.',
                   style: GoogleFonts.outfit(color: Colors.grey.shade400, fontSize: 16),
                 ),
-              )
-            : ListView.builder(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.all(20.0),
-                itemCount: notifications.length,
-                itemBuilder: (context, index) {
-                  final notif = notifications[index];
-                  return Container(
+              );
+            }
+
+            final notifications = snapshot.data!.docs;
+
+            return ListView.builder(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.all(20.0),
+              itemCount: notifications.length,
+              itemBuilder: (context, index) {
+                final notifDoc = notifications[index];
+                final notif = notifDoc.data() as Map<String, dynamic>;
+                
+                // parse time from Timestamp
+                String timeAgo = 'Just now';
+                if (notif['createdAt'] != null) {
+                  final ts = notif['createdAt'] as Timestamp;
+                  final diff = DateTime.now().difference(ts.toDate());
+                  if (diff.inDays > 0) {
+                    timeAgo = '${diff.inDays} days ago';
+                  } else if (diff.inHours > 0) {
+                    timeAgo = '${diff.inHours} hours ago';
+                  } else if (diff.inMinutes > 0) {
+                    timeAgo = '${diff.inMinutes} mins ago';
+                  }
+                }
+
+                return GestureDetector(
+                  onTap: () async {
+                    if (notif['orderId'] != null && notif['orderId'].toString().isNotEmpty) {
+                      showDialog(
+                        context: context, 
+                        barrierDismissible: false,
+                        builder: (ctx) => const Center(child: CircularProgressIndicator())
+                      );
+                      
+                      try {
+                        final orderSnap = await FirebaseFirestore.instance.collection('orders').doc(notif['orderId']).get();
+                        if (context.mounted) Navigator.pop(context);
+                        if (orderSnap.exists && context.mounted) {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => OrderDetailScreen(orderData: {...orderSnap.data()!, 'id': orderSnap.id}),
+                            ),
+                          );
+                          notifDoc.reference.update({'isRead': true});
+                        }
+                      } catch (e) {
+                         if (context.mounted) Navigator.pop(context);
+                      }
+                    }
+                  },
+                  child: Container(
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: notif['isRead'] == true ? Colors.white : Colors.orange.shade50,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: Colors.grey.shade100),
                       boxShadow: [
@@ -96,8 +140,8 @@ class NotificationScreen extends StatelessWidget {
                       children: [
                         CircleAvatar(
                           radius: 20,
-                          backgroundColor: notif['color'].withAlpha(20),
-                          child: Icon(notif['icon'], color: notif['color'], size: 18),
+                          backgroundColor: Colors.orange.shade100,
+                          child: const Icon(Icons.notifications_active, color: Colors.orange, size: 18),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -107,19 +151,23 @@ class NotificationScreen extends StatelessWidget {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(
-                                    notif['title'],
-                                    style: GoogleFonts.sora(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black),
+                                  Expanded(
+                                    child: Text(
+                                      notif['title'] ?? 'Notification',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.sora(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black),
+                                    ),
                                   ),
                                   Text(
-                                    notif['time'],
+                                    timeAgo,
                                     style: GoogleFonts.outfit(fontSize: 10, color: Colors.grey.shade400),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                notif['body'],
+                                notif['body'] ?? '',
                                 style: GoogleFonts.outfit(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
                               ),
                             ],
@@ -127,9 +175,12 @@ class NotificationScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
+            );
+          }
+        ),
       ),
     );
   }

@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../state/wallet_state.dart';
 
 class UpdateProfileScreen extends StatefulWidget {
@@ -19,9 +23,13 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: WalletState.profileName.value);
-    _passwordController = TextEditingController(text: WalletState.password);
-    _tempAvatarUrl = WalletState.avatarUrl.value;
+    final user = FirebaseAuth.instance.currentUser;
+    _nameController = TextEditingController(text: user?.displayName ?? WalletState.profileName.value);
+    _passwordController = TextEditingController(text: '');
+    _tempAvatarUrl = user?.photoURL ?? WalletState.avatarUrl.value;
+    if (_tempAvatarUrl.isEmpty) {
+      _tempAvatarUrl = 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=120';
+    }
   }
 
   @override
@@ -31,71 +39,68 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     super.dispose();
   }
 
-  void _showAvatarPickerDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-          title: Text(
-            'Choose Cartoon Avatar',
-            style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.w700),
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: GridView.builder(
-              shrinkWrap: true,
-              itemCount: WalletState.cartoonAvatars.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-              ),
-              itemBuilder: (context, index) {
-                final url = WalletState.cartoonAvatars[index];
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _tempAvatarUrl = url;
-                    });
-                    Navigator.of(context).pop();
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: _tempAvatarUrl == url ? const Color(0xFF8B6B58) : Colors.grey.shade200,
-                        width: _tempAvatarUrl == url ? 3 : 1.5,
-                      ),
-                    ),
-                    padding: const EdgeInsets.all(4),
-                    child: CircleAvatar(
-                      backgroundColor: const Color(0xFFFAF7F4),
-                      backgroundImage: NetworkImage(url),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    
+    if (pickedFile != null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploading image...')));
+      try {
+        final request = http.MultipartRequest(
+          'POST',
+          Uri.parse('https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/image/upload'), // TODO: Replace YOUR_CLOUD_NAME
         );
-      },
-    );
+        request.fields['upload_preset'] = 'YOUR_UPLOAD_PRESET'; // TODO: Replace YOUR_UPLOAD_PRESET
+        request.files.add(await http.MultipartFile.fromPath('file', pickedFile.path));
+        
+        final response = await request.send();
+        if (response.statusCode == 200) {
+           final responseData = await response.stream.bytesToString();
+           final data = json.decode(responseData);
+           setState(() {
+             _tempAvatarUrl = data['secure_url'];
+           });
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Image uploaded!')));
+        } else {
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed')));
+        }
+      } catch (e) {
+        debugPrint(e.toString());
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload error')));
+      }
+    }
   }
 
-  void _onSave() {
+  Future<void> _onSave() async {
     if (_formKey.currentState!.validate()) {
-      WalletState.profileName.value = _nameController.text;
-      WalletState.password = _passwordController.text;
-      WalletState.avatarUrl.value = _tempAvatarUrl;
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+           await user.updateDisplayName(_nameController.text);
+           await user.updatePhotoURL(_tempAvatarUrl);
+           if (_passwordController.text.isNotEmpty) {
+             await user.updatePassword(_passwordController.text);
+           }
+        }
+        
+        WalletState.profileName.value = _nameController.text;
+        WalletState.avatarUrl.value = _tempAvatarUrl;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profile updated successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop();
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -144,7 +149,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
 
                 // Avatar Editor Widget
                 GestureDetector(
-                  onTap: _showAvatarPickerDialog,
+                  onTap: _pickImage,
                   child: Stack(
                     alignment: Alignment.bottomRight,
                     children: [
@@ -184,7 +189,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Tap avatar to choose character',
+                  'Tap avatar to choose a photo from gallery',
                   style: GoogleFonts.outfit(fontSize: 12, color: Colors.grey.shade400),
                 ),
                 const SizedBox(height: 36),
@@ -237,8 +242,7 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
                     ),
                   ),
                   validator: (value) {
-                    if (value == null || value.isEmpty) return 'Password is required';
-                    if (value.length < 6) return 'Password must be at least 6 characters';
+                    if (value != null && value.isNotEmpty && value.length < 6) return 'Password must be at least 6 characters';
                     return null;
                   },
                 ),
