@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "57617026864",
+    "project_id": "chai-chaska-dc795",
+    "storage_bucket": "chai-chaska-dc795.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:57617026864:android:eed4a32ab33105865742f5",
+        "android_client_info": {
+          "package_name": "com.company.chaichuski"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "57617026864-tqknrr5pok70p0hbjb16v77mpa70985f.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.company.chaichuski",
+            "certificate_hash": "df073b4eda8c590c0f41f0cf13b94570fe8651ff"
+          }
+        },
+        {
+          "client_id": "57617026864-g7dbn81mhq1c624kj2dcd9fiqrm5n4n2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDnMSAHLBdhRS-aesioelrEAfX3LRSTCUQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "57617026864-g7dbn81mhq1c624kj2dcd9fiqrm5n4n2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

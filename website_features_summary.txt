@@ -1,0 +1,119 @@
+========================================================================
+                      CHAICO OPERATIONAL OVERVIEW & FEATURES
+========================================================================
+
+ChaiCo is a state-of-the-art corporate chai delivery and subscription web
+application, built using Next.js, React, and custom Tailwind/Vanilla CSS.
+It features a premium visual aesthetic designed around a custom White and
+Dark Chocolate brand color palette.
+
+Below is the complete feature map, page directory, and portal breakdown
+for the platform.
+
+------------------------------------------------------------------------
+1. USER-FACING FRONTEND ROUTES
+------------------------------------------------------------------------
+* Home Page (/)
+  - Elegant landing experience welcoming corporate members.
+  - Quick navigation links to shop menu, wallet, and subscriptions.
+
+* Shop Menu (/shop)
+  - Interactive grid displaying hot brews (Masala Chai, Ginger Chai, etc.).
+  - Add-ons Selector checklist (Organic Saffron, Extra Ginger, Honey).
+  - Combo Creator allowing users to select standard pairings.
+
+* Corporate Subscriptions (/subscribe)
+  - Subscription tier cards (Daily Kadak, Twice a Day, Chai+Snacks, Team Plan).
+  - Desk/floor delivery scheduling options.
+
+* Wallet Ledger (/wallet)
+  - Prepaid corporate wallet panel showing current balances.
+  - Credit/Debit recharge mock interfaces.
+
+* Secure Checkout (/checkout)
+  - Office building and room selection matrix.
+  - Delivery time scheduler, order totals, and checkout dispatch buttons.
+
+* Order Queue Trackers (/orders & /orders/[id])
+  - Real-time order progress timeline (Brewing, Dispatched, Served).
+  - Wait-time delivery estimations configured by the kitchen.
+
+------------------------------------------------------------------------
+2. BREWMASTER OUTLET PORTAL (/chaimaker)
+------------------------------------------------------------------------
+A comprehensive workspace for kitchen operators to manage active shifts,
+inventory, and dispatch logs.
+
+* Order Queue Tab:
+  - Three-column priority kanban board (High, Medium, Low priority cards).
+  - Live wait-time countdown timers.
+  - Priority toggles and preparation time allocator inputs on each card.
+
+* Today's Prep Tab:
+  - Aggregated cup numbers grouped by tea type (e.g. 45 Cups Ginger Chai, 30 Cups Saffron Chai) with add-on checklist summaries.
+
+* Stocks & Inventory:
+  - Live ingredient stock quantities editor.
+  - RESTOCK ALERT broadcaster form sending material requests to Admin.
+
+* Subscriptions Dispatch:
+  - Corporate subscription ledger displaying floor/desk locations.
+  - Daily dispatch scheduler checksheets.
+
+* Feedback Hub:
+  - Customer review tables alongside rating metrics.
+
+* Leave Request Roster:
+  - Operator time-off forms detailing reason, dates, and approval status.
+
+* Brewmaster Profile:
+  - Identity managers (Name, contact, outlet details) and secure logouts.
+
+------------------------------------------------------------------------
+3. ADMINISTRATIVE OVERLORDS PORTAL (/admin)
+------------------------------------------------------------------------
+A command center managing multi-building logistics, vendor metrics, and
+financial ledgers.
+
+* Secure Gateway Entry:
+  - Dual-credential security barrier requiring both PIN (9999) and Password (admin123).
+
+* Left Sidebar Navigation Tabs (10 Sections):
+  1. Overview: Wealthio financial bento overview of the entire business.
+  2. Buildings: Desk coverage, user count, and revenue of office towers.
+  3. Vendors: preparation times and rating matrices.
+  4. Subscriptions: Pricing and plans editor.
+  5. Offers: Active coupon campaigns and coupon usages tracker.
+  6. Disputes: Support ticket log and resolution triggers.
+  7. Users & Wallets: Corporate profile logs with block/unblock toggles.
+  8. Restock Alerts: Inbound material requests from brewmasters with dispatch actions.
+  9. Leaves Roster: staff leave requests scheduler with Approve/Reject toggles.
+  10. Global Settings: System operational window settings and system-wide broadcaster.
+
+* Right Sidebar Quick Feeds:
+  - Today's Live Revenue Progress Bar: Tracking current sales against daily goals.
+  - Active Orders List: Real-time look at cooking/delivery states.
+  - System Announcements Feed: Logs alert updates, leaves, and stock alerts.
+
+* 20-Section Overview Dashboard Bento Box:
+  1. Tea Sales Revenue: Total revenue tracker.
+  2. Material/Ingredient Procurements: Expenses incurred for ingredients.
+  3. Net Operational Profits: Total net profits.
+  4. Sales Volume Overview: Interactive bar graph tracking monthly cups sold.
+  5. Chai Ingredient Expense Split: Segmented chart showing milk, leaves, spices costs.
+  6. Station/Vendor Procurement Card: Virtual transaction card details for Jaipur HQ.
+  7. Recent Orders Table: Searchable and sortable invoice transactions tracker.
+  8. Cost Per Cup Breakdown: itemized costs per cup (Milk, spices, packaging).
+  9. Building-wise Procurement Card: Expenses broken down per office block.
+  10. Monthly Profit & Loss Summary: Snapshot of sales, expenses, and margins.
+  11. Ingredient Stock Value: Inventory depot reserves values.
+  12. Vendor Payout Card: Paid vs outstanding vendor balances tracker.
+  13. Customer Acquisition Cost (CAC): User marketing metrics.
+  14. Average Order Value (AOV): Mean ticket size tracking.
+  15. Refunds & Cancellations Summary: Order cancellations tracking rate.
+  16. Building Occupancy vs Order Ratio: Order density metrics.
+  17. Subscription Renewal Rate: Renewal gauge progress indicator.
+  18. Wallet Recharge Trend: Daily recharge figures.
+  19. Top Expense Categories: Rents, utility, and labor overheads.
+  20. Delivery/Prep Time Efficiency Card: Average speed efficiency ratings.
+========================================================================
