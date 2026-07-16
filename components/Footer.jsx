@@ -68,35 +68,7 @@ export default function Footer() {
           </p>
         </div>
 
-        <div>
-          <h4 style={{ fontSize: 13, marginBottom: 16, textTransform: "uppercase", letterSpacing: "0.06em", color: "#ffffff" }}>
-            Newsletter
-          </h4>
-          <p style={{ fontSize: 13, opacity: 0.85, marginBottom: 14 }}>
-            Subscribe to receive brewing tips &amp; special discounts.
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Link
-              href="/subscribe"
-              style={{
-                background: "#ffffff",
-                color: "#2c1b0d",
-                textDecoration: "none",
-                display: "inline-block",
-                borderRadius: "999px",
-                padding: "10px 24px",
-                fontWeight: 800,
-                fontSize: "13px",
-                cursor: "pointer",
-                width: "100%",
-                textAlign: "center",
-                transition: "all 0.2s ease"
-              }}
-            >
-              Join Subscription
-            </Link>
-          </div>
-        </div>
+
       </div>
 
       <div
@@ -109,14 +81,16 @@ export default function Footer() {
           opacity: 0.65,
         }}
       >
-        © 2026 ChaiCo. All rights reserved. Built with love for tea.
+        © 2026 Chai chuska. All rights reserved. Built with love for tea.
       </div>
 
       <style>{`
         .footer-grid {
           display: grid;
-          grid-template-columns: 1.2fr 1fr 1fr 1fr;
+          grid-template-columns: 1.2fr 1fr 1fr;
           gap: 40px;
+          max-width: 1000px;
+          margin: 0 auto;
         }
 
         @media (max-width: 900px) {

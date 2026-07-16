@@ -5,8 +5,6 @@ import { getProducts } from "@/lib/firestore";
 import Link from "next/link";
 
 export default function ProductCarousel() {
-  const [hoveredCardId, setHoveredCardId] = useState(null);
-
   const [teas, setTeas] = useState([]);
 
   useEffect(() => {
@@ -23,7 +21,7 @@ export default function ProductCarousel() {
           Trending Blends
         </h2>
         <p style={{ color: "#777777", fontSize: "14px", marginTop: "5px" }}>
-          Hover to pause and preview our organic brewing live.
+          Discover our most popular handcrafted teas.
         </p>
       </div>
 
@@ -32,28 +30,14 @@ export default function ProductCarousel() {
         <div className="carousel-track">
           {carouselItems.map((tea, idx) => {
             const uniqueId = `${tea.id}-${idx}`;
-            const isHovered = hoveredCardId === uniqueId;
             return (
               <div
                 key={uniqueId}
                 className="carousel-card"
-                onMouseEnter={() => setHoveredCardId(uniqueId)}
-                onMouseLeave={() => setHoveredCardId(null)}
               >
                 <Link href={`/product/${tea.id}`} style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", height: "100%" }}>
                   <div className="card-media-wrapper">
-                    {isHovered ? (
-                      <video
-                        src="/tea-hover.mp4"
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        className="card-media"
-                      />
-                    ) : (
-                      <img src={tea.image} alt={tea.name} className="card-media" />
-                    )}
+                    <img src={tea.image} alt={tea.name} className="card-media" />
                   </div>
                   <div className="card-details">
                     <h3 className="card-name">{tea.name}</h3>

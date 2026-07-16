@@ -265,28 +265,7 @@ export default function ProductDetailPage({ params }) {
               <span className="sale-badge">SAVE 50%</span>
             </div>
 
-            {/* Buying configuration options */}
-            <div className="purchase-options" style={{ width: "100%", marginBottom: "20px" }}>
-              <div
-                className={`option-card ${purchaseType === "one-time" ? "selected" : ""}`}
-                onClick={() => setPurchaseType("one-time")}
-              >
-                <div className="radio-dot" />
-                <div style={{ flexGrow: 1 }}>
-                  <h4 style={{ fontSize: "13.5px", fontWeight: 700, color: "#2c1b0d" }}>One-Time Purchase</h4>
-                </div>
-              </div>
 
-              <div
-                className={`option-card ${purchaseType === "subscription" ? "selected" : ""}`}
-                onClick={() => setPurchaseType("subscription")}
-              >
-                <div className="radio-dot" />
-                <div style={{ flexGrow: 1 }}>
-                  <h4 style={{ fontSize: "13.5px", fontWeight: 700, color: "#2c1b0d" }}>Subscribe &amp; Save</h4>
-                </div>
-              </div>
-            </div>
 
             {/* Quantity Selector & Purchase buttons */}
             <div style={{ display: "flex", gap: "10px", width: "100%", flexWrap: "wrap" }}>
@@ -463,7 +442,7 @@ export default function ProductDetailPage({ params }) {
                     const isSelected = selectedAddons.some((a) => a.id === addon.id);
                     return (
                       <div key={addon.id} className={`addon-card ${isSelected ? "selected" : ""}`}>
-                        <img src={addon.image} alt={addon.name} className="addon-img" />
+                        <img src={addon.image || "/chai-ingredients.png"} onError={(e) => { e.target.src = "/chai-ingredients.png"; }} alt={addon.name} className="addon-img" />
                         <div style={{ padding: "12px", display: "flex", flexDirection: "column", flexGrow: 1 }}>
                           <h4 style={{ fontSize: "13px", fontWeight: 700, color: "#2c1b0d", flexGrow: 1 }}>{addon.name}</h4>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px" }}>
@@ -782,6 +761,8 @@ export default function ProductDetailPage({ params }) {
           display: flex;
           flex-direction: column;
           align-items: flex-start;
+          justify-content: center;
+          padding-top: 20px;
         }
 
         .nordic-meta {

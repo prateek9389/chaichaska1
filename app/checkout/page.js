@@ -23,13 +23,9 @@ function CheckoutPortal() {
     }
   }, [cartItems, cartLoaded, checkoutStep, router]);
 
-  // Auth guard: redirect to login if not logged in
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/login?redirect=/checkout");
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading]);
+
+
+
 
   const [dbCoupons, setDbCoupons] = useState([]);
   const [dbAddons, setDbAddons] = useState([]);
@@ -42,6 +38,14 @@ function CheckoutPortal() {
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [deliveryTime, setDeliveryTime] = useState("Morning");
   const [purchaseType, setPurchaseType] = useState(searchParams.get("type") === "subscription" ? "subscription" : "one-time");
+
+  // Auth guard: redirect to login if not logged in AND trying to buy a subscription
+  useEffect(() => {
+    if (!authLoading && !user && purchaseType === "subscription") {
+      router.push("/login?redirect=/checkout?type=subscription");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, purchaseType]);
   const [slotMorning, setSlotMorning] = useState(false);
   const [slotEvening, setSlotEvening] = useState(false);
   const [customTime, setCustomTime] = useState("");
@@ -92,7 +96,7 @@ function CheckoutPortal() {
   const [appliedCodeLabel, setAppliedCodeLabel] = useState("");
 
   // Payment
-  const [paymentMethod, setPaymentMethod] = useState("upi"); // "upi" | "card" | "wallet"
+  const [paymentMethod, setPaymentMethod] = useState("upi"); // "upi" | "wallet"
 
   // Pre-fill from logged-in user profile
   useEffect(() => {
@@ -100,6 +104,9 @@ function CheckoutPortal() {
       setFullname(profile?.name || user.displayName || "");
       setPhone(profile?.phone || "");
       setAddress(profile?.floor || "");
+      setPaymentMethod("wallet");
+    } else {
+      setPaymentMethod("upi");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, profile]);
@@ -200,7 +207,7 @@ function CheckoutPortal() {
       return;
     }
 
-    if (checkoutStep === "payment") {
+    if (checkoutStep === "payment" || checkoutStep === "upi_payment") {
       if (purchaseType === "subscription" || paymentMethod === "wallet") {
          if ((profile?.coins || 0) < finalPayable) {
             setShowWalletModal(true);
@@ -342,9 +349,21 @@ function CheckoutPortal() {
                       <label>Contact Phone Number</label>
                       <input type="tel" placeholder="+91 XXXXX XXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} className="checkout-text-input" />
                     </div>
+                    {(!user || savedAddresses.length === 0) && (
+                      <div className="form-group full-width" style={{ gridColumn: "1 / -1" }}>
+                        <label>Delivery Address</label>
+                        <textarea 
+                          placeholder="House No, Street, Landmark, City" 
+                          value={address} 
+                          onChange={(e) => setAddress(e.target.value)} 
+                          className="checkout-text-input" 
+                          style={{ minHeight: "80px", resize: "vertical" }}
+                        />
+                      </div>
+                    )}
                   </div>
 
-                  {savedAddresses.length > 0 ? (
+                  {user && savedAddresses.length > 0 && (
                     <div className="saved-addresses-grid" style={{ marginBottom: "20px" }}>
                       <h4 style={{ fontSize: "14px", marginBottom: "12px", color: "#555" }}>Select Delivery Address</h4>
                       <div style={{ display: "flex", gap: "12px", overflowX: "auto", paddingBottom: "10px" }}>
@@ -374,10 +393,12 @@ function CheckoutPortal() {
                         </div>
                       </div>
                     </div>
-                  ) : (
+                  )}
+
+                  {user && savedAddresses.length === 0 && (
                     <div style={{ marginBottom: "20px" }}>
                        <button onClick={() => setShowAddressModal(true)} style={{ background: "#8a583c", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>
-                         + Add Delivery Address
+                         + Save an Address (Optional)
                        </button>
                     </div>
                   )}
@@ -442,47 +463,37 @@ function CheckoutPortal() {
                   <h3 className="card-title" style={{ marginBottom: "20px" }}>Choose Payment Method</h3>
                   
                   <div className="payment-options-grid">
-                    <label className={`pay-choice-box ${paymentMethod === "upi" ? "selected" : ""}`}>
-                      <input
-                        type="radio"
-                        name="pay"
-                        value="upi"
-                        checked={paymentMethod === "upi"}
-                        onChange={() => setPaymentMethod("upi")}
-                      />
-                      <div>
-                        <strong>UPI Instant Pay</strong>
-                        <span className="pay-desc">Pay via Google Pay, PhonePe, or Paytm</span>
-                      </div>
-                    </label>
+                    {!user && (
+                      <label className={`pay-choice-box ${paymentMethod === "upi" ? "selected" : ""}`}>
+                        <input
+                          type="radio"
+                          name="pay"
+                          value="upi"
+                          checked={paymentMethod === "upi"}
+                          onChange={() => setPaymentMethod("upi")}
+                        />
+                        <div>
+                          <strong>UPI Instant Pay</strong>
+                          <span className="pay-desc">Pay via Google Pay, PhonePe, or Paytm</span>
+                        </div>
+                      </label>
+                    )}
 
-                    <label className={`pay-choice-box ${paymentMethod === "card" ? "selected" : ""}`}>
-                      <input
-                        type="radio"
-                        name="pay"
-                        value="card"
-                        checked={paymentMethod === "card"}
-                        onChange={() => setPaymentMethod("card")}
-                      />
-                      <div>
-                        <strong>Credit / Debit Card</strong>
-                        <span className="pay-desc">Visa, MasterCard, RuPay accepted</span>
-                      </div>
-                    </label>
-
-                    <label className={`pay-choice-box ${paymentMethod === "wallet" ? "selected" : ""}`}>
-                      <input
-                        type="radio"
-                        name="pay"
-                        value="wallet"
-                        checked={paymentMethod === "wallet"}
-                        onChange={() => setPaymentMethod("wallet")}
-                      />
-                      <div>
-                        <strong>Loyalty Coin Wallet</strong>
-                        <span className="pay-desc">Redeem from active balance (550 Coins)</span>
-                      </div>
-                    </label>
+                    {user && (
+                      <label className={`pay-choice-box ${paymentMethod === "wallet" ? "selected" : ""}`}>
+                        <input
+                          type="radio"
+                          name="pay"
+                          value="wallet"
+                          checked={paymentMethod === "wallet"}
+                          onChange={() => setPaymentMethod("wallet")}
+                        />
+                        <div>
+                          <strong>Loyalty Coin Wallet</strong>
+                          <span className="pay-desc">Redeem from active balance ({(profile?.coins || 0)} Coins)</span>
+                        </div>
+                      </label>
+                    )}
                   </div>
 
                   <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
@@ -495,6 +506,8 @@ function CheckoutPortal() {
                   </div>
                 </div>
               )}
+
+
 
               {/* STEP 3: PROCESSING SCREEN */}
               {checkoutStep === "processing" && (
@@ -543,7 +556,7 @@ function CheckoutPortal() {
                       return (
                         <div key={addon.id} onClick={() => toggleCheckoutAddon(addon)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px", borderRadius: "10px", border: isSelected ? "1.5px solid #8a583c" : "1.5px solid #f0f0f0", background: isSelected ? "rgba(138, 88, 60, 0.05)" : "#fbf9f6", cursor: "pointer", transition: "all 0.2s" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                            <img src={addon.imgUrl} alt={addon.name} style={{ width: "40px", height: "40px", borderRadius: "8px", objectFit: "cover" }} />
+                            <img src={addon.image} alt={addon.name} style={{ width: "40px", height: "40px", borderRadius: "8px", objectFit: "cover" }} />
                             <div>
                               <strong style={{ display: "block", fontSize: "13px" }}>{addon.name}</strong>
                               <span style={{ fontSize: "11px", color: "#666" }}>₹{addon.priceVal}</span>
@@ -558,40 +571,6 @@ function CheckoutPortal() {
                   </div>
                 </div>
               )}
-
-              {/* COUPONS SECTION */}
-              <div className="checkout-card compact">
-                <h4 style={{ fontSize: "14px", fontWeight: 800, marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                  Apply Coupon Code
-                </h4>
-                <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
-                  <input
-                    type="text"
-                    placeholder="Enter Coupon (e.g. CHAICLUB)"
-                    value={couponCode}
-                    onChange={(e) => setCouponCode(e.target.value)}
-                    className="coupon-text-field"
-                  />
-                  <button type="button" onClick={() => handleApplyCoupon(couponCode)} className="btn-coupon-apply">
-                    Apply
-                  </button>
-                </div>
-                
-                <div className="coupon-pills-row">
-                  <button onClick={() => handleApplyCoupon("CHAICLUB")} className="coupon-pill">
-                    <strong>CHAICLUB</strong> (Save ₹50)
-                  </button>
-                  <button onClick={() => handleApplyCoupon("FIRSTCHAI")} className="coupon-pill">
-                    <strong>FIRSTCHAI</strong> (20% Off)
-                  </button>
-                </div>
-
-                {appliedDiscount > 0 && (
-                  <div className="success-coupon-label">
-                    <span>✓ Applied code: {appliedCodeLabel}</span>
-                  </div>
-                )}
-              </div>
 
               {/* PRICING BREAKDOWN CARD */}
               <div className="checkout-card pricing-breakdown">

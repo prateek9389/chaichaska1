@@ -135,111 +135,7 @@ export default function ShopPage() {
             </div>
           </div>
 
-          {/* Filter 2: Price Range */}
-          <div className="filter-section">
-            <h4 className="filter-title">Price Range</h4>
-            <div className="filter-links">
-              {[
-                { value: "All", label: "All Prices" },
-                { value: "under150", label: "Under ₹150" },
-                { value: "150-200", label: "₹150 - ₹200" },
-                { value: "over200", label: "Over ₹200" },
-              ].map((p) => (
-                <button
-                  key={p.value}
-                  onClick={() => setSelectedPrice(p.value)}
-                  className={`filter-btn ${selectedPrice === p.value ? "active" : ""}`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          {/* Filter 3: Caffeine Level */}
-          <div className="filter-section">
-            <h4 className="filter-title">Caffeine Level</h4>
-            <div className="filter-links">
-              {[
-                { value: "All", label: "All" },
-                { value: "high", label: "High Caffeine ⚡" },
-                { value: "medium", label: "Medium Caffeine ☕" },
-                { value: "none", label: "Caffeine-Free 🌿" },
-              ].map((c) => (
-                <button
-                  key={c.value}
-                  onClick={() => setSelectedCaffeine(c.value)}
-                  className={`filter-btn ${selectedCaffeine === c.value ? "active" : ""}`}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filter 4: Sweetness Match */}
-          <div className="filter-section">
-            <h4 className="filter-title">Sugar Content</h4>
-            <div className="filter-links">
-              {[
-                { value: "All", label: "All Profiles" },
-                { value: "unsweetened", label: "Unsweetened (Zero Sugar)" },
-                { value: "mild", label: "Mild Sweetness" },
-                { value: "sweetened", label: "Classic Sweetened" },
-              ].map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => setSelectedSweetness(s.value)}
-                  className={`filter-btn ${selectedSweetness === s.value ? "active" : ""}`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filter 5: Steep Time */}
-          <div className="filter-section">
-            <h4 className="filter-title">Steep Time</h4>
-            <div className="filter-links">
-              {[
-                { value: "All", label: "All Times" },
-                { value: "quick", label: "Quick Brew (< 3m)" },
-                { value: "traditional", label: "Traditional (3-5m)" },
-                { value: "slow", label: "Slow Simmer (5-10m)" },
-              ].map((t) => (
-                <button
-                  key={t.value}
-                  onClick={() => setSelectedSteepTime(t.value)}
-                  className={`filter-btn ${selectedSteepTime === t.value ? "active" : ""}`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filter 6: Best Paired With */}
-          <div className="filter-section">
-            <h4 className="filter-title">Perfect Tea Pairing</h4>
-            <div className="filter-links">
-              {[
-                { value: "All", label: "All Pairings" },
-                { value: "biscuits", label: "Chai Biscuits 🍪" },
-                { value: "rusks", label: "Butter Rusks 🍞" },
-                { value: "cookies", label: "Almond Cookies 🍪" },
-                { value: "samosas", label: "Crispy Samosas 🥟" },
-              ].map((pa) => (
-                <button
-                  key={pa.value}
-                  onClick={() => setSelectedPairing(pa.value)}
-                  className={`filter-btn ${selectedPairing === pa.value ? "active" : ""}`}
-                >
-                  {pa.label}
-                </button>
-              ))}
-            </div>
-          </div>
         </aside>
 
         {/* Right Product Grid Column */}
@@ -287,11 +183,7 @@ export default function ShopPage() {
                     className="shop-card-link-block"
                     style={{ cursor: "pointer" }}
                     onClick={() => {
-                      if (!user) {
-                        router.push(`/login?redirect=/product/${product.id}`);
-                      } else {
-                        router.push(`/product/${product.id}`);
-                      }
+                      router.push(`/product/${product.id}`);
                     }}
                   >
                     <div className="shop-card-img-box">
@@ -306,7 +198,7 @@ export default function ShopPage() {
                       
                       <div className="shop-card-footer">
                         <span className="shop-card-price">{product.price}</span>
-                        <span className="shop-card-arrow">{user ? "View details →" : "Sign in to order →"}</span>
+                        <span className="shop-card-arrow">View details →</span>
                       </div>
                     </div>
                   </div>

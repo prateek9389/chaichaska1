@@ -11,7 +11,7 @@ export default function ChaiShowcase() {
   const { user } = useAuth();
   const [cartItems, setCartItems] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [hoveredTeaId, setHoveredTeaId] = useState(null);
+
 
   const [teas, setTeas] = useState([]);
   
@@ -122,25 +122,11 @@ export default function ChaiShowcase() {
                 <div
                   key={tea.id}
                   className="tea-card"
-                  onMouseEnter={() => setHoveredTeaId(tea.id)}
-                  onMouseLeave={() => setHoveredTeaId(null)}
                   onClick={(e) => handleCardClick(e, tea.id)}
                   style={{ cursor: "pointer" }}
                 >
-                  {/* Product Image or Hover Video (1:1 Ratio) */}
                   <Link href={`/product/${tea.id}`}>
-                    {hoveredTeaId === tea.id ? (
-                      <video
-                        src="/tea-hover.mp4"
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        className="tea-image"
-                      />
-                    ) : (
-                      <img src={tea.image} alt={tea.name} className="tea-image" />
-                    )}
+                    <img src={tea.image} alt={tea.name} className="tea-image" />
                   </Link>
 
                   {/* Header Row: Title & Mini Icon */}

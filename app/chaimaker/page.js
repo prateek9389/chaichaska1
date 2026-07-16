@@ -100,19 +100,27 @@ export default function AdminDashboard() {
   const [toastMsg, setToastMsg] = useState("");
   const [showPendingSidebar, setShowPendingSidebar] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const notifications = orders
-    .filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing")
-    .map(o => ({
-      id: o.id,
-      text: `Order ${o.id} - ${o.item}`,
-      time: o.date
-    }));
+  const [readNotifications, setReadNotifications] = useState([]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("readNotifications_chaimaker");
+    if (saved) {
+      try { setReadNotifications(JSON.parse(saved)); } catch(e) {}
+    }
+  }, []);
+
+  const markAsRead = (id) => {
+    setReadNotifications(prev => {
+      const next = [...prev, id];
+      localStorage.setItem("readNotifications_chaimaker", JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     async function loadProfile() {
       const data = await getProfileSettings();
       if (data) {
-        if (data.brewmasterName) setBrewmasterName(data.brewmasterName);
         if (data.brewmasterContact) setBrewmasterContact(data.brewmasterContact);
         if (data.brewmasterBio) setBrewmasterBio(data.brewmasterBio);
         if (data.shopName) setShopName(data.shopName);
@@ -302,9 +310,21 @@ export default function AdminDashboard() {
   const [leaveRequests, setLeaveRequests] = useState([
     { start: "2026-07-10", end: "2026-07-12", reason: "Family Event", status: "Approved" }
   ]);
+
+  const notifications = [
+    ...orders
+      .filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing")
+      .map(o => ({ id: o.id, text: `Order ${o.id} - ${o.item}`, time: o.date })),
+    ...restockRequests
+      .map((r, i) => ({ id: r.id || `restock-${i}`, text: `Stock Alert: ${r.item} (${r.qty})`, time: r.date || "New" })),
+    ...leaveRequests
+      .filter(l => l.status === "Pending")
+      .map((l, i) => ({ id: l.id || `leave-${i}`, text: `Leave: ${l.start} to ${l.end}`, time: "New" }))
+  ].filter(n => !readNotifications.includes(n.id));
+
   const [workingHours, setWorkingHours] = useState("8:00 AM - 6:00 PM");
   const [shopName, setShopName] = useState("Chai Chaska Jaipur HQ");
-  const [brewmasterName, setBrewmasterName] = useState("Chef Kanti Lal");
+  const [brewmasterName, setBrewmasterName] = useState("Chai Maker");
   const [brewmasterContact, setBrewmasterContact] = useState("+91 98765 43210");
   const [brewmasterBio, setBrewmasterBio] = useState("Specialist in traditional spice infusions, kulhad brewing, and custom spice blends with 6+ years of corporate hospitality experience.");
 
@@ -943,8 +963,11 @@ export default function AdminDashboard() {
                 </button>
 
                 <div style={{ position: "relative" }}>
-                  <button onClick={() => setShowNotifications(!showNotifications)} className="alert-bell-btn" title="Simulate Alarm" style={{ border: "none", background: "transparent", fontSize: "18px", cursor: "pointer" }}>
+                  <button onClick={() => setShowNotifications(!showNotifications)} className="alert-bell-btn" title="Simulate Alarm" style={{ border: "none", background: "transparent", fontSize: "18px", cursor: "pointer", position: "relative" }}>
                     🔔
+                    {notifications.length > 0 && (
+                      <span style={{ position: "absolute", top: "5px", right: "5px", width: "10px", height: "10px", background: "red", borderRadius: "50%", border: "2px solid #fff" }} />
+                    )}
                   </button>
                   {showNotifications && (
                     <div style={{ position: "absolute", top: "100%", right: "0", background: "#fff", border: "1px solid rgba(0,0,0,0.1)", borderRadius: "12px", width: "250px", padding: "12px", boxShadow: "0 10px 20px rgba(0,0,0,0.1)", zIndex: 100 }}>
@@ -953,9 +976,12 @@ export default function AdminDashboard() {
                         <p style={{ fontSize: "12px", color: "#666" }}>No new notifications.</p>
                       ) : (
                         notifications.map(n => (
-                          <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid #eee" }}>
-                            <div style={{ fontSize: "12px", color: "#333" }}>{n.text}</div>
-                            <div style={{ fontSize: "10px", color: "#888", marginTop: "2px" }}>{n.time}</div>
+                          <div key={n.id} style={{ padding: "8px 0", borderBottom: "1px solid #eee", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div>
+                              <div style={{ fontSize: "12px", color: "#333", fontWeight: "bold" }}>{n.text}</div>
+                              <div style={{ fontSize: "10px", color: "#888", marginTop: "2px" }}>{n.time}</div>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); markAsRead(n.id); }} style={{ border: "none", background: "transparent", color: "#e74c3c", cursor: "pointer", fontSize: "14px", padding: "4px" }}>✖</button>
                           </div>
                         ))
                       )}

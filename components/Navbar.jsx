@@ -45,7 +45,7 @@ export default function Navbar() {
         left: 0,
         right: 0,
         zIndex: 50,
-        background: scrolled ? "rgba(255, 255, 255, 0.85)" : "rgba(255, 255, 255, 0.55)",
+        background: scrolled ? "#f5f0e8" : "rgba(245, 240, 232, 0.85)",
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
         borderBottom: "1px solid rgba(0, 0, 0, 0.06)",
@@ -72,7 +72,7 @@ export default function Navbar() {
             textDecoration: "none",
           }}
         >
-          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "75px", objectFit: "contain", mixBlendMode: "multiply" }} />
+          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "75px", objectFit: "contain", borderRadius: "50%" }} />
         </Link>
 
         <ul
@@ -320,7 +320,7 @@ export default function Navbar() {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "40px" }}>
-          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "65px", objectFit: "contain", mixBlendMode: "multiply" }} />
+          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "65px", objectFit: "contain", borderRadius: "50%" }} />
           <button
             onClick={() => setOpen(false)}
             style={{

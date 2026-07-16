@@ -1,6 +1,21 @@
 "use client";
 
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/navigation";
+
 export default function Subscription() {
+  const { user } = useAuth();
+  const router = useRouter();
+
+  const handleSubscribeClick = (e) => {
+    e.preventDefault();
+    if (!user) {
+      router.push("/login?redirect=/shop");
+    } else {
+      router.push("/shop");
+    }
+  };
+
   return (
     <section
       id="subscription"
@@ -47,11 +62,11 @@ export default function Subscription() {
 
           {/* CTA Buttons */}
           <div className="sub-actions">
-            <a href="/shop" className="sub-btn-primary">
+            <a href="/shop" onClick={handleSubscribeClick} className="sub-btn-primary">
               Subscribe Now
               <span className="arrow-circle">→</span>
             </a>
-            <a href="/shop" className="sub-btn-secondary">
+            <a href="/shop" onClick={handleSubscribeClick} className="sub-btn-secondary">
               Explore Plans
             </a>
           </div>
