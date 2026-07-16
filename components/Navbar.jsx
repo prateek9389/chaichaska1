@@ -27,7 +27,7 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const links = ["Home", "Shop", "Orders", "Our Blends", "About Us", "Brewing Guide", "Contact"];
+  const links = ["Home", "Shop", "Orders", "Contact"];
 
   const getLinkTarget = (item) => {
     if (item === "Home") return "/";
