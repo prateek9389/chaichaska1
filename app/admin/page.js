@@ -431,7 +431,11 @@ export default function AdminDashboard() {
   const [newAddonImg, setNewAddonImg] = useState("");
   const [newAddonDesc, setNewAddonDesc] = useState("");
   const [selectedComboAddons, setSelectedComboAddons] = useState([]);
-
+  
+  const [editingAddon, setEditingAddon] = useState(null);
+  const [editAddonName, setEditAddonName] = useState("");
+  const [editAddonPrice, setEditAddonPrice] = useState("");
+  const [editAddonImg, setEditAddonImg] = useState("");
   const [newMenuItemName, setNewMenuItemName] = useState("");
   const [newMenuItemPrice, setNewMenuItemPrice] = useState("");
   const [newMenuItemImg, setNewMenuItemImg] = useState("");
@@ -925,6 +929,25 @@ export default function AdminDashboard() {
       setTimeout(() => setToastMsg(""), 3000);
     } catch (err) {
       setToastMsg(`Error updating product: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 3000);
+    }
+  };
+
+  const handleUpdateAddonSubmit = async (e) => {
+    e.preventDefault();
+    if (!editingAddon) return;
+    try {
+      await updateAddon(editingAddon.id, {
+        name: editAddonName,
+        price: editAddonPrice,
+        image: editAddonImg
+      });
+      setToastMsg("Addon updated successfully!");
+      setEditingAddon(null);
+      setTimeout(() => setToastMsg(""), 3000);
+      getAddons().then(setAddonsList);
+    } catch (err) {
+      setToastMsg(`Error updating addon: ${err.message}`);
       setTimeout(() => setToastMsg(""), 3000);
     }
   };
@@ -2721,8 +2744,8 @@ export default function AdminDashboard() {
                             <select value={newMenuCategory} onChange={(e) => setNewMenuCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                               <option value="Chai">Chai</option>
                               <option value="Coffee">Coffee</option>
-                              <option value="Namkeen">Namkeen</option>
-                              <option value="Biscuits">Biscuits</option>
+                              <option value="Drinks">Drinks</option>
+                              <option value="Water">Water</option>
                             </select>
                           </div>
                           <div className="form-group">
@@ -3074,12 +3097,8 @@ export default function AdminDashboard() {
                           <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                             <option value="Chai">Chai</option>
                             <option value="Coffee">Coffee</option>
-                            <option value="Masala">Masala</option>
-                            <option value="Cardamom">Cardamom</option>
-                            <option value="Ginger">Ginger</option>
-                            <option value="Saffron">Saffron</option>
-                            <option value="Organic Greens">Organic Greens</option>
-                            <option value="Herbal Infusions">Herbal Infusions</option>
+                            <option value="Drinks">Drinks</option>
+                            <option value="Water">Water</option>
                           </select>
                         </div>
                         <div className="form-group" style={{ marginBottom: "12px" }}>
@@ -3226,12 +3245,8 @@ export default function AdminDashboard() {
                         <select value={newProdCategory} onChange={(e) => setNewProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                           <option value="Chai">Chai</option>
                           <option value="Coffee">Coffee</option>
-                          <option value="Masala">Masala</option>
-                          <option value="Cardamom">Cardamom</option>
-                          <option value="Ginger">Ginger</option>
-                          <option value="Saffron">Saffron</option>
-                          <option value="Organic Greens">Organic Greens</option>
-                          <option value="Herbal Infusions">Herbal Infusions</option>
+                          <option value="Drinks">Drinks</option>
+                          <option value="Water">Water</option>
                         </select>
                       </div>
 
@@ -3404,12 +3419,8 @@ export default function AdminDashboard() {
                           <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                             <option value="Chai">Chai</option>
                             <option value="Coffee">Coffee</option>
-                            <option value="Masala">Masala</option>
-                            <option value="Cardamom">Cardamom</option>
-                            <option value="Ginger">Ginger</option>
-                            <option value="Saffron">Saffron</option>
-                            <option value="Organic Greens">Organic Greens</option>
-                            <option value="Herbal Infusions">Herbal Infusions</option>
+                            <option value="Drinks">Drinks</option>
+                            <option value="Water">Water</option>
                           </select>
                         </div>
                         <div className="form-group" style={{ marginBottom: "12px" }}>
@@ -3618,17 +3629,30 @@ export default function AdminDashboard() {
                         <h3 style={{ fontSize: "16px", fontWeight: 800, margin: "0 0 8px" }}>{addon.name}</h3>
                         <p style={{ color: "#8a583c", fontWeight: 700, margin: "0 0 16px" }}>{addon.price}</p>
 
-                        <button
-                          style={{ marginTop: "auto", background: "#fcfaf7", border: "1px solid #e74c3c", color: "#e74c3c", padding: "8px", borderRadius: "8px", cursor: "pointer", fontWeight: "600" }}
-                          onClick={async () => {
-                            if (confirm("Are you sure you want to delete this addon?")) {
-                              await deleteAddon(addon.id);
-                              getAddons().then(setAddonsList);
-                            }
-                          }}
-                        >
-                          Delete Add-on
-                        </button>
+                        <div style={{ display: "flex", gap: "10px", marginTop: "auto" }}>
+                          <button
+                            style={{ flex: 1, background: "#2c1b0d", color: "#fff", border: "none", padding: "8px", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}
+                            onClick={() => {
+                              setEditingAddon(addon);
+                              setEditAddonName(addon.name);
+                              setEditAddonPrice(addon.price);
+                              setEditAddonImg(addon.image || "");
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            style={{ flex: 1, background: "#fcfaf7", border: "1px solid #e74c3c", color: "#e74c3c", padding: "8px", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}
+                            onClick={async () => {
+                              if (confirm("Are you sure you want to delete this addon?")) {
+                                await deleteAddon(addon.id);
+                                getAddons().then(setAddonsList);
+                              }
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )) : (
@@ -3637,6 +3661,59 @@ export default function AdminDashboard() {
                     </div>
                   )}
                 </div>
+
+                {editingAddon && (
+                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+                    <div style={{ background: "#fff", padding: "32px", borderRadius: "20px", width: "450px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", position: "relative" }}>
+                      <h3 style={{ margin: "0 0 20px", color: "#2c1b0d" }}>Edit Add-on</h3>
+                      <form onSubmit={handleUpdateAddonSubmit}>
+                        <div className="form-group" style={{ marginBottom: "12px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Add-on Name</label>
+                          <input type="text" value={editAddonName} onChange={(e) => setEditAddonName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "12px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Price</label>
+                          <input type="text" value={editAddonPrice} onChange={(e) => setEditAddonPrice(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "20px", display: "flex", gap: "10px", flexDirection: "column" }}>
+                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Image</label>
+                              <input type="file" accept="image/*" onChange={(e) => {
+                                const file = e.target.files[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => {
+                                    setEditAddonImg(reader.result);
+                                  };
+                                  reader.readAsDataURL(file);
+                                }
+                              }} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowImageLibrary(true);
+                                window.libraryTarget = "edit_addon";
+                              }}
+                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
+                            >
+                              📂 Image Library
+                            </button>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
+                            <input type="text" value={editAddonImg} onChange={(e) => setEditAddonImg(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                          <button type="button" onClick={() => setEditingAddon(null)} style={{ background: "#ccc", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", color: "#333" }}>Cancel</button>
+                          <button type="submit" style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", fontWeight: "bold" }}>Save Changes</button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
