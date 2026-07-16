@@ -72,7 +72,7 @@ export default function Navbar() {
             textDecoration: "none",
           }}
         >
-          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "75px", objectFit: "contain" }} />
+          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "75px", objectFit: "contain", mixBlendMode: "multiply" }} />
         </Link>
 
         <ul
@@ -320,7 +320,7 @@ export default function Navbar() {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "40px" }}>
-          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "65px", objectFit: "contain" }} />
+          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "65px", objectFit: "contain", mixBlendMode: "multiply" }} />
           <button
             onClick={() => setOpen(false)}
             style={{

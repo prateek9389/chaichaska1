@@ -123,7 +123,7 @@ export default function ShopPage() {
           <div className="filter-section">
             <h4 className="filter-title">Category</h4>
             <div className="filter-links">
-              {["All", "Chai", "Coffee", "Masala", "Cardamom", "Ginger", "Saffron", "Organic Greens", "Herbal Infusions"].map((cat) => (
+              {["All", "Chai", "Coffee", "Drinks", "Water"].map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
@@ -320,7 +320,7 @@ export default function ShopPage() {
       <Footer />
 
       {/* Styled JSX */}
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         /* Shop Banner Styling */
         .shop-banner {
           position: relative;
@@ -809,7 +809,7 @@ export default function ShopPage() {
             gap: 18px;
           }
         }
-      `}</style>
+      ` }} />
     </div>
   );
 }

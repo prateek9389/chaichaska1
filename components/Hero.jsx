@@ -80,24 +80,7 @@ export default function Hero() {
           maxWidth: 800,
         }}
       >
-        {/* Eyebrow badge */}
-        <div
-          className="hero-eyebrow"
-          style={{
-            background: "#efe3d5",
-            color: "#2c1b0dff",
-            padding: "8px 16px",
-            borderRadius: "999px",
-            fontSize: 13,
-            fontWeight: 600,
-            marginBottom: 14,
-            display: "inline-flex",
-            alignItems: "center",
-            letterSpacing: "0.02em",
-          }}
-        >
-          10K+ cups brewed &amp; delivered
-        </div>
+        {/* Eyebrow badge removed */}
 
         {/* Heading */}
         <h1
@@ -117,23 +100,11 @@ export default function Hero() {
           <span style={{ color: "#8a583c", display: "block", whiteSpace: "nowrap" }}>Indian Chai</span>
         </h1>
 
-        {/* Subtitle */}
-        <p
-          className="hero-sub"
-          style={{
-            fontSize: "clamp(14px, 1.8vw, 16px)",
-            lineHeight: 1.5,
-            color: "#444444",
-            maxWidth: 580,
-            marginBottom: 18,
-          }}
-        >
-          Freshly brewed, spice-infused loose-leaf chai <span className="desc-desktop">delivered to warm your soul and energize your day.</span>
-        </p>
+        {/* Subtitle removed */}
 
         {/* CTA Button */}
         <a
-          href="#buy-teas"
+          href="/shop"
           className="hero-cta"
           style={{
             background: "#000000",
@@ -146,6 +117,7 @@ export default function Hero() {
             alignItems: "center",
             gap: 12,
             transition: "transform 0.2s ease, box-shadow 0.2s ease",
+            marginTop: "35vh",
             marginBottom: 32,
           }}
           onMouseEnter={(e) => {

@@ -47,11 +47,11 @@ export default function Subscription() {
 
           {/* CTA Buttons */}
           <div className="sub-actions">
-            <a href="#subscribe" className="sub-btn-primary">
+            <a href="/shop" className="sub-btn-primary">
               Subscribe Now
               <span className="arrow-circle">→</span>
             </a>
-            <a href="#plans" className="sub-btn-secondary">
+            <a href="/shop" className="sub-btn-secondary">
               Explore Plans
             </a>
           </div>

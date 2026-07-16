@@ -13,15 +13,17 @@ export default function Marquee() {
   ];
 
   const chaiTypes = [
-    "Masala Chai",
-    "Cardamom (Elaichi) Chai",
-    "Ginger (Adrak) Chai",
-    "Saffron (Kesar) Chai",
-    "Tandoori Chai",
-    "Tulsi Herbal Chai",
-    "Lemongrass Chai",
-    "Kashmiri Kahwa",
-    "Sulaimani Mint Chai",
+    "Chaska Chai regular masala",
+    "Elaichi Ishq cardamom chai",
+    "Adrak Punch - extra ginger",
+    "Kadak Baat strong double-brew",
+    "Tulsi Sukoon - herbal",
+    "Green Fix green tea",
+    "Chaska Cuppa range",
+    "Filter Fauji filter coffee",
+    "Insta Josh instant coffee",
+    "Kaala Kick black coffee",
+    "Thanda Chaska cold coffee",
   ];
 
   const displayQualities = [...qualities, ...qualities];

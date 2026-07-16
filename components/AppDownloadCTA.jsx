@@ -32,7 +32,7 @@ export default function AppDownloadCTA() {
           style={{ flex: "1 1 500px", color: "#fdf5e9" }}
         >
           <h2 style={{ fontSize: "48px", fontWeight: "800", marginBottom: "24px", lineHeight: "1.1" }}>
-            Get Your Chai <br /> <span style={{ color: "#ffa726" }}>On The Go!</span>
+            Get Your Chai <br /> <span style={{ color: "#ffa726" }}>On The Chai Chaska!</span>
           </h2>
           <p style={{ fontSize: "18px", lineHeight: "1.6", color: "rgba(253, 245, 233, 0.8)", marginBottom: "40px" }}>
             Experience the authentic taste of Indian Chai right at your fingertips. Download our official Chai Chaska app to order your favorite brews, manage subscriptions, and earn exclusive rewards!
