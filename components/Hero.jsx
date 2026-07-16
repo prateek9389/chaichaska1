@@ -129,7 +129,7 @@ export default function Hero() {
             e.currentTarget.style.boxShadow = "none";
           }}
         >
-          Buy Now
+          Order Now
           <svg
             width="22"
             height="22"

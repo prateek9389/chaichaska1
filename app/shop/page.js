@@ -198,7 +198,7 @@ export default function ShopPage() {
                       
                       <div className="shop-card-footer">
                         <span className="shop-card-price">{product.price}</span>
-                        <span className="shop-card-arrow">Buy Now →</span>
+                        <span className="shop-card-arrow">Order Now →</span>
                       </div>
                     </div>
                   </div>
