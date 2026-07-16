@@ -333,11 +333,8 @@ function CheckoutPortal() {
               {/* STEP 1: SHIPPING ADDRESS */}
               {checkoutStep === "shipping" && (
                 <div className="checkout-card">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                  <div style={{ marginBottom: "20px" }}>
                     <h3 className="card-title">Office Destination</h3>
-                    <button type="button" onClick={handleUseLocation} className="btn-use-location" disabled={locLoading}>
-                      {locLoading ? "Detecting..." : "📍 Use Current Location"}
-                    </button>
                   </div>
 
                   <div className="address-inputs-grid" style={{ marginBottom: "16px" }}>
