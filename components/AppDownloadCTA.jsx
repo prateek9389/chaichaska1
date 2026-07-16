@@ -42,6 +42,8 @@ export default function AppDownloadCTA() {
             <motion.a 
               href="/chaichaska.apk"
               download="chaichaska.apk"
+              target="_blank"
+              rel="noopener noreferrer"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               style={{
