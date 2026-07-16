@@ -4,12 +4,13 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { db, updateOrder, updateSubscription } from "@/lib/firestore";
+import { db, updateOrder, updateSubscription, onSubscriptionsSnapshot } from "@/lib/firestore";
 import { collection, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
+  const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const { user, loading: authLoading } = useAuth();
 
@@ -24,6 +25,11 @@ export default function OrdersPage() {
         setOrders(myOrders);
       });
 
+      const unsubSubs = onSubscriptionsSnapshot((data) => {
+        const mySubs = data.filter((sub) => sub.userId === user.uid);
+        setSubscriptions(mySubs);
+      });
+
 
       setLoading(false);
     } else if (!authLoading && !user) {
@@ -32,6 +38,7 @@ export default function OrdersPage() {
 
     return () => {
       unsubOrders();
+      if (typeof unsubSubs === "function") unsubSubs();
     };
   }, [user, authLoading]);
 
@@ -47,14 +54,62 @@ export default function OrdersPage() {
           <p>Manage your active recurring cycles or view past boutique tea collections.</p>
         </section>
 
+        {/* Subscriptions Content */}
+        {subscriptions.length > 0 && (
+          <div style={{ marginBottom: "40px" }}>
+            <h2 style={{ fontSize: "20px", fontWeight: "bold", marginBottom: "16px" }}>My Subscriptions</h2>
+            <div className="orders-list-grid">
+              {subscriptions.map((sub) => (
+                <div key={sub.id} className="order-item-card" style={{ border: "2px solid #8a583c", background: "#fffdfa" }}>
+                  <img src={sub.image || sub.img || "/chai-ingredients.png"} alt={sub.id} className="order-card-img" />
+                  <div style={{ flexGrow: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span 
+                        className="status-indicator"
+                        style={{
+                          background: sub.status === "Paused" ? "rgba(243,156,18,0.15)" : 
+                                      sub.status === "Active" ? "rgba(39,174,96,0.1)" : "rgba(231,76,60,0.1)",
+                          color: sub.status === "Paused" ? "#f39c12" : 
+                                 sub.status === "Active" ? "#27ae60" : "#e74c3c",
+                        }}
+                      >
+                        {sub.status || "Active"}
+                      </span>
+                      <strong style={{ fontSize: "14.5px", color: "#8a583c" }}>{sub.price}</strong>
+                    </div>
+                    
+                    <h3 className="card-title-name" style={{ marginTop: "12px" }}>{sub.items}</h3>
+                    <div className="card-meta-list" style={{ marginTop: "8px" }}>
+                      <p>📅 Start Date: <strong>{sub.startDate}</strong></p>
+                      {sub.endDate && <p>🏁 End Date: <strong>{sub.endDate}</strong></p>}
+                      <p>⏰ Time Slot: <strong>{sub.timeSlot} ({sub.schedule})</strong></p>
+                      <p>🏢 Delivery To: <strong>{sub.office}</strong></p>
+                    </div>
+
+                    <div className="card-action-row" style={{ marginTop: "20px" }}>
+                      <button 
+                        onClick={() => updateSubscription(sub.id, { status: sub.status === "Paused" ? "Active" : "Paused" })} 
+                        className="card-btn secondary full-width-btn"
+                      >
+                        {sub.status === "Paused" ? "Resume Subscription" : "Pause Subscription"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Orders Content (Unified) */}
+        <h2 style={{ fontSize: "20px", fontWeight: "bold", marginBottom: "16px" }}>Order History</h2>
         <div className="orders-list-grid">
           {orders.map((ord) => {
-            const isSubscription = ord.type === "subscription" || (ord.item && ord.item.includes("Subscription"));
+            const isSubscriptionOrder = ord.type === "subscription" || (ord.item && ord.item.includes("Subscription"));
             
             return (
               <div key={ord.id} className="order-item-card">
-                <img src={ord.image} alt={ord.id} className="order-card-img" />
+                <img src={ord.image || ord.img || "/chai-ingredients.png"} alt={ord.id} className="order-card-img" />
                 <div style={{ flexGrow: 1 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span 
@@ -75,24 +130,14 @@ export default function OrdersPage() {
                   
                   <h3 className="card-title-name">{ord.id}</h3>
                   <div className="card-meta-list">
-                    <p>📅 Placed Date: <strong>{ord.date}</strong></p>
+                    <p>📅 Placed Date: <strong>{ord.date || new Date(ord.createdAt).toLocaleDateString()}</strong></p>
                     <p>🛍️ Blend Items: <strong>{ord.item}</strong></p>
-                    {isSubscription && <p>🔁 Type: <strong>Subscription Plan</strong></p>}
                   </div>
 
                   <div className="card-action-row" style={{ marginTop: "20px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
                     <Link href={`/orders/${ord.id}`} className="card-btn primary full-width-btn" style={{ marginBottom: "10px" }}>
                       View Order Invoice & Tracking →
                     </Link>
-
-                    {isSubscription && (
-                      <button 
-                        onClick={() => updateOrder(ord.id, { status: ord.status === "Paused" ? "Received" : "Paused" })} 
-                        className="card-btn secondary"
-                      >
-                        {ord.status === "Paused" ? "Resume Delivery" : "Pause Delivery"}
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>

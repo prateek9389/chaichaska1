@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteAddon, updateAddon, getStock, updateOrder, addMenuItem, addStockItem, updateStockItem, getSubscriptions, onProductsSnapshot, addProduct, deleteProduct, updateProduct, updateSubscription, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
+import { onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteAddon, updateAddon, getStock, updateOrder, addMenuItem, addStockItem, updateStockItem, getSubscriptions, onSubscriptionsSnapshot, onProductsSnapshot, addProduct, deleteProduct, updateProduct, updateSubscription, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
 import { loginWithEmail, signUpWithEmail } from "@/lib/auth";
 import Link from "next/link";
 import { db, auth } from "@/lib/firebase";
@@ -556,12 +556,13 @@ export default function AdminDashboard() {
     getAddons().then(setAddonsList);
     getStock().then(setStocks);
     getFeedback().then(setFeedbackList);
-    getSubscriptions().then(setSubscriptions);
+    const unsubSubscriptions = onSubscriptionsSnapshot((data) => setSubscriptions(data));
     const unsubProducts = onProductsSnapshot((data) => setProductsList(data));
     const unsubRestock = onRestockRequestsSnapshot((data) => setRestockRequests(data));
     const unsubLeave = onLeaveRequestsSnapshot((data) => setLeaveRequests(data));
     return () => {
       unsubOrders();
+      unsubSubscriptions();
       unsubProducts();
       unsubRestock();
       unsubLeave();
@@ -595,7 +596,7 @@ export default function AdminDashboard() {
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    if (username.trim().toLowerCase() !== "admin123@gmail.com") {
+    if (username.trim().toLowerCase() !== "admin123@gmail.com" && username.trim().toLowerCase() !== "adminnew@gmail.com") {
       setLoginError("Access denied. Admin portal is restricted.");
       return;
     }
@@ -605,14 +606,18 @@ export default function AdminDashboard() {
       localStorage.setItem("admin_logged", "true");
       setLoginError("");
     } catch (err) {
-      if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential" || err.message.includes("invalid")) {
+      if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential" || err.code === "auth/invalid-login-credentials" || err.message.includes("invalid")) {
         try {
           await signUpWithEmail({ name: "Admin", email: username.trim(), password: password.trim() });
           setIsLoggedIn(true);
           localStorage.setItem("admin_logged", "true");
           setLoginError("");
         } catch (e2) {
-          setLoginError(e2.message);
+          if (e2.code === "auth/email-already-in-use" || e2.message.includes("email-already-in-use")) {
+            setLoginError("Incorrect password. Please try again.");
+          } else {
+            setLoginError(e2.message);
+          }
         }
       } else {
         setLoginError(err.message);
@@ -1141,7 +1146,7 @@ export default function AdminDashboard() {
       customer: sub.customer || "Subscription Client",
       item: sub.items || "Classic Masala Chai",
       price: sub.price || "₹1,200",
-      priceNum: parseFloat((sub.price || "1200").replace(/[^\d\.]/g, "")) || 0,
+      priceNum: parseFloat(String(sub.price || "1200").replace(/[^\d\.]/g, "")) || 0,
       status: "Received",
       date: new Date().toLocaleDateString("en-IN") + " " + new Date().toLocaleTimeString("en-IN", { hour: '2-digit', minute: '2-digit' }),
       sugar: sub.sugar || "Medium Sugar",
@@ -1688,6 +1693,7 @@ export default function AdminDashboard() {
                           onChange={(e) => {
                             const newStatus = e.target.value;
                             setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
+                            updateOrder(selectedQueueOrder.id, { status: newStatus });
                           }}
                         >
                           <option value="Received">Received</option>
@@ -3691,36 +3697,55 @@ export default function AdminDashboard() {
                       <p style={{ fontSize: "12px", color: "#666", marginTop: "-12px", marginBottom: "20px" }}>Active recurring beverage plans mapped to office locations.</p>
 
                       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                        {activeSubs.map((sub, i) => (
-                          <div key={i} className="queue-card-detailed-item" style={{
-                            background: "#ffffff",
-                            padding: "20px",
-                            borderLeft: sub.status !== "Active" ? "4px solid #777" :
-                              (!sub.endDate && !sub.expiryDate) ? "4px solid #27ae60" :
-                                (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? "4px solid #e74c3c" :
-                                  (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 3) ? "4px solid #f39c12" : "4px solid #27ae60"
-                          }}>
+                        {activeSubs.map((sub, i) => {
+                          const getValidDate = (dateStr) => {
+                            if (!dateStr) return null;
+                            const parts = dateStr.split("/");
+                            if (parts.length === 3) return new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
+                            return new Date(dateStr);
+                          };
+                          const expiryDateObj = getValidDate(sub.endDate || sub.expiryDate);
+                          const diffDays = expiryDateObj ? Math.ceil((expiryDateObj - new Date()) / (1000 * 60 * 60 * 24)) : null;
 
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", borderBottom: "1px solid rgba(0,0,0,0.03)", paddingBottom: "6px" }}>
-                              <span style={{ fontSize: "11px", fontWeight: "bold", color: "#8a583c" }}>{sub.id}</span>
-                              <span style={{ fontSize: "11px", color: "#666" }}>
-                                Started: {sub.startDate} |
-                                <strong style={{
-                                  color: !sub.endDate && !sub.expiryDate ? "#27ae60" :
-                                    (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? "#e74c3c" :
-                                      (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) <= 3) ? "#f39c12" : "#27ae60",
-                                  marginLeft: "4px"
-                                }}>
-                                  {!sub.endDate && !sub.expiryDate ? "No Expiry Limit" :
-                                    (Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)) < 0) ? `Expired (On ${sub.endDate || sub.expiryDate})` :
-                                      `Expires: ${sub.endDate || sub.expiryDate} (${Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24))} days left)`}
-                                </strong>
-                              </span>
+                          return (
+                          <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", borderTop: sub.status === "Active" ? "4px solid #27ae60" : sub.status === "Paused" ? "4px solid #f39c12" : "4px solid #e74c3c", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "16px" }}>
+                            
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", borderBottom: "1px dashed rgba(0,0,0,0.1)", paddingBottom: "12px" }}>
+                              <div>
+                                <h4 style={{ fontSize: "16px", fontWeight: "800", color: "#2c1b0d", margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
+                                  👤 {sub.customer}
+                                  {sub.status !== "Active" && (
+                                    <span style={{ fontSize: "10px", background: sub.status === "Paused" ? "#f39c12" : "#e74c3c", color: "#fff", padding: "3px 8px", borderRadius: "12px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                      {sub.status}
+                                    </span>
+                                  )}
+                                </h4>
+                                <span style={{ fontSize: "11px", color: "#8a583c", fontWeight: "600", background: "rgba(138,88,60,0.1)", padding: "2px 8px", borderRadius: "12px" }}>ID: {sub.id}</span>
+                              </div>
+                              
+                              <div style={{ textAlign: "right" }}>
+                                <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500", marginBottom: "2px" }}>
+                                  <span style={{color:"#888"}}>Start:</span> <strong style={{color:"#2c1b0d"}}>{sub.startDate}</strong>
+                                </div>
+                                <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500" }}>
+                                  <span style={{color:"#888"}}>End:</span> <strong style={{color:"#2c1b0d"}}>{sub.endDate || sub.expiryDate || "Ongoing"}</strong>
+                                </div>
+                                <div style={{ fontSize: "10px", marginTop: "4px" }}>
+                                  <strong style={{
+                                    color: diffDays === null ? "#27ae60" :
+                                      (diffDays < 0) ? "#e74c3c" :
+                                        (diffDays <= 3) ? "#f39c12" : "#27ae60"
+                                  }}>
+                                    {diffDays === null ? "No Expiry Limit" :
+                                      (diffDays < 0) ? `Expired` :
+                                        `${diffDays} days left`}
+                                  </strong>
+                                </div>
+                              </div>
                             </div>
 
-                            {sub.endDate || sub.expiryDate ? (
+                            {diffDays !== null ? (
                               (() => {
-                                const diffDays = Math.ceil((new Date(sub.endDate || sub.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
                                 if (diffDays < 0) {
                                   return (
                                     <div style={{ background: "#fce8e6", color: "#e74c3c", padding: "8px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "bold", marginBottom: "12px", border: "1px solid rgba(231, 76, 60, 0.2)" }}>
@@ -3738,37 +3763,50 @@ export default function AdminDashboard() {
                               })()
                             ) : null}
 
-                            <div style={{ marginBottom: "12px" }}>
-                              <span style={{ fontSize: "14.5px", fontWeight: "bold", display: "block" }}>👤 {sub.customer}</span>
-                              <span style={{ fontSize: "12px", color: "#555", display: "block", margin: "4px 0" }}>🏢 Delivery Address: {sub.office || sub.address || "General Office Area"}</span>
-                              <span style={{ fontSize: "12.5px", fontWeight: "bold", color: "#2c1b0d", display: "block" }}>☕ Beverages: {sub.items}</span>
-                              <span style={{ fontSize: "12.5px", fontWeight: "bold", color: "#8a583c", display: "block", marginTop: "4px" }}>💰 Price: {sub.price || "₹1,200/month"}</span>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+                              <div style={{ background: "#fcfaf7", padding: "12px", borderRadius: "12px" }}>
+                                <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px", textTransform: "uppercase", fontWeight: "bold" }}>📦 Delivery Address</span>
+                                <span style={{ fontSize: "13px", color: "#2c1b0d", fontWeight: "500", lineHeight: "1.4", display: "block" }}>{sub.office || sub.address || "General Office Area"}</span>
+                              </div>
+                              <div style={{ background: "#fcfaf7", padding: "12px", borderRadius: "12px" }}>
+                                <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px", textTransform: "uppercase", fontWeight: "bold" }}>☕ Plan Items</span>
+                                <span style={{ fontSize: "13px", color: "#2c1b0d", fontWeight: "bold", lineHeight: "1.4", display: "block" }}>{sub.items}</span>
+                                <span style={{ fontSize: "12px", color: "#8a583c", fontWeight: "bold", display: "block", marginTop: "4px" }}>💰 {sub.price || "₹1,200/month"}</span>
+                              </div>
                             </div>
 
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontSize: "11.5px", color: "#666" }}>
-                                ⏰ {sub.timeSlot} ({sub.schedule})
-                              </span>
-
-                              <div style={{ display: "flex", gap: "8px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px", borderTop: "1px solid rgba(0,0,0,0.03)" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ background: "#e8f6ef", color: "#27ae60", padding: "6px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold" }}>
+                                  ⏰ {sub.timeSlot}
+                                </span>
+                                <span style={{ fontSize: "12px", color: "#666", fontWeight: "500" }}>({sub.schedule})</span>
+                              </div>
+                              
+                              <div style={{ display: "flex", gap: "10px" }}>
                                 <button
                                   type="button"
                                   onClick={() => toggleSubscriptionStatus(sub)}
-                                  style={{ background: "transparent", border: "1px solid rgba(0,0,0,0.1)", padding: "4px 8px", borderRadius: "6px", fontSize: "11px", cursor: "pointer" }}
+                                  style={{ background: "#fff", color: "#2c1b0d", border: "1px solid #ddd", padding: "8px 14px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "600", transition: "all 0.2s" }}
+                                  onMouseOver={(e) => e.target.style.background = "#f5f5f5"}
+                                  onMouseOut={(e) => e.target.style.background = "#fff"}
                                 >
                                   {sub.status === "Active" ? "Pause Plan" : "Resume Plan"}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => forceDispatchSubscription(sub)}
-                                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}
+                                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "bold", transition: "all 0.2s", boxShadow: "0 2px 6px rgba(44,27,13,0.3)" }}
+                                  onMouseOver={(e) => e.target.style.background = "#4a2d16"}
+                                  onMouseOut={(e) => e.target.style.background = "#2c1b0d"}
                                 >
                                   Force Dispatch
                                 </button>
                               </div>
                             </div>
                           </div>
-                        ))}
+                        );
+                        })}
                       </div>
                     </div>
 

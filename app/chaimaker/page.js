@@ -56,6 +56,10 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard"); 
   const [timeFilter, setTimeFilter] = useState("Weekly");
   const [queueFilter, setQueueFilter] = useState("All"); 
+  const [queueTab, setQueueTab] = useState("one-time");
+  const [selectedQueueOrder, setSelectedQueueOrder] = useState(null);
+  const [isQueueSidebarOpen, setIsQueueSidebarOpen] = useState(false);
+  const [deliveryTimeInput, setDeliveryTimeInput] = useState("");
   const [isOnline, setIsOnline] = useState(true);
 
   // Active Orders Queue with detailed fields (including office number, product image, details, priority, createdAt, allocatedTime)
@@ -1187,72 +1191,204 @@ export default function AdminDashboard() {
             {/* TAB: ORDER QUEUE */}
             {activeTab === "queue" && (
               <div className="tab-body-wrapper">
-                
-                {/* Summary of Active Brews on Top - Removed per user request */}
-
-                <h3 className="section-title">Active Brewing Priority Board</h3>
-
-                <div className="queue-kanban-board">
-                  {/* COLUMN 1: HIGH PRIORITY */}
-                  <div className="kanban-column high-col">
-                    <div className="kanban-column-header">
-                      <span>🚨 High Priority</span>
-                      <span className="kanban-badge red">
-                        {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "High").length}
-                      </span>
-                    </div>
-                    <div className="kanban-cards-stack">
-                      {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "High").length === 0 ? (
-                        <div className="empty-column-msg">No high priority orders</div>
-                      ) : (
-                        orders
-                          .filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "High")
-                          .sort((a, b) => a.id.localeCompare(b.id))
-                          .map((o) => renderQueueCard(o))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* COLUMN 2: STANDARD / NORMAL PRIORITY */}
-                  <div className="kanban-column normal-col">
-                    <div className="kanban-column-header">
-                      <span>🕒 Standard Priority</span>
-                      <span className="kanban-badge chocolate">
-                        {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && (o.priority === "Normal" || !o.priority)).length}
-                      </span>
-                    </div>
-                    <div className="kanban-cards-stack">
-                      {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && (o.priority === "Normal" || !o.priority)).length === 0 ? (
-                        <div className="empty-column-msg">No standard orders</div>
-                      ) : (
-                        orders
-                          .filter((o) => o.status !== "Delivered" && o.status !== "Completed" && (o.priority === "Normal" || !o.priority))
-                          .sort((a, b) => a.id.localeCompare(b.id))
-                          .map((o) => renderQueueCard(o))
-                      )}
-                    </div>
-                  </div>
-
-                  {/* COLUMN 3: LOW PRIORITY */}
-                  <div className="kanban-column low-col">
-                    <div className="kanban-column-header">
-                      <span>🌱 Low Priority</span>
-                      <span className="kanban-badge green">
-                        {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "Low").length}
-                      </span>
-                    </div>
-                    <div className="kanban-cards-stack">
-                      {orders.filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "Low").length === 0 ? (
-                        <div className="empty-column-msg">No low priority orders</div>
-                      ) : (
-                        orders
-                          .filter((o) => o.status !== "Delivered" && o.status !== "Completed" && o.priority === "Low")
-                          .sort((a, b) => a.id.localeCompare(b.id))
-                          .map((o) => renderQueueCard(o))
-                      )}
-                    </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                  <h3 className="section-title" style={{ margin: 0 }}>Order Queue (List View)</h3>
+                  <div className="admin-tabs" style={{ background: 'transparent', padding: 0, display: "flex", gap: "10px" }}>
+                    <button 
+                      className={`admin-tab ${queueTab === "one-time" ? "active" : ""}`} 
+                      onClick={() => setQueueTab("one-time")}
+                      style={{
+                        background: queueTab === "one-time" ? "#8e44ad" : "#f5f5f5",
+                        color: queueTab === "one-time" ? "#fff" : "#555",
+                        border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer"
+                      }}
+                    >
+                      One-Time Orders
+                    </button>
+                    <button 
+                      className={`admin-tab ${queueTab === "subscription" ? "active" : ""}`} 
+                      onClick={() => setQueueTab("subscription")}
+                      style={{
+                        background: queueTab === "subscription" ? "#8e44ad" : "#f5f5f5",
+                        color: queueTab === "subscription" ? "#fff" : "#555",
+                        border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer"
+                      }}
+                    >
+                      Subscription Orders
+                    </button>
                   </div>
                 </div>
+
+                <div className="queue-list-container" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                  {queueTab === "one-time" ? (
+                    orders.filter(o => o.priority !== "Subscription").length === 0 ? (
+                      <div className="empty-column-msg">No active one-time orders found.</div>
+                    ) : (
+                      orders
+                        .filter(o => o.priority !== "Subscription")
+                        .sort((a, b) => b.createdAt - a.createdAt)
+                        .map((o) => {
+                          const itemImg = o.image || o.img || itemImages[o.item] || "/assets/images/tea_icon.png";
+                          let statusColor = "#f39c12"; // PENDING
+                          if (o.status === "Preparing") statusColor = "#2c1b0d";
+                          if (o.status === "Shipped" || o.status === "In Transit") statusColor = "#3498db";
+                          if (o.status === "Delivered") statusColor = "#27ae60";
+                          if (o.status === "Cancelled") statusColor = "#e74c3c";
+                          
+                          let elapsedStr = "Just now";
+                          if (o.createdAt) {
+                            const diffMins = Math.floor((Date.now() - o.createdAt) / 60000);
+                            elapsedStr = `${diffMins}m ago`;
+                          }
+                          
+                          return (
+                            <div 
+                              key={o.id} 
+                              onClick={() => {
+                                setSelectedQueueOrder(o);
+                                setDeliveryTimeInput(o.allocatedTime || "");
+                                setIsQueueSidebarOpen(true);
+                              }}
+                              style={{ background: "#ffffff", padding: "16px", borderRadius: "16px", display: "flex", alignItems: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", gap: "20px", cursor: "pointer" }}
+                            >
+                              <img src={itemImg} alt="Item" style={{ width: "80px", height: "80px", borderRadius: "12px", objectFit: "cover" }} />
+                              
+                              <div style={{ flex: 1 }}>
+                                <h4 style={{ margin: "0 0 4px 0", fontSize: "15px", color: "#2c1b0d", fontWeight: "800" }}>{o.id} - {o.customer}</h4>
+                                <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#666" }}>{o.item} {o.sugar ? `| ${o.sugar}` : ""} {o.milk ? `| ${o.milk}` : ""}</p>
+                                <span style={{ fontSize: "11px", background: "#f5f5f5", padding: "4px 8px", borderRadius: "4px", color: "#888" }}>{elapsedStr}</span>
+                              </div>
+                              
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px", minWidth: "160px" }}>
+                                <strong style={{ fontSize: "11px", color: statusColor, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                  {o.status || "RECEIVED"}
+                                </strong>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )
+                  ) : (
+                    subscriptions.length === 0 ? (
+                      <div className="empty-column-msg">No active subscriptions found.</div>
+                    ) : (
+                      subscriptions
+                        .sort((a, b) => {
+                          if (a.status === "Active" && b.status !== "Active") return -1;
+                          if (a.status !== "Active" && b.status === "Active") return 1;
+                          return b.createdAt - a.createdAt;
+                        })
+                        .map((sub) => {
+                          const itemImg = sub.image || sub.img || itemImages[sub.items || sub.item] || "/assets/images/tea_icon.png";
+                          return (
+                            <div 
+                              key={sub.id} 
+                              onClick={() => {
+                                setSelectedQueueOrder(sub);
+                                setDeliveryTimeInput("");
+                                setIsQueueSidebarOpen(true);
+                              }}
+                              style={{ background: "#ffffff", padding: "16px", borderRadius: "16px", display: "flex", alignItems: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", gap: "20px", borderLeft: sub.status === "Active" ? "4px solid #8e44ad" : "4px solid #e74c3c", cursor: "pointer" }}
+                            >
+                              <img src={itemImg} alt="Sub Item" style={{ width: "80px", height: "80px", borderRadius: "12px", objectFit: "cover" }} />
+                              
+                              <div style={{ flex: 1 }}>
+                                <h4 style={{ margin: "0 0 4px 0", fontSize: "15px", color: "#2c1b0d", fontWeight: "800" }}>{sub.id} - {sub.customer || "Customer"}</h4>
+                                <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#666" }}>{sub.items || sub.item}</p>
+                                <span style={{ fontSize: "11px", background: "#f5f5f5", padding: "4px 8px", borderRadius: "4px", color: "#888" }}>Slot: {sub.timeSlot || "N/A"} | {sub.frequency || "Daily"}</span>
+                              </div>
+                              
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px", minWidth: "160px" }}>
+                                <strong style={{ fontSize: "11px", color: sub.status === "Active" ? "#8e44ad" : "#e74c3c", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                  {sub.status || "UNKNOWN"}
+                                </strong>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )
+                  )}
+                </div>
+
+                {/* SLIDING SIDEBAR FOR ORDER DETAILS */}
+                <div className={`queue-sidebar-overlay ${isQueueSidebarOpen ? "open" : ""}`} onClick={() => setIsQueueSidebarOpen(false)}></div>
+                <div className={`queue-sidebar-panel ${isQueueSidebarOpen ? "open" : ""}`}>
+                  {selectedQueueOrder && (
+                    <div className="queue-sidebar-content">
+                      <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
+
+                      <h2>Order {selectedQueueOrder.id}</h2>
+                      <div className="sidebar-detail-group">
+                        <label>Customer</label>
+                        <p>{selectedQueueOrder.customer}</p>
+                        <label>Office</label>
+                        <p>{selectedQueueOrder.office || "N/A"}</p>
+                        <label>Phone</label>
+                        <p>{selectedQueueOrder.phone || "N/A"}</p>
+                      </div>
+
+                      <div className="sidebar-detail-group">
+                        <label>Items</label>
+                        <p><strong>{selectedQueueOrder.item || selectedQueueOrder.items}</strong></p>
+                        <label>Add-ons</label>
+                        <p>{selectedQueueOrder.addons || "None"}</p>
+                        <label>Preferences</label>
+                        <p>{selectedQueueOrder.sugar || "Default"} | {selectedQueueOrder.milk || "Default"}</p>
+                        <label>Total</label>
+                        <p>{selectedQueueOrder.total || selectedQueueOrder.price || "N/A"}</p>
+                      </div>
+
+                      <div className="sidebar-detail-group">
+                        <label>Update Status</label>
+                        <select
+                          className="sidebar-select"
+                          value={selectedQueueOrder.status || "Received"}
+                          onChange={(e) => {
+                            const newStatus = e.target.value;
+                            setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
+                            updateOrder(selectedQueueOrder.id, { status: newStatus });
+                            setToastMsg(`✅ Order ${selectedQueueOrder.id} status updated to ${newStatus}`);
+                          }}
+                        >
+                          <option value="Received">Received</option>
+                          <option value="Pending">Pending</option>
+                          <option value="Preparing">Preparing</option>
+                          <option value="Shipped">Shipped</option>
+                          <option value="Delivered">Delivered</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
+
+                      <div className="sidebar-detail-group">
+                        <label>Set Delivery Time</label>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                          <input
+                            type="text"
+                            className="sidebar-input"
+                            value={deliveryTimeInput}
+                            onChange={(e) => setDeliveryTimeInput(e.target.value)}
+                            placeholder="e.g. 15 mins"
+                          />
+                          <button
+                            className="sidebar-save-btn"
+                            onClick={() => {
+                              const updatedStatus = selectedQueueOrder.status || "Received";
+                              updateOrder(selectedQueueOrder.id, {
+                                allocatedTime: deliveryTimeInput,
+                                status: updatedStatus
+                              });
+                              setToastMsg(`✅ Order ${selectedQueueOrder.id} updated!`);
+                              setIsQueueSidebarOpen(false);
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </div>
             )}
 
@@ -1917,36 +2053,66 @@ export default function AdminDashboard() {
                       
                       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                         {activeSubs.map((sub, i) => (
-                          <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", borderLeft: sub.status === "Active" ? "4px solid #27ae60" : "4px solid #777" }}>
+                          <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", borderTop: sub.status === "Active" ? "4px solid #27ae60" : sub.status === "Paused" ? "4px solid #f39c12" : "4px solid #e74c3c", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "16px" }}>
                             
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px", borderBottom: "1px solid rgba(0,0,0,0.03)", paddingBottom: "6px" }}>
-                              <span style={{ fontSize: "11px", fontWeight: "bold", color: "#8a583c" }}>{sub.id}</span>
-                              <span style={{ fontSize: "11px", color: "#666" }}>Started: {sub.startDate}</span>
-                            </div>
-
-                            <div style={{ marginBottom: "12px" }}>
-                              <span style={{ fontSize: "14.5px", fontWeight: "bold", display: "block" }}>👤 {sub.customer}</span>
-                              <span style={{ fontSize: "12px", color: "#555", display: "block", margin: "4px 0" }}>🏢 {sub.office}</span>
-                              <span style={{ fontSize: "12.5px", fontWeight: "bold", color: "#2c1b0d", display: "block" }}>☕ {sub.items}</span>
-                            </div>
-
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontSize: "11.5px", color: "#666" }}>
-                                ⏰ {sub.timeSlot || sub.time || "Morning Rush"} ({sub.schedule || "Daily"})
-                              </span>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", borderBottom: "1px dashed rgba(0,0,0,0.1)", paddingBottom: "12px" }}>
+                              <div>
+                                <h4 style={{ fontSize: "16px", fontWeight: "800", color: "#2c1b0d", margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
+                                  👤 {sub.customer}
+                                  {sub.status !== "Active" && (
+                                    <span style={{ fontSize: "10px", background: sub.status === "Paused" ? "#f39c12" : "#e74c3c", color: "#fff", padding: "3px 8px", borderRadius: "12px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                      {sub.status}
+                                    </span>
+                                  )}
+                                </h4>
+                                <span style={{ fontSize: "11px", color: "#8a583c", fontWeight: "600", background: "rgba(138,88,60,0.1)", padding: "2px 8px", borderRadius: "12px" }}>ID: {sub.id}</span>
+                              </div>
                               
-                              <div style={{ display: "flex", gap: "8px" }}>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500", marginBottom: "2px" }}>
+                                  <span style={{color:"#888"}}>Start:</span> <strong style={{color:"#2c1b0d"}}>{sub.startDate}</strong>
+                                </div>
+                                <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500" }}>
+                                  <span style={{color:"#888"}}>End:</span> <strong style={{color:"#2c1b0d"}}>{sub.endDate || "Ongoing"}</strong>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
+                              <div style={{ background: "#fcfaf7", padding: "12px", borderRadius: "12px" }}>
+                                <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px", textTransform: "uppercase", fontWeight: "bold" }}>📦 Delivery Address</span>
+                                <span style={{ fontSize: "13px", color: "#2c1b0d", fontWeight: "500", lineHeight: "1.4", display: "block" }}>{sub.office}</span>
+                              </div>
+                              <div style={{ background: "#fcfaf7", padding: "12px", borderRadius: "12px" }}>
+                                <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px", textTransform: "uppercase", fontWeight: "bold" }}>☕ Plan Items</span>
+                                <span style={{ fontSize: "13px", color: "#2c1b0d", fontWeight: "bold", lineHeight: "1.4", display: "block" }}>{sub.items}</span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px", borderTop: "1px solid rgba(0,0,0,0.03)" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <span style={{ background: "#e8f6ef", color: "#27ae60", padding: "6px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold" }}>
+                                  ⏰ {sub.timeSlot || sub.time || "09:00"}
+                                </span>
+                                <span style={{ fontSize: "12px", color: "#666", fontWeight: "500" }}>({sub.schedule || "Daily"})</span>
+                              </div>
+                              
+                              <div style={{ display: "flex", gap: "10px" }}>
                                 <button
                                   type="button"
                                   onClick={() => toggleSubscriptionStatus(sub)}
-                                  style={{ background: "transparent", border: "1px solid rgba(0,0,0,0.1)", padding: "4px 8px", borderRadius: "6px", fontSize: "11px", cursor: "pointer" }}
+                                  style={{ background: "#fff", color: "#2c1b0d", border: "1px solid #ddd", padding: "8px 14px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "600", transition: "all 0.2s" }}
+                                  onMouseOver={(e) => e.target.style.background = "#f5f5f5"}
+                                  onMouseOut={(e) => e.target.style.background = "#fff"}
                                 >
                                   {sub.status === "Active" ? "Pause Plan" : "Resume Plan"}
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => forceDispatchSubscription(sub)}
-                                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}
+                                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "bold", transition: "all 0.2s", boxShadow: "0 2px 6px rgba(44,27,13,0.3)" }}
+                                  onMouseOver={(e) => e.target.style.background = "#4a2d16"}
+                                  onMouseOut={(e) => e.target.style.background = "#2c1b0d"}
                                 >
                                   Force Dispatch
                                 </button>

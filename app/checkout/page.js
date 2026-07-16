@@ -268,7 +268,11 @@ function CheckoutPortal() {
               img: cartItems[0]?.image || "/chai-ingredients.png",
               image: cartItems[0]?.image || "/chai-ingredients.png",
            };
-           await addSubscription(subData);
+           let subId = null;
+           try {
+             subId = await addSubscription(subData);
+             orderData.subscriptionId = subId;
+           } catch(e) { console.error("Error creating subscription", e) }
         }
 
         const id = await createOrder(orderData);
@@ -388,25 +392,27 @@ function CheckoutPortal() {
               {/* STEP 2: PAYMENT METHOD */}
               {checkoutStep === "payment" && (
                 <div className="checkout-card">
-                  <div style={{ marginBottom: "28px" }}>
-                    <h3 className="card-title" style={{ marginBottom: "16px" }}>Purchase Type</h3>
-                    <div style={{ display: "flex", gap: "12px" }}>
-                      <div
-                        onClick={() => setPurchaseType("one-time")}
-                        style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "one-time" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "one-time" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
-                      >
-                        <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>One-Time Purchase</h4>
-                        <p style={{ fontSize: "12px", color: "#666" }}>Standard delivery</p>
-                      </div>
-                      <div
-                        onClick={() => setPurchaseType("subscription")}
-                        style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "subscription" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "subscription" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
-                      >
-                        <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>Subscribe &amp; Save</h4>
-                        <p style={{ fontSize: "12px", color: "#5c7a4d", fontWeight: 700 }}>Earn Loyalty Coins</p>
-                      </div>
-                      </div>
-                  </div>
+                  {searchParams.get("type") !== "subscription" && (
+                    <div style={{ marginBottom: "28px" }}>
+                      <h3 className="card-title" style={{ marginBottom: "16px" }}>Purchase Type</h3>
+                      <div style={{ display: "flex", gap: "12px" }}>
+                        <div
+                          onClick={() => setPurchaseType("one-time")}
+                          style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "one-time" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "one-time" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
+                        >
+                          <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>One-Time Purchase</h4>
+                          <p style={{ fontSize: "12px", color: "#666" }}>Standard delivery</p>
+                        </div>
+                        <div
+                          onClick={() => setPurchaseType("subscription")}
+                          style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "subscription" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "subscription" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
+                        >
+                          <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>Subscribe &amp; Save</h4>
+                          <p style={{ fontSize: "12px", color: "#5c7a4d", fontWeight: 700 }}>Earn Loyalty Coins</p>
+                        </div>
+                        </div>
+                    </div>
+                  )}
 
                   {purchaseType === "subscription" && (
                     <div style={{ marginBottom: "28px" }}>
