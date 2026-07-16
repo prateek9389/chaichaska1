@@ -664,6 +664,8 @@ export default function ShopPage() {
             left: 0;
             right: 0;
             bottom: 0;
+            height: 100dvh;
+            max-height: 100vh;
             z-index: 3000;
             background: #ffffff;
             border-radius: 0;
