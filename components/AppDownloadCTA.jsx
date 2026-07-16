@@ -40,7 +40,7 @@ export default function AppDownloadCTA() {
           
           <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
             <motion.a 
-              href="https://drive.google.com/drive/folders/173M-2fTLb-ZivSaJY6NlilR-ensvlqg"
+              href="https://drive.google.com/file/d/1QJ5mnsLvmb6Bd2G4KaStpuxSbe2Nj2qE/view?usp=drive_link"
               target="_blank"
               rel="noopener noreferrer"
               whileHover={{ scale: 1.05 }}
