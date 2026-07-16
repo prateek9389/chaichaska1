@@ -261,8 +261,6 @@ export default function ProductDetailPage({ params }) {
 
             <div className="nordic-price-box">
               <span className="current-price">{product.price}</span>
-              <span className="original-price">₹299</span>
-              <span className="sale-badge">SAVE 50%</span>
             </div>
 
 
