@@ -117,7 +117,7 @@ export default function Hero() {
             alignItems: "center",
             gap: 12,
             transition: "transform 0.2s ease, box-shadow 0.2s ease",
-            marginTop: "35vh",
+            marginTop: 24,
             marginBottom: 32,
           }}
           onMouseEnter={(e) => {
