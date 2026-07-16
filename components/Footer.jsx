@@ -81,7 +81,7 @@ export default function Footer() {
           opacity: 0.65,
         }}
       >
-        © 2026 Chai chuska. All rights reserved. Built with love for tea.
+        © 2026 Chai Chaska. All rights reserved. Built with love for tea.
       </div>
 
       <style>{`
