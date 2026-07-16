@@ -107,7 +107,7 @@ export default function Hero() {
           href="/shop"
           className="hero-cta"
           style={{
-            background: "#000000",
+            background: "#8a583c",
             color: "#ffffff",
             padding: "14px 30px",
             borderRadius: "999px",
@@ -129,7 +129,7 @@ export default function Hero() {
             e.currentTarget.style.boxShadow = "none";
           }}
         >
-          Buy Teas Now
+          Buy Now
           <svg
             width="22"
             height="22"
