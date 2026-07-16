@@ -3056,6 +3056,96 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
+                {editingProduct && (
+                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+                    <div style={{ background: "#fff", padding: "32px", borderRadius: "20px", width: "450px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", position: "relative" }}>
+                      <h3 style={{ margin: "0 0 20px", color: "#2c1b0d" }}>Edit Product</h3>
+                      <form onSubmit={handleUpdateProductSubmit}>
+                        <div className="form-group" style={{ marginBottom: "12px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Product Name</label>
+                          <input type="text" value={editProdName} onChange={(e) => setEditProdName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "12px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Price (INR)</label>
+                          <input type="number" value={editProdPrice} onChange={(e) => setEditProdPrice(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "12px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Category</label>
+                          <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
+                            <option value="Chai">Chai</option>
+                            <option value="Coffee">Coffee</option>
+                            <option value="Masala">Masala</option>
+                            <option value="Cardamom">Cardamom</option>
+                            <option value="Ginger">Ginger</option>
+                            <option value="Saffron">Saffron</option>
+                            <option value="Organic Greens">Organic Greens</option>
+                            <option value="Herbal Infusions">Herbal Infusions</option>
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "12px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Description</label>
+                          <textarea rows="2" value={editProdDesc} onChange={(e) => setEditProdDesc(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px", resize: "none" }} />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "20px", display: "flex", gap: "10px", flexDirection: "column" }}>
+                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Product Image</label>
+                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowImageLibrary(true);
+                                window.libraryTarget = "edit";
+                              }}
+                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
+                            >
+                              📂 Image Library
+                            </button>
+                          </div>
+                          <div>
+                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
+                            <input type="text" value={editProdImage} onChange={(e) => setEditProdImage(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                          </div>
+
+                          <div className="form-group" style={{ marginTop: "10px", display: "flex", gap: "10px", flexDirection: "column" }}>
+                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Gallery Images (Multiple)</label>
+                            <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+                              <div style={{ flex: 1 }}>
+                                <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setShowImageLibrary(true);
+                                  window.libraryTarget = "edit_gallery";
+                                }}
+                                style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
+                              >
+                                📂 Image Library
+                              </button>
+                            </div>
+                            {editProdGallery.length > 0 && (
+                              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
+                                {editProdGallery.map((img, idx) => (
+                                  <div key={idx} style={{ position: "relative", width: "60px", height: "60px" }}>
+                                    <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px" }} />
+                                    <button type="button" onClick={() => setEditProdGallery(prev => prev.filter((_, i) => i !== idx))} style={{ position: "absolute", top: "-5px", right: "-5px", background: "red", color: "white", border: "none", borderRadius: "50%", width: "20px", height: "20px", fontSize: "10px", cursor: "pointer" }}>X</button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                          <button type="button" onClick={() => setEditingProduct(null)} style={{ background: "#ccc", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", color: "#333" }}>Cancel</button>
+                          <button type="submit" style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", fontWeight: "bold" }}>Save Changes</button>
+                        </div>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
 
 
 
@@ -3084,7 +3174,21 @@ export default function AdminDashboard() {
                               <span>★ Rating: <strong>{p.rating || 5}</strong></span>
                             </div>
                           </div>
-                          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+                          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: "8px" }}>
+                            <button
+                              onClick={() => {
+                                setEditingProduct(p);
+                                setEditProdName(p.name);
+                                setEditProdPrice(p.priceNum || parseFloat(p.price.replace("₹", "")) || parseFloat(p.price) || 0);
+                                setEditProdCategory(p.category || "Masala");
+                                setEditProdDesc(p.desc || "");
+                                setEditProdImage(p.image || "");
+                                setEditProdGallery(p.gallery || []);
+                              }}
+                              style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
+                            >
+                              Edit
+                            </button>
                             <button
                               onClick={() => handleDeleteProduct(p.id)}
                               style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
@@ -5671,4 +5775,5 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
 
