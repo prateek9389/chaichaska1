@@ -12,6 +12,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState([]);
   const [subscriptions, setSubscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(Date.now());
   const { user, loading: authLoading } = useAuth();
 
   useEffect(() => {
@@ -41,6 +42,11 @@ export default function OrdersPage() {
       if (typeof unsubSubs === "function") unsubSubs();
     };
   }, [user, authLoading]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <div style={{ background: "#fcfaf7", minHeight: "100vh", color: "#2c1b0d", overflowX: "hidden" }}>
@@ -115,10 +121,10 @@ export default function OrdersPage() {
                     <span 
                       className="status-indicator"
                       style={{
-                        background: ord.status === "Cancelled" || ord.status === "Paused" ? "rgba(231,76,60,0.1)" : 
+                        background: ord.status === "Cancelled" || ord.status === "Cancelled by User" || ord.status === "Paused" ? "rgba(231,76,60,0.1)" : 
                                     ord.status === "Shipped" || ord.status === "Delivered" || ord.status === "Active" ? "rgba(39,174,96,0.1)" : 
                                     ord.status === "Pending" ? "rgba(241,196,15,0.15)" : "rgba(44,27,13,0.08)",
-                        color: ord.status === "Cancelled" || ord.status === "Paused" ? "#e74c3c" : 
+                        color: ord.status === "Cancelled" || ord.status === "Cancelled by User" || ord.status === "Paused" ? "#e74c3c" : 
                                ord.status === "Shipped" || ord.status === "Delivered" || ord.status === "Active" ? "#27ae60" : 
                                ord.status === "Pending" ? "#d35400" : "#2c1b0d",
                       }}
@@ -135,9 +141,22 @@ export default function OrdersPage() {
                   </div>
 
                   <div className="card-action-row" style={{ marginTop: "20px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                    <Link href={`/orders/${ord.id}`} className="card-btn primary full-width-btn" style={{ marginBottom: "10px" }}>
+                    <Link href={`/orders/${ord.id}`} className="card-btn primary full-width-btn" style={{ marginBottom: "10px", flex: 1 }}>
                       View Order Invoice & Tracking →
                     </Link>
+                    {(currentTime - ord.createdAt <= 60000) && (!ord.status || ord.status === "Received") && (
+                      <button 
+                        onClick={() => {
+                          if (window.confirm("Are you sure you want to cancel this order?")) {
+                            updateOrder(ord.id, { status: "Cancelled by User" });
+                          }
+                        }} 
+                        className="card-btn" 
+                        style={{ background: "#e74c3c", color: "#fff", flex: 1, marginBottom: "10px", border: "none" }}
+                      >
+                        Cancel Order
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

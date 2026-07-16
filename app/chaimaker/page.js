@@ -757,7 +757,10 @@ export default function AdminDashboard() {
               <span style={{ background: "rgba(39,174,96,0.1)", color: "#27ae60", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>✓ Delivered</span>
             )}
             {o.status === "Cancelled" && (
-              <span style={{ fontSize: "12px", color: "#e74c3c", fontWeight: "bold" }}>✕ Cancelled</span>
+              <span style={{ fontSize: "12px", color: "#e74c3c", fontWeight: "bold" }}>❌ Cancelled</span>
+            )}
+            {o.status === "Cancelled by User" && (
+              <span style={{ fontSize: "12px", color: "#e74c3c", fontWeight: "bold" }}>❌ Cancelled by User</span>
             )}
           </div>
         </div>
@@ -765,7 +768,7 @@ export default function AdminDashboard() {
     );
   };
 
-  const activeUnservedOrders = orders.filter((o) => o.status !== "Delivered" && o.status !== "Cancelled");
+  const activeUnservedOrders = orders.filter((o) => o.status !== "Delivered" && o.status !== "Cancelled" && o.status !== "Cancelled by User");
   const totalBrewsSummary = {};
   const addOnsSummary = { "Oat Milk": 0, "Almond Milk": 0, "No Sugar": 0, "Mild Sugar": 0 };
 
