@@ -115,7 +115,7 @@ function CheckoutPortal() {
     setLocLoading(true);
     setTimeout(() => {
       setFullname(profile?.name || user?.displayName || "Royal Tea Aficionado");
-      setPhone(profile?.phone || "+91 98765 43210");
+      setPhone(profile?.phone || "9876543210");
       setPincode("302001");
       setAddress(profile?.floor ? `${profile.floor}, Jaipur, Rajasthan` : "Palace Square Vista, Block 4-C, Jaipur, Rajasthan, India");
       setLocLoading(false);
@@ -321,7 +321,7 @@ function CheckoutPortal() {
               <div className="steps-status-bar">
                 <div className={`step-indicator ${checkoutStep === "shipping" ? "active" : "completed"}`}>
                   <span className="step-num">1</span>
-                  <span>Delivery Address</span>
+                  <span>Office Address</span>
                 </div>
                 <div className={`step-connector ${checkoutStep === "payment" ? "completed" : ""}`} />
                 <div className={`step-indicator ${checkoutStep === "payment" ? "active" : ""}`}>
@@ -334,7 +334,7 @@ function CheckoutPortal() {
               {checkoutStep === "shipping" && (
                 <div className="checkout-card">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                    <h3 className="card-title">Delivery Destination</h3>
+                    <h3 className="card-title">Office Destination</h3>
                     <button type="button" onClick={handleUseLocation} className="btn-use-location" disabled={locLoading}>
                       {locLoading ? "Detecting..." : "📍 Use Current Location"}
                     </button>
@@ -347,11 +347,14 @@ function CheckoutPortal() {
                     </div>
                     <div className="form-group">
                       <label>Contact Phone Number</label>
-                      <input type="tel" placeholder="+91 XXXXX XXXXX" value={phone} onChange={(e) => setPhone(e.target.value)} className="checkout-text-input" />
+                      <div style={{ display: "flex", alignItems: "center", border: "1px solid rgba(0,0,0,0.1)", borderRadius: "12px", background: "#f5f5f7", overflow: "hidden" }}>
+                        <span style={{ padding: "0 14px", fontWeight: "600", color: "#555", borderRight: "1px solid rgba(0,0,0,0.1)" }}>+91</span>
+                        <input type="tel" maxLength={10} placeholder="XXXXX XXXXX" value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} className="checkout-text-input" style={{ border: "none", borderRadius: 0, flexGrow: 1, background: "transparent", outline: "none", margin: 0 }} />
+                      </div>
                     </div>
                     {(!user || savedAddresses.length === 0) && (
                       <div className="form-group full-width" style={{ gridColumn: "1 / -1" }}>
-                        <label>Delivery Address</label>
+                        <label>Office Address</label>
                         <textarea 
                           placeholder="House No, Street, Landmark, City" 
                           value={address} 
@@ -365,7 +368,7 @@ function CheckoutPortal() {
 
                   {user && savedAddresses.length > 0 && (
                     <div className="saved-addresses-grid" style={{ marginBottom: "20px" }}>
-                      <h4 style={{ fontSize: "14px", marginBottom: "12px", color: "#555" }}>Select Delivery Address</h4>
+                      <h4 style={{ fontSize: "14px", marginBottom: "12px", color: "#555" }}>Select Office Address</h4>
                       <div style={{ display: "flex", gap: "12px", overflowX: "auto", paddingBottom: "10px" }}>
                         {savedAddresses.map(addr => (
                           <div 
@@ -672,7 +675,7 @@ function CheckoutPortal() {
                   <strong>18-24 Minutes 🚀</strong>
                 </div>
                 <div className="receipt-row" style={{ borderTop: "1px dashed rgba(0,0,0,0.08)", paddingTop: "12px", marginTop: "12px" }}>
-                  <span>Delivery Address:</span>
+                  <span>Office Address:</span>
                   <span style={{ fontSize: "12px", textAlign: "right", maxWidth: "220px", color: "#555" }}>
                     {savedAddresses.find(a => a.id === selectedAddressId) ? `${savedAddresses.find(a => a.id === selectedAddressId).officeNumber}, ${savedAddresses.find(a => a.id === selectedAddressId).officeName}, Floor ${savedAddresses.find(a => a.id === selectedAddressId).floor}, ${savedAddresses.find(a => a.id === selectedAddressId).address}` : address}
                   </span>
@@ -706,7 +709,7 @@ function CheckoutPortal() {
       {showAddressModal && (
         <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#fff", padding: "24px", borderRadius: "16px", width: "90%", maxWidth: "400px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: 800, marginBottom: "16px", color: "#2c1b0d" }}>Add Delivery Address</h3>
+            <h3 style={{ fontSize: "18px", fontWeight: 800, marginBottom: "16px", color: "#2c1b0d" }}>Add Office Address</h3>
             <form onSubmit={handleSaveAddress} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               <input type="text" placeholder="Label (e.g. Gurugram Office)" value={addrLabel} onChange={(e) => setAddrLabel(e.target.value)} className="checkout-text-input" required />
               <input type="text" placeholder="Office / Room Number" value={addrOfficeNum} onChange={(e) => setAddrOfficeNum(e.target.value)} className="checkout-text-input" required />
