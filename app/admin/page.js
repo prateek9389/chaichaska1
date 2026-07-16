@@ -3250,42 +3250,46 @@ export default function AdminDashboard() {
                         </select>
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Caffeine</label>
-                          <select value={newProdCaffeine} onChange={(e) => setNewProdCaffeine(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                            <option value="None">None</option>
-                            <option value="Low">Low</option>
-                            <option value="Medium">Medium</option>
-                            <option value="High">High</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Sweetness</label>
-                          <select value={newProdSweetness} onChange={(e) => setNewProdSweetness(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                            <option value="None">None</option>
-                            <option value="Low">Low</option>
-                            <option value="Medium">Medium</option>
-                            <option value="High">High</option>
-                          </select>
-                        </div>
-                      </div>
+                      {!(newProdCategory === "Water" || newProdCategory === "Drinks") && (
+                        <>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                            <div className="form-group">
+                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Caffeine</label>
+                              <select value={newProdCaffeine} onChange={(e) => setNewProdCaffeine(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
+                                <option value="None">None</option>
+                                <option value="Low">Low</option>
+                                <option value="Medium">Medium</option>
+                                <option value="High">High</option>
+                              </select>
+                            </div>
+                            <div className="form-group">
+                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Sweetness</label>
+                              <select value={newProdSweetness} onChange={(e) => setNewProdSweetness(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
+                                <option value="None">None</option>
+                                <option value="Low">Low</option>
+                                <option value="Medium">Medium</option>
+                                <option value="High">High</option>
+                              </select>
+                            </div>
+                          </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Steep Time</label>
-                          <select value={newProdSteepTime} onChange={(e) => setNewProdSteepTime(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                            <option value="3 mins">3 mins</option>
-                            <option value="4 mins">4 mins</option>
-                            <option value="5 mins">5 mins</option>
-                            <option value="6 mins">6 mins</option>
-                          </select>
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Pairing</label>
-                          <input type="text" placeholder="e.g. Biscuits" value={newProdPairing} onChange={(e) => setNewProdPairing(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                      </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
+                            <div className="form-group">
+                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Steep Time</label>
+                              <select value={newProdSteepTime} onChange={(e) => setNewProdSteepTime(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
+                                <option value="3 mins">3 mins</option>
+                                <option value="4 mins">4 mins</option>
+                                <option value="5 mins">5 mins</option>
+                                <option value="6 mins">6 mins</option>
+                              </select>
+                            </div>
+                            <div className="form-group">
+                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Pairing</label>
+                              <input type="text" placeholder="e.g. Biscuits" value={newProdPairing} onChange={(e) => setNewProdPairing(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                            </div>
+                          </div>
+                        </>
+                      )}
 
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
                         <div className="form-group">
