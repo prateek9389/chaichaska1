@@ -669,7 +669,7 @@ function CheckoutPortal() {
                 </div>
                 <div className="receipt-row">
                   <span>Estimated Delivery Time:</span>
-                  <strong>18-24 Minutes 🚀</strong>
+                  <strong>15-20 Minutes 🚀</strong>
                 </div>
                 <div className="receipt-row" style={{ borderTop: "1px dashed rgba(0,0,0,0.08)", paddingTop: "12px", marginTop: "12px" }}>
                   <span>Office Address:</span>
@@ -684,12 +684,10 @@ function CheckoutPortal() {
                 <div className="tracker-line">
                   <div className="tracker-progress" />
                   <span className="dot start">🏠</span>
-                  <span className="dot current">🚴</span>
                   <span className="dot destination">📍</span>
                 </div>
                 <div className="tracker-labels">
-                  <span>Brewery</span>
-                  <span>Chai Rider</span>
+                  <span>Brewmaster</span>
                   <span>You</span>
                 </div>
               </div>
