@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { db, auth } from "@/lib/firebase";
-import { collection, onSnapshot, addDoc } from "firebase/firestore";
+import { collection, onSnapshot, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { onOrdersSnapshot, getSubscriptions, updateSubscription, updateOrder, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings } from "@/lib/firestore";
 import { loginWithEmail } from "@/lib/auth";
@@ -303,7 +303,7 @@ export default function AdminDashboard() {
     { start: "2026-07-10", end: "2026-07-12", reason: "Family Event", status: "Approved" }
   ]);
   const [workingHours, setWorkingHours] = useState("8:00 AM - 6:00 PM");
-  const [shopName, setShopName] = useState("ChaiCo Jaipur HQ");
+  const [shopName, setShopName] = useState("Chai Chaska Jaipur HQ");
   const [brewmasterName, setBrewmasterName] = useState("Chef Kanti Lal");
   const [brewmasterContact, setBrewmasterContact] = useState("+91 98765 43210");
   const [brewmasterBio, setBrewmasterBio] = useState("Specialist in traditional spice infusions, kulhad brewing, and custom spice blends with 6+ years of corporate hospitality experience.");
@@ -1219,7 +1219,7 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="queue-list-container" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="queue-list-container">
                   {queueTab === "one-time" ? (
                     orders.filter(o => o.priority !== "Subscription").length === 0 ? (
                       <div className="empty-column-msg">No active one-time orders found.</div>
@@ -1227,50 +1227,35 @@ export default function AdminDashboard() {
                       orders
                         .filter(o => o.priority !== "Subscription")
                         .sort((a, b) => b.createdAt - a.createdAt)
-                        .map((o) => {
-                          const itemImg = o.image || o.img || itemImages[o.item] || "/assets/images/tea_icon.png";
-                          let statusColor = "#f39c12"; // PENDING
-                          if (o.status === "Preparing") statusColor = "#2c1b0d";
-                          if (o.status === "Shipped" || o.status === "In Transit") statusColor = "#3498db";
-                          if (o.status === "Delivered") statusColor = "#27ae60";
-                          if (o.status === "Cancelled") statusColor = "#e74c3c";
-                          
-                          let elapsedStr = "Just now";
-                          if (o.createdAt) {
-                            const diffMins = Math.floor((Date.now() - o.createdAt) / 60000);
-                            elapsedStr = `${diffMins}m ago`;
-                          }
-                          
-                          return (
-                            <div 
-                              key={o.id} 
-                              onClick={() => {
-                                setSelectedQueueOrder(o);
-                                setDeliveryTimeInput(o.allocatedTime || "");
-                                setIsQueueSidebarOpen(true);
-                              }}
-                              style={{ background: "#ffffff", padding: "16px", borderRadius: "16px", display: "flex", alignItems: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", gap: "20px", cursor: "pointer" }}
-                            >
-                              <img src={itemImg} alt="Item" style={{ width: "80px", height: "80px", borderRadius: "12px", objectFit: "cover" }} />
-                              
-                              <div style={{ flex: 1 }}>
-                                <h4 style={{ margin: "0 0 4px 0", fontSize: "15px", color: "#2c1b0d", fontWeight: "800" }}>{o.id} - {o.customer}</h4>
-                                <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#666" }}>{o.item} {o.sugar ? `| ${o.sugar}` : ""} {o.milk ? `| ${o.milk}` : ""}</p>
-                                <span style={{ fontSize: "11px", background: "#f5f5f5", padding: "4px 8px", borderRadius: "4px", color: "#888" }}>{elapsedStr}</span>
-                              </div>
-                              
-                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px", minWidth: "160px" }}>
-                                <strong style={{ fontSize: "11px", color: statusColor, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                                  {o.status || "RECEIVED"}
-                                </strong>
-                              </div>
+                        .map((o) => (
+                          <div
+                            key={o.id}
+                            className="queue-list-item"
+                            onClick={() => {
+                              setSelectedQueueOrder(o);
+                              setDeliveryTimeInput(o.allocatedTime || "");
+                              setIsQueueSidebarOpen(true);
+                            }}
+                          >
+                            <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" />
+                            <div className="queue-list-info">
+                              <h4>{o.id} - {o.customer}</h4>
+                              <p>{o.item}</p>
+                              <span className="time-elapsed">
+                                {Math.floor((Date.now() - o.createdAt) / 60000)}m ago
+                              </span>
                             </div>
-                          );
-                        })
+                            <div className="queue-list-status">
+                              <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
+                                {o.status || "Received"}
+                              </span>
+                            </div>
+                          </div>
+                        ))
                     )
                   ) : (
                     subscriptions.length === 0 ? (
-                      <div className="empty-column-msg">No active subscriptions found.</div>
+                      <div className="empty-column-msg">No subscriptions found.</div>
                     ) : (
                       subscriptions
                         .sort((a, b) => {
@@ -1278,34 +1263,36 @@ export default function AdminDashboard() {
                           if (a.status !== "Active" && b.status === "Active") return 1;
                           return b.createdAt - a.createdAt;
                         })
-                        .map((sub) => {
-                          const itemImg = sub.image || sub.img || itemImages[sub.items || sub.item] || "/assets/images/tea_icon.png";
-                          return (
-                            <div 
-                              key={sub.id} 
-                              onClick={() => {
-                                setSelectedQueueOrder(sub);
-                                setDeliveryTimeInput("");
-                                setIsQueueSidebarOpen(true);
-                              }}
-                              style={{ background: "#ffffff", padding: "16px", borderRadius: "16px", display: "flex", alignItems: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", gap: "20px", borderLeft: sub.status === "Active" ? "4px solid #8e44ad" : "4px solid #e74c3c", cursor: "pointer" }}
-                            >
-                              <img src={itemImg} alt="Sub Item" style={{ width: "80px", height: "80px", borderRadius: "12px", objectFit: "cover" }} />
-                              
-                              <div style={{ flex: 1 }}>
-                                <h4 style={{ margin: "0 0 4px 0", fontSize: "15px", color: "#2c1b0d", fontWeight: "800" }}>{sub.id} - {sub.customer || "Customer"}</h4>
-                                <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#666" }}>{sub.items || sub.item}</p>
-                                <span style={{ fontSize: "11px", background: "#f5f5f5", padding: "4px 8px", borderRadius: "4px", color: "#888" }}>Slot: {sub.timeSlot || "N/A"} | {sub.frequency || "Daily"}</span>
-                              </div>
-                              
-                              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px", minWidth: "160px" }}>
-                                <strong style={{ fontSize: "11px", color: sub.status === "Active" ? "#8e44ad" : "#e74c3c", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                                  {sub.status || "UNKNOWN"}
-                                </strong>
-                              </div>
+                        .map((sub) => (
+                          <div
+                            key={sub.id}
+                            className="queue-list-item"
+                            style={{
+                              borderLeft: sub.status === "Active" ? "4px solid #8e44ad" : "4px solid #e74c3c",
+                              opacity: sub.status === "Active" ? 1 : 0.6
+                            }}
+                          >
+                            <img src={sub.image || sub.img || "/assets/images/tea_icon.png"} alt={sub.id} className="queue-list-img" />
+                            <div className="queue-list-info">
+                              <h4>{sub.id} - {sub.customer || "Customer"}</h4>
+                              <p>{sub.items || sub.item}</p>
+                              <span className="time-elapsed">
+                                Time Slot: {sub.timeSlot || "N/A"} | {sub.frequency || "Daily"}
+                              </span>
                             </div>
-                          );
-                        })
+                            <div className="queue-list-status">
+                              {sub.status === "Active" ? (
+                                <span className="table-status-pill received" style={{ background: "#f3e5f5", color: "#8e44ad" }}>
+                                  Daily Delivery
+                                </span>
+                              ) : (
+                                <span className="table-status-pill cancelled" style={{ background: "#fce8e6", color: "#e74c3c" }}>
+                                  Paused
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))
                     )
                   )}
                 </div>
@@ -1322,20 +1309,20 @@ export default function AdminDashboard() {
                         <label>Customer</label>
                         <p>{selectedQueueOrder.customer}</p>
                         <label>Office</label>
-                        <p>{selectedQueueOrder.office || "N/A"}</p>
+                        <p>{selectedQueueOrder.office}</p>
                         <label>Phone</label>
                         <p>{selectedQueueOrder.phone || "N/A"}</p>
                       </div>
 
                       <div className="sidebar-detail-group">
                         <label>Items</label>
-                        <p><strong>{selectedQueueOrder.item || selectedQueueOrder.items}</strong></p>
+                        <p><strong>{selectedQueueOrder.item}</strong></p>
                         <label>Add-ons</label>
                         <p>{selectedQueueOrder.addons || "None"}</p>
                         <label>Preferences</label>
-                        <p>{selectedQueueOrder.sugar || "Default"} | {selectedQueueOrder.milk || "Default"}</p>
+                        <p>{selectedQueueOrder.sugar} | {selectedQueueOrder.milk}</p>
                         <label>Total</label>
-                        <p>{selectedQueueOrder.total || selectedQueueOrder.price || "N/A"}</p>
+                        <p>{selectedQueueOrder.total}</p>
                       </div>
 
                       <div className="sidebar-detail-group">
@@ -1347,13 +1334,11 @@ export default function AdminDashboard() {
                             const newStatus = e.target.value;
                             setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
                             updateOrder(selectedQueueOrder.id, { status: newStatus });
-                            setToastMsg(`✅ Order ${selectedQueueOrder.id} status updated to ${newStatus}`);
                           }}
                         >
                           <option value="Received">Received</option>
-                          <option value="Pending">Pending</option>
                           <option value="Preparing">Preparing</option>
-                          <option value="Shipped">Shipped</option>
+                          <option value="Out for Delivery">Out for Delivery</option>
                           <option value="Delivered">Delivered</option>
                           <option value="Cancelled">Cancelled</option>
                         </select>
@@ -1377,17 +1362,43 @@ export default function AdminDashboard() {
                                 allocatedTime: deliveryTimeInput,
                                 status: updatedStatus
                               });
-                              setToastMsg(`✅ Order ${selectedQueueOrder.id} updated!`);
+
+                              if (selectedQueueOrder.userId || selectedQueueOrder.userId === undefined) {
+                                // Assume userId exists in real data. If so, fetch token and notify
+                                const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
+                                if (uid) {
+                                  getDoc(doc(db, "users", uid)).then(userSnap => {
+                                    if (userSnap.exists() && userSnap.data().fcmToken) {
+                                      fetch("/api/notify", {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          token: userSnap.data().fcmToken,
+                                          title: "Order Update",
+                                          body: `Your order is now ${updatedStatus}`,
+                                          orderId: selectedQueueOrder.id,
+                                          userId: uid
+                                        })
+                                      });
+                                    }
+                                  }).catch(e => console.error("Error fetching user for push:", e));
+                                }
+                              }
+
                               setIsQueueSidebarOpen(false);
+                              setToastMsg("Order details updated & notification sent!");
+                              setTimeout(() => setToastMsg(""), 3000);
                             }}
                           >
                             Save
                           </button>
                         </div>
                       </div>
+
                     </div>
                   )}
                 </div>
+
 
               </div>
             )}
@@ -3776,8 +3787,155 @@ export default function AdminDashboard() {
             grid-template-columns: repeat(2, 1fr);
           }
         }
+        .queue-list-item {
+          display: flex;
+          align-items: center;
+          padding: 16px;
+          background: #ffffff;
+          border-radius: 12px;
+          border: 1px solid rgba(44, 27, 13, 0.06);
+          box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+          cursor: pointer;
+          transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .queue-list-item:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+        }
+
+        .queue-list-img {
+          width: 60px;
+          height: 60px;
+          border-radius: 10px;
+          object-fit: cover;
+          margin-right: 16px;
+        }
+
+        .queue-list-info {
+          flex: 1;
+        }
+
+        .queue-list-info h4 {
+          margin: 0 0 4px 0;
+          font-size: 16px;
+          color: #2c1b0d;
+        }
+
+        .queue-list-info p {
+          margin: 0 0 6px 0;
+          font-size: 14px;
+          color: #555;
+        }
+
+        .time-elapsed {
+          font-size: 12px;
+          color: #888;
+          background: #fbf9f6;
+          padding: 3px 8px;
+          border-radius: 4px;
+        }
+
+        .queue-list-status {
+          margin-left: 16px;
+        }
+
+        /* Sidebar Styles */
+        .queue-sidebar-overlay {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.4);
+          z-index: 999;
+          opacity: 0;
+          visibility: hidden;
+          transition: opacity 0.3s;
+        }
+        .queue-sidebar-overlay.open {
+          opacity: 1;
+          visibility: visible;
+        }
+
+        .queue-sidebar-panel {
+          position: fixed;
+          top: 0; right: -400px;
+          width: 100%;
+          max-width: 400px;
+          height: 100vh;
+          background: #ffffff;
+          z-index: 1000;
+          box-shadow: -4px 0 20px rgba(0,0,0,0.1);
+          transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          overflow-y: auto;
+        }
+        .queue-sidebar-panel.open {
+          right: 0;
+        }
+
+        .queue-sidebar-content {
+          padding: 30px;
+          position: relative;
+        }
+
+        .sidebar-close-btn {
+          position: absolute;
+          top: 20px; right: 20px;
+          background: none; border: none;
+          font-size: 20px;
+          cursor: pointer;
+          color: #888;
+        }
+
+        .queue-sidebar-content h2 {
+          font-size: 22px;
+          margin-bottom: 24px;
+          color: #2c1b0d;
+        }
+
+        .sidebar-detail-group {
+          margin-bottom: 20px;
+          padding-bottom: 20px;
+          border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .sidebar-detail-group label {
+          display: block;
+          font-size: 12px;
+          text-transform: uppercase;
+          color: #888;
+          margin-bottom: 6px;
+          letter-spacing: 0.5px;
+        }
+
+        .sidebar-detail-group p {
+          font-size: 15px;
+          color: #2c1b0d;
+          margin: 0 0 10px 0;
+        }
+
+        .sidebar-select, .sidebar-input {
+          width: 100%;
+          padding: 10px 14px;
+          border-radius: 8px;
+          border: 1px solid rgba(0,0,0,0.1);
+          font-size: 15px;
+          color: #2c1b0d;
+          background: #fdfdfd;
+          outline: none;
+        }
+
+        .sidebar-save-btn {
+          background: #2c1b0d;
+          color: #fff;
+          border: none;
+          border-radius: 8px;
+          padding: 0 20px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+
       `}</style>
     </div>
   );
 }
+
 

@@ -40,8 +40,7 @@ export default function AppDownloadCTA() {
           
           <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
             <motion.a 
-              href="/chaichaska.apk"
-              download="chaichaska.apk"
+              href="https://drive.google.com/drive/folders/173M-2fTLb-ZivSaJY6NlilR-ensvlqg"
               target="_blank"
               rel="noopener noreferrer"
               whileHover={{ scale: 1.05 }}

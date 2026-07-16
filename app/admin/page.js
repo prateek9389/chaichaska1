@@ -510,8 +510,8 @@ export default function AdminDashboard() {
   ]);
   const [adminLeaveReasons, setAdminLeaveReasons] = useState({});
   const [workingHours, setWorkingHours] = useState("8:00 AM - 6:00 PM");
-  const [shopName, setShopName] = useState("ChaiCo Jaipur HQ");
-  const [brewmasterName, setBrewmasterName] = useState("Chef Kanti Lal");
+  const [shopName, setShopName] = useState("Chai Chaska Jaipur HQ");
+  const [brewmasterName, setBrewmasterName] = useState("Admin");
   const [brewmasterContact, setBrewmasterContact] = useState("+91 98765 43210");
   const [brewmasterBio, setBrewmasterBio] = useState("Specialist in traditional spice infusions, kulhad brewing, and custom spice blends with 6+ years of corporate hospitality experience.");
 
