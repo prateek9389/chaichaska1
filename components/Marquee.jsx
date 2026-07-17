@@ -29,8 +29,8 @@ export default function Marquee() {
   const displayQualities = [...qualities, ...qualities];
   const displayChais = [...chaiTypes, ...chaiTypes];
 
-  // Chai colors to loop through for the tea icon (light/cream colors for dark background)
-  const chaiColors = ["#efe3d5", "#fdf5e9", "#f5dcc4", "#e8c8a7"];
+  // Chai colors to loop through for the tea icon (darker colors for light background)
+  const chaiColors = ["#8a3a00", "#c05a00", "#a04000", "#e67e22"];
 
   return (
     <div className="marquee-wrapper">
@@ -96,9 +96,9 @@ export default function Marquee() {
         }
 
         .marquee-secondary {
-          border-top: 1px dashed rgba(255, 255, 255, 0.2);
-          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-          background: var(--sage-bg);
+          border-top: 1px dashed rgba(0, 0, 0, 0.1);
+          border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+          background: #fdf5e9;
         }
 
         .marquee-content {
@@ -127,7 +127,7 @@ export default function Marquee() {
 
         .marquee-item-chai {
           font-size: 15px;
-          color: #ffffff;
+          color: #4a2c11;
           font-weight: 700;
         }
 

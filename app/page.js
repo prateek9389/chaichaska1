@@ -16,8 +16,8 @@ export default function Home() {
       <div className="hero-frame">
         <Navbar />
         <Hero />
-        <Marquee />
         <ChaiShowcase />
+        <Marquee />
         <AppDownloadCTA />
         <Subscription />
         <ProductCarousel />
