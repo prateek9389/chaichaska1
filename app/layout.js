@@ -3,8 +3,11 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/CartContext";
 
 export const metadata = {
-  title: "Chai Chuska — Premium Chai Delivered Fresh",
+  title: "Chai Chaska | Chai with Love",
   description: "Corporate chai delivery service — order fresh, customised chai delivered to your desk.",
+  icons: {
+    icon: '/logo.png',
+  },
 };
 
 export default function RootLayout({ children }) {
