@@ -9,9 +9,56 @@ import { useAuth } from "@/contexts/AuthContext";
 export default function ChaiShowcase() {
   const router = useRouter();
   const { user } = useAuth();
+  const [cartItems, setCartItems] = useState([]);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+
+
   const [teas, setTeas] = useState([]);
+  
+  useEffect(() => {
+    getProducts().then(all => {
+      // Show only top 6 products
+      setTeas(all.slice(0, 6));
+    });
+  }, []);
+
+  const handleAddToCart = (tea) => {
+    if (!user) {
+      router.push(`/login?redirect=/product/${tea.id}`);
+      return;
+    }
+    setCartItems((prev) => {
+      const existing = prev.find((item) => item.id === tea.id);
+      if (existing) {
+        return prev.map((item) =>
+          item.id === tea.id ? { ...item, quantity: item.quantity + 1 } : item
+        );
+      }
+      return [...prev, { ...tea, quantity: 1 }];
+    });
+    setIsCartOpen(true);
+  };
+
+  const handleRemoveFromCart = (id) => {
+    setCartItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleUpdateQuantity = (id, delta) => {
+    setCartItems((prev) =>
+      prev.map((item) => {
+        if (item.id === id) {
+          const newQty = item.quantity + delta;
+          return newQty > 0 ? { ...item, quantity: newQty } : item;
+        }
+        return item;
+      })
+    );
+  };
 
   const handleCardClick = (e, id) => {
+    if (e.target.tagName === "BUTTON" || e.target.closest(".add-to-cart-btn")) {
+      return;
+    }
     router.push(`/product/${id}`);
   };
 
@@ -44,8 +91,8 @@ export default function ChaiShowcase() {
           </p>
         </div>
 
-        {/* Main Layout */}
-        <div className="showcase-layout">
+        {/* Full Width Layout */}
+        <div className="showcase-grid">
           <div className="cards-column">
             <div className="cards-grid">
               {teas.map((tea) => (
@@ -85,9 +132,12 @@ export default function ChaiShowcase() {
 
                   <p className="tea-desc">{tea.desc}</p>
 
-                  {/* Price */}
+                  {/* Price & Action */}
                   <div className="tea-footer">
                     <span className="tea-price">{tea.price}</span>
+                    <button onClick={() => handleAddToCart(tea)} className="add-to-cart-btn">
+                      Add to Cart
+                    </button>
                   </div>
                 </div>
               ))}
@@ -96,22 +146,193 @@ export default function ChaiShowcase() {
         </div>
       </div>
 
+      {/* Cart Sidebar */}
+      <div
+        className="cart-sidebar"
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          width: "400px",
+          maxWidth: "100%",
+          height: "100vh",
+          background: "#ffffff",
+          boxShadow: "-10px 0 30px rgba(0,0,0,0.1)",
+          zIndex: 1000,
+          transform: isCartOpen ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+          display: "flex",
+          flexDirection: "column",
+          padding: "30px 24px",
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+          <h3 style={{ fontSize: "20px", fontWeight: 700, color: "#111111" }}>
+            Your Cart ({cartItems.reduce((acc, item) => acc + item.quantity, 0)})
+          </h3>
+          <button
+            onClick={() => setIsCartOpen(false)}
+            style={{
+              background: "transparent",
+              fontSize: "22px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              color: "#111111",
+              border: "none",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Cart Items List */}
+        <div style={{ flexGrow: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "16px" }}>
+          {cartItems.length === 0 ? (
+            <div style={{ textAlign: "center", marginTop: "60px", color: "#888" }}>
+              <span style={{ fontSize: "40px", display: "block", marginBottom: "10px" }}>🛒</span>
+              <p style={{ fontSize: "14px", fontWeight: 500 }}>Your cart is empty.</p>
+            </div>
+          ) : (
+            cartItems.map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  paddingBottom: "16px",
+                  borderBottom: "1px solid rgba(0,0,0,0.06)",
+                  alignItems: "center",
+                }}
+              >
+                <img
+                  src={item.image}
+                  alt={item.name}
+                  style={{ width: "60px", height: "60px", borderRadius: "8px", objectFit: "cover" }}
+                />
+                <div style={{ flexGrow: 1 }}>
+                  <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#111111" }}>{item.name}</h4>
+                  <p style={{ fontSize: "13px", color: "#666", marginTop: "2px" }}>{item.price}</p>
+
+                  {/* Quantity controls */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px" }}>
+                    <button
+                      onClick={() => handleUpdateQuantity(item.id, -1)}
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "#f0f0f0",
+                        borderRadius: "4px",
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      -
+                    </button>
+                    <span style={{ fontSize: "13px", fontWeight: 600 }}>{item.quantity}</span>
+                    <button
+                      onClick={() => handleUpdateQuantity(item.id, 1)}
+                      style={{
+                        width: "22px",
+                        height: "22px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "#f0f0f0",
+                        borderRadius: "4px",
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        border: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRemoveFromCart(item.id)}
+                  style={{
+                    background: "transparent",
+                    color: "#e2123a",
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    border: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        {cartItems.length > 0 && (
+          <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)", paddingTop: "20px", marginTop: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
+              <span style={{ fontSize: "14.5px", fontWeight: 600, color: "#555" }}>Subtotal</span>
+              <span style={{ fontSize: "18px", fontWeight: 800, color: "#111111" }}>
+                ₹{cartItems.reduce((acc, item) => acc + parseInt(item.price.replace("₹", "")) * item.quantity, 0)}
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                if (!user) {
+                  router.push("/login?redirect=/shop");
+                  return;
+                }
+                const first = cartItems[0];
+                if (first) router.push(`/checkout?productId=${first.id}&quantity=${first.quantity}`);
+              }}
+              style={{
+                width: "100%",
+                background: "#000",
+                color: "#fff",
+                padding: "14px",
+                borderRadius: "999px",
+                fontWeight: 600,
+                fontSize: "14.5px",
+                border: "none",
+                cursor: "pointer",
+                transition: "background 0.2s",
+              }}
+              onMouseEnter={(e) => (e.target.style.background = "#333")}
+              onMouseLeave={(e) => (e.target.style.background = "#000")}
+            >
+              Proceed to Checkout
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Backdrop Overlay */}
+      {isCartOpen && (
+        <div
+          onClick={() => setIsCartOpen(false)}
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.25)",
+            zIndex: 999,
+          }}
+        />
+      )}
+
       {/* Styles */}
       <style>{`
         .showcase-grid {
-          display: grid;
-          grid-template-columns: 0.8fr 2.2fr;
-          gap: 30px;
-          align-items: stretch;
-        }
-
-        .video-column {
-          position: relative;
-          border-radius: 20px;
-          overflow: hidden;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
-          min-height: 550px;
-          border: 1px solid rgba(0, 0, 0, 0.04);
+          display: block;
+          width: 100%;
         }
 
         .video-wrapper {
