@@ -1,33 +1,27 @@
 "use client";
 
-export default function Marquee() {
+export default function Marquee({ type = "both" }) {
   const qualities = [
-    "🌿 100% Organic Ingredients",
-    "☕ Handcrafted Indian Blends",
-    "🍃 Directly Sourced from Assam & Darjeeling",
-    "✨ Authentic Spiced Masala Chai",
-    "🥛 Rich, Creamy & Refreshing",
-    "🌱 Sustainably Harvested",
-    "🚚 Fast & Fresh Delivery",
-    "❤️ Made with Love",
+    "💎 Premium Quality",
+    "🍵 Fresh Hot Chai",
+    "❤️ Made With Love",
+    "🤝 Best Service",
+    "🚚 Fast Delivery"
   ];
 
   const chaiTypes = [
-    "Chaska Chai regular masala",
-    "Elaichi Ishq cardamom chai",
-    "Adrak Punch - extra ginger",
-    "Kadak Baat strong double-brew",
-    "Tulsi Sukoon - herbal",
-    "Green Fix green tea",
-    "Chaska Cuppa range",
-    "Filter Fauji filter coffee",
-    "Insta Josh instant coffee",
-    "Kaala Kick black coffee",
-    "Thanda Chaska cold coffee",
+    "Elaichi Ishq",
+    "Chai Chaska",
+    "Kadak Baat",
+    "Thanda Chaska",
+    "Insta Josh",
+    "Kaala Kick",
+    "Tulsi Sukoon",
+    "Adrak Punch",
   ];
 
-  const displayQualities = [...qualities, ...qualities];
-  const displayChais = [...chaiTypes, ...chaiTypes];
+  const displayQualities = [...qualities, ...qualities, ...qualities, ...qualities, ...qualities];
+  const displayChais = [...chaiTypes, ...chaiTypes, ...chaiTypes, ...chaiTypes];
 
   // Chai colors to loop through for the tea icon (darker colors for light background)
   const chaiColors = ["#8a3a00", "#c05a00", "#a04000", "#e67e22"];
@@ -35,7 +29,8 @@ export default function Marquee() {
   return (
     <div className="marquee-wrapper">
       {/* First Marquee: Right to Left */}
-      <div className="marquee-container">
+      {(type === "top" || type === "both") && (
+      <div className="marquee-container marquee-primary">
         <div className="marquee-content scroll-left">
           {displayQualities.map((item, idx) => (
             <span key={`quality-${idx}`} className="marquee-item">
@@ -44,8 +39,10 @@ export default function Marquee() {
           ))}
         </div>
       </div>
+      )}
 
       {/* Second Marquee: Left to Right */}
+      {(type === "bottom" || type === "both") && (
       <div className="marquee-container marquee-secondary">
         <div className="marquee-content scroll-right">
           {displayChais.map((item, idx) => {
@@ -77,14 +74,23 @@ export default function Marquee() {
           })}
         </div>
       </div>
+      )}
 
       <style>{`
         .marquee-wrapper {
           display: flex;
           flex-direction: column;
-          background: #ffffff;
-          border-top: 1px solid rgba(0, 0, 0, 0.06);
-          border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+          background: transparent;
+        }
+
+        .marquee-primary {
+          background: var(--sage-bg);
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .marquee-primary .marquee-item {
+          color: #ffffff;
         }
 
         .marquee-container {
@@ -117,7 +123,7 @@ export default function Marquee() {
         .marquee-item {
           font-size: 15px;
           font-weight: 600;
-          color: #2c3e2e;
+          color: #ffffff;
           padding: 0 40px;
           display: inline-flex;
           align-items: center;

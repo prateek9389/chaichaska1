@@ -1271,7 +1271,7 @@ export default function AdminDashboard() {
           {/* FIXED LEFT SIDEBAR */}
           <aside className="dashboard-sidebar">
             <div className="sidebar-logo">
-              <img src="/assets/images/logo.png" alt="Chai Chaska Logo" style={{ maxHeight: "70px", width: "auto", objectFit: "contain" }} />
+              <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "70px", height: "70px", objectFit: "cover", borderRadius: "50%" }} />
             </div>
 
             <div className="sidebar-menu">

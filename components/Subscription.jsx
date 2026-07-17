@@ -74,24 +74,33 @@ export default function Subscription() {
           {/* Key Features row */}
           <div className="sub-features">
             <div className="feature-item">
-              <div className="feature-icon">🌿</div>
+              <div className="feature-icon">💎</div>
               <div>
-                <h4 className="feature-label">100% Natural</h4>
-                <p className="feature-sub">Pure whole spices</p>
+                <h4 className="feature-label">Premium Quality</h4>
               </div>
             </div>
             <div className="feature-item">
               <div className="feature-icon">🍵</div>
               <div>
-                <h4 className="feature-label">Fresh &amp; Healthy</h4>
-                <p className="feature-sub">Blended in batches</p>
+                <h4 className="feature-label">Fresh Hot Chai</h4>
+              </div>
+            </div>
+            <div className="feature-item">
+              <div className="feature-icon">❤️</div>
+              <div>
+                <h4 className="feature-label">Made With Love</h4>
+              </div>
+            </div>
+            <div className="feature-item">
+              <div className="feature-icon">🤝</div>
+              <div>
+                <h4 className="feature-label">Best Service</h4>
               </div>
             </div>
             <div className="feature-item">
               <div className="feature-icon">🚚</div>
               <div>
                 <h4 className="feature-label">Fast Delivery</h4>
-                <p className="feature-sub">Right to your door</p>
               </div>
             </div>
           </div>
