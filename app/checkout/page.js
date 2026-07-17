@@ -200,8 +200,8 @@ function CheckoutPortal() {
     const discounted = Math.round(subtotal * 0.9);
     finalPayable = Math.max(0, discounted - appliedDiscount);
   } else {
-    deliveryCharge = subtotal > 500 ? 0 : 50;
-    finalPayable = Math.max(0, subtotal - appliedDiscount + deliveryCharge);
+    deliveryCharge = 0; // Removed delivery charge as per request
+    finalPayable = Math.max(0, subtotal - appliedDiscount);
   }
 
   const handlePlaceOrder = async () => {
@@ -598,7 +598,7 @@ function CheckoutPortal() {
 
 
               {/* CHECKOUT ADD-ONS */}
-              {dbAddons.length > 0 && (
+              {dbAddons.length > 0 && purchaseType === "subscription" && (
                 <div className="checkout-card compact">
                   <h4 style={{ fontSize: "14px", fontWeight: 800, marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
                     Frequently Added Together
@@ -667,7 +667,7 @@ function CheckoutPortal() {
 
                   <div className="breakdown-row">
                     <span>Delivery Charge</span>
-                    <span>{deliveryCharge === 0 ? "FREE" : `₹${deliveryCharge}`}</span>
+                    <span>FREE</span>
                   </div>
 
                   <div className="breakdown-row total">
