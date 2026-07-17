@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { getUserTransactions, updateUserCoins } from "@/lib/firestore";
 
 export default function WalletPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const [balance, setBalance] = useState(0);
   const [rechargeAmount, setRechargeAmount] = useState("");
   const [selectedMethod, setSelectedMethod] = useState("upi"); // "upi" | "card" | "netbanking"
@@ -128,6 +129,33 @@ export default function WalletPage() {
     }, 1500);
 
   };
+
+  if (authLoading) {
+    return (
+      <div style={{ background: "#fcfaf7", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}>
+        <h2>Loading Wallet...</h2>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div style={{ background: "#fcfaf7", minHeight: "100vh", color: "#2c1b0d", overflowX: "hidden" }}>
+        <Navbar />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", padding: "20px", textAlign: "center" }}>
+          <div style={{ fontSize: "50px", marginBottom: "20px" }}>🔒</div>
+          <h2 style={{ fontSize: "28px", marginBottom: "10px", fontWeight: "900" }}>Access Your Coin Wallet</h2>
+          <p style={{ color: "#666", marginBottom: "24px", maxWidth: "400px", lineHeight: "1.5" }}>
+            You need to be logged in to view your ChaiCo Coin balance, check your transaction history, and recharge.
+          </p>
+          <Link href="/login" style={{ background: "#8a583c", color: "#fff", padding: "14px 32px", borderRadius: "8px", textDecoration: "none", fontWeight: "bold" }}>
+            Login / Sign Up
+          </Link>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: "#fcfaf7", minHeight: "100vh", color: "#2c1b0d", overflowX: "hidden" }}>
