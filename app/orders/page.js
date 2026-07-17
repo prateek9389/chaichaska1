@@ -168,13 +168,28 @@ export default function OrdersPage() {
                   <div className="card-meta-list">
                     <p>📅 Placed Date: <strong>{ord.date || new Date(ord.createdAt).toLocaleDateString()}</strong></p>
                     <p>🛍️ Blend Items: <strong>{ord.item}</strong></p>
+                    {["Received", "Pending", "Shipped"].includes(ord.status || "Received") && (
+                      <p>⏳ Estimated Delivery: <strong style={{ color: "#e67e22" }}>
+                        {(() => {
+                          const targetDuration = ord.allocatedTime ? parseInt(ord.allocatedTime) * 60 * 1000 : 20 * 60 * 1000;
+                          const targetTime = (ord.createdAt || Date.now()) + targetDuration;
+                          const remainingMs = targetTime - currentTime;
+                          if (remainingMs > 0) {
+                            const m = Math.floor(remainingMs / 60000);
+                            const s = Math.floor((remainingMs % 60000) / 1000);
+                            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                          }
+                          return "Arriving Soon";
+                        })()}
+                      </strong></p>
+                    )}
                   </div>
 
                   <div className="card-action-row" style={{ marginTop: "20px", display: "flex", flexWrap: "wrap", gap: "8px" }}>
                     <Link href={`/orders/${ord.id}`} className="card-btn primary full-width-btn" style={{ marginBottom: "10px", flex: 1 }}>
                       View Order Invoice & Tracking →
                     </Link>
-                    {(currentTime - ord.createdAt <= 60000) && (!ord.status || ord.status === "Received") && (
+                    {(!ord.status || ["Received", "Pending"].includes(ord.status)) && (
                       <button 
                         onClick={() => {
                           if (window.confirm("Are you sure you want to cancel this order?")) {

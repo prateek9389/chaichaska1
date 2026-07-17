@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { getOrderById } from "@/lib/firestore";
+import { getOrderById, updateOrder } from "@/lib/firestore";
 
 export default function OrderDetailPage({ params }) {
   const orderId = params.id;
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
     if (orderId) {
@@ -25,6 +26,11 @@ export default function OrderDetailPage({ params }) {
       setLoading(false);
     }
   }, [orderId]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   if (loading) {
     return (
@@ -67,12 +73,45 @@ export default function OrderDetailPage({ params }) {
               <span className="order-tag">SECURE SHIPMENT LOGS</span>
               <h2>Invoice details: {orderId}</h2>
               <p>Placed on {dateStr}</p>
+              
+              {["Received", "Pending", "Shipped"].includes(order.status || "Received") && (
+                <p style={{ marginTop: '10px' }}>⏳ Estimated Delivery: <strong style={{ color: "#e67e22" }}>
+                  {(() => {
+                    const targetDuration = order.allocatedTime ? parseInt(order.allocatedTime) * 60 * 1000 : 20 * 60 * 1000;
+                    const targetTime = (order.createdAt || Date.now()) + targetDuration;
+                    const remainingMs = targetTime - currentTime;
+                    if (remainingMs > 0) {
+                      const m = Math.floor(remainingMs / 60000);
+                      const s = Math.floor((remainingMs % 60000) / 1000);
+                      return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+                    }
+                    return "Arriving Soon";
+                  })()}
+                </strong></p>
+              )}
             </div>
-            <div className="status-badge" style={{ 
-              background: order.status === "Cancelled" ? "rgba(231,76,60,0.1)" : "rgba(39, 174, 96, 0.1)",
-              color: order.status === "Cancelled" ? "#e74c3c" : "#27ae60"
-            }}>
-              {order.status}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", alignItems: "flex-end" }}>
+              <div className="status-badge" style={{ 
+                background: order.status === "Cancelled" || order.status === "Cancelled by User" ? "rgba(231,76,60,0.1)" : "rgba(39, 174, 96, 0.1)",
+                color: order.status === "Cancelled" || order.status === "Cancelled by User" ? "#e74c3c" : "#27ae60"
+              }}>
+                {order.status}
+              </div>
+              
+              {(!order.status || ["Received", "Pending"].includes(order.status)) && (
+                <button 
+                  onClick={() => {
+                    if (window.confirm("Are you sure you want to cancel this order?")) {
+                      updateOrder(orderId, { status: "Cancelled by User" }).then(() => {
+                         setOrder({...order, status: "Cancelled by User"});
+                      });
+                    }
+                  }} 
+                  style={{ background: "#e74c3c", color: "#fff", padding: "8px 16px", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
+                >
+                  Cancel Order
+                </button>
+              )}
             </div>
           </div>
 
