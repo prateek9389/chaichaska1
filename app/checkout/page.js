@@ -23,6 +23,17 @@ function CheckoutPortal() {
     }
   }, [cartItems, cartLoaded, checkoutStep, router]);
 
+  useEffect(() => {
+    // Load Cashfree script dynamically
+    if (!document.getElementById("cashfree-script")) {
+      const script = document.createElement("script");
+      script.id = "cashfree-script";
+      script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+
 
 
 
@@ -280,6 +291,48 @@ function CheckoutPortal() {
              subId = await addSubscription(subData);
              orderData.subscriptionId = subId;
            } catch(e) { console.error("Error creating subscription", e) }
+        }
+
+        if (paymentMethod === "upi") {
+          if (!window.Cashfree) {
+             alert("Payment Gateway failed to load. Please refresh.");
+             setCheckoutStep("payment");
+             return;
+          }
+          const cashfree = window.Cashfree({ mode: "production" }); // Change to sandbox for testing
+          
+          try {
+            const res = await fetch("/api/cashfree/create-order", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                amount: finalPayable,
+                customer_id: user?.uid || `guest_${Date.now()}`,
+                customer_phone: phone || profile?.phone || "9999999999",
+                customer_name: fullname || profile?.name || "Guest",
+                order_meta: orderData,
+                type: "checkout",
+                firebase_uid: user?.uid || null
+              })
+            });
+            const data = await res.json();
+            if (data.payment_session_id) {
+               // Cashfree redirects automatically because we didn't specify returnUrl in checkout, 
+               // but it will use the return_url we passed to the API.
+               cashfree.checkout({
+                 paymentSessionId: data.payment_session_id,
+                 redirectTarget: "_self"
+               });
+            } else {
+               alert("Failed to initialize payment");
+               setCheckoutStep("payment");
+            }
+          } catch(err) {
+            console.error(err);
+            alert("Payment initialization failed");
+            setCheckoutStep("payment");
+          }
+          return;
         }
 
         const id = await createOrder(orderData);

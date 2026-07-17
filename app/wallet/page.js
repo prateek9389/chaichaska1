@@ -27,6 +27,17 @@ export default function WalletPage() {
     }
   }, [user]);
 
+  useEffect(() => {
+    // Load Cashfree script dynamically
+    if (!document.getElementById("cashfree-script")) {
+      const script = document.createElement("script");
+      script.id = "cashfree-script";
+      script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, []);
+
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -71,34 +82,51 @@ export default function WalletPage() {
       osc.stop(ctx.currentTime + 0.15);
     } catch (err) {}
 
-    setTimeout(async () => {
+    const initializePayment = async () => {
+      if (!window.Cashfree) {
+         alert("Payment Gateway failed to load. Please refresh.");
+         setLoading(false);
+         return;
+      }
+      const cashfree = window.Cashfree({ mode: "production" }); // Change to sandbox for testing
       const addedCoins = getCoinsForAmount(amt);
       
-      if (user) {
-         const newBal = await updateUserCoins(user.uid, addedCoins, `Recharged Wallet via ${selectedMethod.toUpperCase()}`);
-         setBalance(newBal);
-         const txs = await getUserTransactions(user.uid);
-         setTransactions(txs);
-      } else {
-         setBalance((prev) => prev + addedCoins);
-         setTransactions((prev) => [
-           {
-             id: `t${Date.now()}`,
-             desc: `Recharged Wallet via ${selectedMethod.toUpperCase()}`,
-             type: "credit",
-             coins: addedCoins,
-             date: new Date().toISOString().split("T")[0],
-             status: "Completed",
-           },
-           ...prev,
-         ]);
+      try {
+        const res = await fetch("/api/cashfree/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: amt,
+            customer_id: user?.uid || `guest_${Date.now()}`,
+            customer_phone: profile?.phone || "9999999999",
+            customer_name: profile?.name || "Guest Wallet User",
+            order_meta: { coins: addedCoins, method: selectedMethod },
+            type: "wallet",
+            firebase_uid: user?.uid || null
+          })
+        });
+        
+        const data = await res.json();
+        if (data.payment_session_id) {
+           cashfree.checkout({
+             paymentSessionId: data.payment_session_id,
+             redirectTarget: "_self"
+           });
+        } else {
+           alert("Failed to initialize payment");
+           setLoading(false);
+        }
+      } catch(err) {
+        console.error(err);
+        alert("Payment initialization failed");
+        setLoading(false);
       }
-      
-      setLoading(false);
-      setSuccess(true);
-      setRechargeAmount("");
-      setTimeout(() => setSuccess(false), 3000);
-    }, 2000);
+    };
+    
+    setTimeout(() => {
+      initializePayment();
+    }, 1500);
+
   };
 
   return (
