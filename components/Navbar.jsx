@@ -382,8 +382,32 @@ export default function Navbar() {
             }}
           >
             <span className="gold-coin-3d" />
-            <span>550 Balance Coins</span>
+            <span>{user ? (profile?.coins || 0) : 0} Balance Coins</span>
           </Link>
+
+          {user ? (
+            <>
+              <Link href="/orders" onClick={() => setOpen(false)} style={{
+                background: "#f5f0e8", color: "#2c1b0d", padding: "14px", borderRadius: "999px",
+                fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, textDecoration: "none"
+              }}>
+                📦 My Orders
+              </Link>
+              <button onClick={() => { handleSignOut(); setOpen(false); }} style={{
+                background: "#ffecec", color: "#e74c3c", padding: "14px", borderRadius: "999px",
+                fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "none", cursor: "pointer", fontFamily: "inherit"
+              }}>
+                🚪 Sign Out
+              </button>
+            </>
+          ) : (
+            <Link href="/login" onClick={() => setOpen(false)} style={{
+              background: "#f5f0e8", color: "#2c1b0d", padding: "14px", borderRadius: "999px",
+              fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, textDecoration: "none"
+            }}>
+              Sign In
+            </Link>
+          )}
 
           <Link
             href="/shop"
