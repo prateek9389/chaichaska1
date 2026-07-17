@@ -17,8 +17,8 @@ export default function ChaiShowcase() {
   
   useEffect(() => {
     getProducts().then(all => {
-      // Show only top 6 products
-      setTeas(all.slice(0, 6));
+      // Show 8 products for 4x2 grid
+      setTeas(all.slice(0, 8));
     });
   }, []);
 
@@ -370,7 +370,7 @@ export default function ChaiShowcase() {
 
         .cards-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 16px;
         }
 
