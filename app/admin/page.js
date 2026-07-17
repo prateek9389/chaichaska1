@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteAddon, updateAddon, getStock, updateOrder, addMenuItem, addStockItem, updateStockItem, getSubscriptions, onSubscriptionsSnapshot, onProductsSnapshot, addProduct, deleteProduct, updateProduct, updateSubscription, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
-import { loginWithEmail, signUpWithEmail } from "@/lib/auth";
+import { loginWithEmail, signUpWithEmail, signOut } from "@/lib/auth";
 import Link from "next/link";
 import { db, auth } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, onSnapshot, doc, getDoc } from "firebase/firestore";
@@ -658,7 +658,12 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (e) {
+      console.error("Logout error", e);
+    }
     setIsLoggedIn(false);
     localStorage.removeItem("admin_logged");
   };
