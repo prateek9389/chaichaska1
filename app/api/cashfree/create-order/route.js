@@ -8,19 +8,23 @@ export async function POST(req) {
 
     const order_id = `ORDER_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
+    const host = req.headers.get("host");
+    const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
+    const baseUrl = `${protocol}://${host}`;
+
     const payload = {
       order_id,
-      order_amount: amount,
+      order_amount: typeof amount === "string" ? parseFloat(amount) : amount,
       order_currency: "INR",
       customer_details: {
-        customer_id: customer_id || "GUEST",
+        customer_id: customer_id ? String(customer_id).replace(/[^a-zA-Z0-9_-]/g, "") : `guest_${Date.now()}`,
         customer_phone: customer_phone || "9999999999",
         customer_name: customer_name || "Guest User",
         customer_email: customer_email || "guest@example.com"
       },
       order_meta: {
-        return_url: `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3008"}/api/cashfree/verify?order_id=${order_id}&type=${type}&uid=${firebase_uid || ""}`,
-        notify_url: `${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3008"}/api/cashfree/webhook`,
+        return_url: `${baseUrl}/api/cashfree/verify?order_id=${order_id}&type=${type}&uid=${firebase_uid || ""}`,
+        notify_url: `${baseUrl}/api/cashfree/webhook`,
         payment_methods: "cc,dc,ccc,ppc,nb,upi,paypal,emi,paylater"
       }
     };
@@ -43,8 +47,9 @@ export async function POST(req) {
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("Cashfree API Error:", data);
-      return NextResponse.json({ error: "Failed to create order" }, { status: 500 });
+      console.error("Cashfree API Error payload:", JSON.stringify(payload, null, 2));
+      console.error("Cashfree API Error response:", JSON.stringify(data, null, 2));
+      return NextResponse.json({ error: "Failed to create order", details: data }, { status: 500 });
     }
 
     // Save initial transaction pending record
