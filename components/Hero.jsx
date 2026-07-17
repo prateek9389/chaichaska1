@@ -36,37 +36,6 @@ export default function Hero() {
         background: "transparent",
       }}
     >
-      {/* Background Video (full height covering navbar and hero) */}
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          zIndex: 1,
-        }}
-      >
-        <source src="/hero-bg.mp4" type="video/mp4" />
-      </video>
-
-      {/* Subtle top-only overlay to ensure readability */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "linear-gradient(to bottom, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 45%)",
-          zIndex: 2,
-        }}
-      />
 
       <div
         className="container"
