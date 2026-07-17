@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { createOrder, addUserTransaction } from "@/lib/firestore";
+import { addUserTransaction, db } from "@/lib/firestore";
+import { doc, setDoc } from "firebase/firestore";
 
 export async function POST(req) {
   try {
     const body = await req.json();
     const { amount, customer_id, customer_phone, customer_name, customer_email, order_meta, type, firebase_uid } = body;
 
-    const order_id = `ORDER_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const order_id = `CHAI-ORD-${Math.floor(100000 + Math.random() * 900000)}`;
 
     const host = req.headers.get("host");
     const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
@@ -57,10 +58,14 @@ export async function POST(req) {
        const newOrderData = {
          ...order_meta,
          status: "Pending Payment",
-         cashfree_order_id: order_id
+         cashfree_order_id: order_id,
+         orderId: order_id,
+         createdAt: Date.now(),
+         updatedAt: Date.now(),
        };
-       // Store in firestore with the pending status
-       await createOrder({ ...newOrderData, orderId: order_id });
+       // Store in firestore with the pending status using exact order_id
+       const ref = doc(db, "orders", order_id);
+       await setDoc(ref, newOrderData);
     } else if (type === "wallet" && firebase_uid) {
        await addUserTransaction(firebase_uid, {
          id: order_id, // we use order_id as txId
