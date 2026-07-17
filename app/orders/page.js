@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { db, updateOrder, updateSubscription, onSubscriptionsSnapshot } from "@/lib/firestore";
+import { db, updateOrder, updateSubscription, onSubscriptionsSnapshot, getOrderById } from "@/lib/firestore";
 import { collection, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -17,23 +17,53 @@ export default function OrdersPage() {
 
   useEffect(() => {
     let unsubOrders = () => {};
+    let unsubSubs = () => {};
+
+    const loadGuestOrders = async () => {
+      try {
+        const guestOrders = JSON.parse(localStorage.getItem("guest_orders") || "[]");
+        const now = Date.now();
+        const validGuestOrders = guestOrders.filter(o => now - o.timestamp < 2 * 60 * 60 * 1000); // 2 hours
+        
+        localStorage.setItem("guest_orders", JSON.stringify(validGuestOrders));
+        
+        if (validGuestOrders.length > 0) {
+          const fetchedOrders = await Promise.all(validGuestOrders.map(o => getOrderById(o.id)));
+          const validFetched = fetchedOrders.filter(o => o && o.status !== "Pending Payment" && o.status !== "Failed");
+          
+          setOrders(prev => {
+             const existingIds = new Set(prev.map(p => p.id));
+             const newOrders = validFetched.filter(o => !existingIds.has(o.id));
+             return [...prev, ...newOrders].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load guest orders", e);
+      }
+    };
 
     if (!authLoading && user) {
       unsubOrders = onSnapshot(collection(db, "orders"), (snap) => {
         const o = [];
-        snap.forEach(d => o.push({ ...d.data(), id: d.id }));
+        snap.forEach(d => {
+          const data = d.data();
+          if (data.status !== "Pending Payment" && data.status !== "Failed") {
+            o.push({ ...data, id: d.id });
+          }
+        });
         const myOrders = o.filter((ord) => ord.userId === user.uid);
         setOrders(myOrders);
+        loadGuestOrders();
       });
 
-      const unsubSubs = onSubscriptionsSnapshot((data) => {
+      unsubSubs = onSubscriptionsSnapshot((data) => {
         const mySubs = data.filter((sub) => sub.userId === user.uid);
         setSubscriptions(mySubs);
       });
 
-
       setLoading(false);
     } else if (!authLoading && !user) {
+      loadGuestOrders();
       setLoading(false);
     }
 

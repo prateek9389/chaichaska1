@@ -11,6 +11,20 @@ function PaymentSuccessContent() {
   const orderId = searchParams.get("order_id");
   const type = searchParams.get("type"); // "checkout" or "wallet"
 
+  useEffect(() => {
+    if (orderId && type === "checkout") {
+      try {
+        const existing = JSON.parse(localStorage.getItem("guest_orders") || "[]");
+        if (!existing.find(o => o.id === orderId)) {
+          existing.push({ id: orderId, timestamp: Date.now() });
+          localStorage.setItem("guest_orders", JSON.stringify(existing));
+        }
+      } catch (e) {
+        console.error("Could not save guest order", e);
+      }
+    }
+  }, [orderId, type]);
+
   return (
     <div className="thank-you-layout">
       <div className="thank-you-card">
