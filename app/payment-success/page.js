@@ -5,14 +5,17 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { useCart } from "@/contexts/CartContext";
 
 function PaymentSuccessContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order_id");
   const type = searchParams.get("type"); // "checkout" or "wallet"
+  const { clearCart } = useCart();
 
   useEffect(() => {
     if (orderId && type === "checkout") {
+      clearCart();
       try {
         const existing = JSON.parse(localStorage.getItem("guest_orders") || "[]");
         if (!existing.find(o => o.id === orderId)) {
