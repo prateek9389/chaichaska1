@@ -189,7 +189,7 @@ export default function OrdersPage() {
                     <Link href={`/orders/${ord.id}`} className="card-btn primary full-width-btn" style={{ marginBottom: "10px", flex: 1 }}>
                       View Order Invoice & Tracking →
                     </Link>
-                    {(!ord.status || ["Received", "Pending"].includes(ord.status)) && (currentTime - (ord.createdAt || Date.now()) <= 60000) && (
+                    {(!ord.status || ["Received", "Pending"].includes(ord.status)) && ord.createdAt && (currentTime - ord.createdAt <= 60000) && (
                       <button 
                         onClick={() => {
                           if (window.confirm("Are you sure you want to cancel this order?")) {
