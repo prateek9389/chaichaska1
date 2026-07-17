@@ -98,7 +98,7 @@ export default function OrderDetailPage({ params }) {
                 {order.status}
               </div>
               
-              {(!order.status || ["Received", "Pending"].includes(order.status)) && (
+              {(!order.status || ["Received", "Pending"].includes(order.status)) && (currentTime - (order.createdAt || Date.now()) <= 60000) && (
                 <button 
                   onClick={() => {
                     if (window.confirm("Are you sure you want to cancel this order?")) {
