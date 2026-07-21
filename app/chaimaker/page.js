@@ -6,7 +6,7 @@ import { db, auth } from "@/lib/firebase";
 import { collection, onSnapshot, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { onOrdersSnapshot, getSubscriptions, updateSubscription, updateOrder, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings } from "@/lib/firestore";
-import { loginWithEmail, signOut } from "@/lib/auth";
+import { loginWithEmail, signOut, signInWithGoogle } from "@/lib/auth";
 
 export default function AdminDashboard() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -409,6 +409,23 @@ export default function AdminDashboard() {
       setLoginError("");
     } else {
       setLoginError("Access denied. Invalid credentials.");
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const user = await signInWithGoogle();
+      if (user.email === "rohitsengar02@gmail.com") {
+        setIsLoggedIn(true);
+        localStorage.setItem("brewmaster_logged", "true");
+        setLoginError("");
+      } else {
+        await signOut();
+        setLoginError("Access denied. Unauthorized email.");
+      }
+    } catch (e) {
+      console.error(e);
+      setLoginError("Google sign-in failed.");
     }
   };
 
@@ -883,6 +900,9 @@ export default function AdminDashboard() {
 
             <button type="submit" className="btn-authenticate">
               AUTHENTICATE TERMINAL
+            </button>
+            <button type="button" onClick={handleGoogleLogin} className="btn-authenticate" style={{ background: "#4285F4", color: "#fff", marginTop: "12px", border: "none" }}>
+              SIGN IN WITH GOOGLE
             </button>
           </form>
         </div>

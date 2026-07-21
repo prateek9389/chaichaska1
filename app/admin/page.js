@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useRef } from "react";
 import { onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteAddon, updateAddon, getStock, updateOrder, addMenuItem, addStockItem, updateStockItem, getSubscriptions, onSubscriptionsSnapshot, onProductsSnapshot, addProduct, deleteProduct, updateProduct, updateSubscription, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
-import { loginWithEmail, signUpWithEmail, signOut } from "@/lib/auth";
+import { loginWithEmail, signUpWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { db, auth } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, onSnapshot, doc, getDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -572,6 +574,14 @@ export default function AdminDashboard() {
 
 
   useEffect(() => {
+    const unsubAuth = onAuthStateChange((user) => {
+      if (user && user.email !== "rohitsengar02@gmail.com") {
+        setIsLoggedIn(false);
+        localStorage.removeItem("admin_logged");
+        router.push("/");
+      }
+    });
+    
     const savedLogin = localStorage.getItem("admin_logged");
     if (savedLogin === "true") setIsLoggedIn(true);
     const unsubOrders = onOrdersSnapshot((data) => setOrders(data));
@@ -590,8 +600,9 @@ export default function AdminDashboard() {
       unsubProducts();
       unsubRestock();
       unsubLeave();
+      unsubAuth();
     };
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -631,6 +642,23 @@ export default function AdminDashboard() {
       setLoginError("");
     } else {
       setLoginError("Access denied. Invalid credentials.");
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      const user = await signInWithGoogle();
+      if (user.email === "rohitsengar02@gmail.com") {
+        setIsLoggedIn(true);
+        localStorage.setItem("admin_logged", "true");
+        setLoginError("");
+      } else {
+        await signOut();
+        setLoginError("Access denied. Unauthorized email.");
+      }
+    } catch (e) {
+      console.error(e);
+      setLoginError("Google sign-in failed.");
     }
   };
 
@@ -1254,6 +1282,9 @@ export default function AdminDashboard() {
 
             <button type="submit" className="btn-authenticate">
               AUTHENTICATE TERMINAL
+            </button>
+            <button type="button" onClick={handleGoogleLogin} className="btn-authenticate" style={{ background: "#4285F4", color: "#fff", marginTop: "12px", border: "none" }}>
+              SIGN IN WITH GOOGLE
             </button>
           </form>
         </div>
