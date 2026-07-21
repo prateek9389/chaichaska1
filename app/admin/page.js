@@ -477,6 +477,7 @@ export default function AdminDashboard() {
 
   // Product Creation States
   const [productsList, setProductsList] = useState([]);
+  const [selectedProducts, setSelectedProducts] = useState([]);
   const [newProdName, setNewProdName] = useState("");
   const [newProdPrice, setNewProdPrice] = useState("");
   const [newProdDesc, setNewProdDesc] = useState("");
@@ -894,6 +895,23 @@ export default function AdminDashboard() {
       setNewProdImage(url);
     }
     setShowImageLibrary(false);
+  };
+
+  const handleDeleteSelectedProducts = async () => {
+    if (selectedProducts.length === 0) return;
+    if (confirm(`Are you sure you want to delete ${selectedProducts.length} selected products?`)) {
+      try {
+        for (const id of selectedProducts) {
+          await deleteProduct(id);
+        }
+        setToastMsg(`Deleted ${selectedProducts.length} products successfully!`);
+        setSelectedProducts([]);
+        setTimeout(() => setToastMsg(""), 3000);
+      } catch (err) {
+        setToastMsg(`Error deleting products: ${err.message}`);
+        setTimeout(() => setToastMsg(""), 3000);
+      }
+    }
   };
 
   const handleDeleteProduct = async (id) => {
@@ -3178,10 +3196,26 @@ export default function AdminDashboard() {
 
                   {/* Left Column: Products List */}
                   <div>
-                    <h3 className="section-title">Active Shop Products ({productsList.length})</h3>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <h3 className="section-title" style={{ margin: 0 }}>Active Shop Products ({productsList.length})</h3>
+                      {selectedProducts.length > 0 && (
+                        <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
+                          Delete Selected ({selectedProducts.length})
+                        </button>
+                      )}
+                    </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                       {productsList.map((p) => (
-                        <div key={p.id} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", display: "flex", gap: "16px", borderRadius: "16px" }}>
+                        <div key={p.id} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", display: "flex", gap: "16px", borderRadius: "16px", alignItems: "center" }}>
+                          <input 
+                            type="checkbox" 
+                            checked={selectedProducts.includes(p.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setSelectedProducts([...selectedProducts, p.id]);
+                              else setSelectedProducts(selectedProducts.filter(id => id !== p.id));
+                            }}
+                            style={{ width: "20px", height: "20px", cursor: "pointer", flexShrink: 0 }}
+                          />
                           <img src={p.image} alt={p.name} style={{ width: "90px", height: "90px", borderRadius: "12px", objectFit: "cover" }} />
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -3497,10 +3531,26 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                <h3 className="section-title">Store Products Catalog ({productsList.length})</h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                  <h3 className="section-title" style={{ margin: 0 }}>Store Products Catalog ({productsList.length})</h3>
+                  {selectedProducts.length > 0 && (
+                    <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
+                      Delete Selected ({selectedProducts.length})
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "24px", paddingBottom: "40px" }}>
                   {productsList.map((p) => (
-                    <div key={p.id} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", display: "flex", flexDirection: "column", borderRadius: "16px", height: "100%", border: "1px solid rgba(44,27,13,0.04)" }}>
+                    <div key={p.id} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", display: "flex", flexDirection: "column", borderRadius: "16px", height: "100%", border: "1px solid rgba(44,27,13,0.04)", position: "relative" }}>
+                      <input 
+                        type="checkbox" 
+                        checked={selectedProducts.includes(p.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedProducts([...selectedProducts, p.id]);
+                          else setSelectedProducts(selectedProducts.filter(id => id !== p.id));
+                        }}
+                        style={{ position: "absolute", top: "30px", left: "30px", zIndex: 10, width: "22px", height: "22px", cursor: "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }}
+                      />
                       <img src={p.image} alt={p.name} style={{ width: "100%", height: "180px", borderRadius: "12px", objectFit: "cover", marginBottom: "12px" }} />
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -3791,6 +3841,66 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 )}
+
+                <div style={{ marginTop: "50px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                    <h2 style={{ fontSize: "24px", fontWeight: 800, color: "#2c1b0d", margin: 0 }}>All Approved Feedback</h2>
+                    <button
+                      onClick={() => {
+                        getFeedback().then(setFeedbackList);
+                      }}
+                      className="btn-primary"
+                      style={{ padding: "8px 16px", background: "#f5f5f7", color: "#2c1b0d", border: "1px solid #ddd", cursor: "pointer", borderRadius: "8px" }}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  {feedbackList.length === 0 ? (
+                    <div className="dashboard-card" style={{ padding: "40px", textAlign: "center", background: "#fff", borderRadius: "16px", border: "1px dashed #ccc" }}>
+                      <p style={{ fontSize: "16px", color: "#666" }}>No feedback found in database.</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                      {feedbackList.map((fb, idx) => (
+                        <div key={fb.id || idx} className="dashboard-card" style={{ padding: "24px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "#fff", borderRadius: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.02)" }}>
+                          <div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+                              <strong style={{ fontSize: "16px", color: "#2c1b0d" }}>{fb.customer || fb.name || fb.userName || "Happy Customer"}</strong>
+                              {fb.orderId && (
+                                <span style={{ fontSize: "12px", background: "#f5f5f7", padding: "4px 8px", borderRadius: "999px", color: "#777" }}>
+                                  Order: {fb.orderId}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ color: "#f1c40f", fontSize: "16px", marginBottom: "12px" }}>
+                              {"★".repeat(fb.rating || 5)}{"☆".repeat(5 - (fb.rating || 5))}
+                            </div>
+                            {(fb.text || fb.review || fb.comment) && <p style={{ fontSize: "14px", color: "#555", lineHeight: 1.6, margin: 0 }}>"{fb.text || fb.review || fb.comment}"</p>}
+                            <div style={{ fontSize: "12px", color: "#999", marginTop: "12px" }}>
+                              {fb.date ? fb.date : fb.createdAt ? new Date(fb.createdAt).toLocaleDateString() : "Verified Purchase"}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" }}>
+                            <span style={{ fontSize: "11px", fontWeight: "bold", background: "#e8f5e9", color: "#2e7d32", padding: "4px 8px", borderRadius: "4px" }}>
+                              APPROVED
+                            </span>
+                            <button
+                              onClick={async () => {
+                                if (confirm("Are you sure you want to delete this approved feedback?")) {
+                                  await deleteFeedback(fb.id);
+                                  setFeedbackList(prev => prev.filter(item => item.id !== fb.id));
+                                }
+                              }}
+                              style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

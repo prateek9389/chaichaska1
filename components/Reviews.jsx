@@ -1,7 +1,10 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { getFeedback } from "@/lib/firestore";
+
 export default function Reviews() {
-  const reviews = [
+  const [reviews, setReviews] = useState([
     {
       name: "Aisha Sharma",
       rating: 5,
@@ -20,9 +23,34 @@ export default function Reviews() {
       text: "Tandoori Smoky Chai is simply spectacular. It has that authentic mud pot aroma that is hard to find anywhere else.",
       role: "Verified Buyer",
     },
-  ];
+  ]);
 
-  const displayReviews = [...reviews, ...reviews, ...reviews, ...reviews];
+  useEffect(() => {
+    async function loadReviews() {
+      try {
+        const data = await getFeedback();
+        if (data && data.length > 0) {
+          const formattedReviews = data.map(item => ({
+            name: item.userName || item.customer || item.name || "Happy Customer",
+            rating: item.rating || 5,
+            text: item.comment || item.text || item.review || item.message || "",
+            role: item.productName || item.role || "Verified Buyer"
+          })).filter(r => r.text.length > 0);
+          
+          if (formattedReviews.length > 0) {
+            setReviews(formattedReviews);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load reviews:", err);
+      }
+    }
+    loadReviews();
+  }, []);
+
+  // To create a seamless infinite loop, we duplicate the reviews array
+  // enough times to fill the screen width and continue smoothly.
+  const displayReviews = [...reviews, ...reviews, ...reviews, ...reviews, ...reviews, ...reviews];
 
   return (
     <section id="reviews" style={{ padding: "80px 40px", background: "#fbf9f6" }}>

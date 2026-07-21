@@ -7,7 +7,7 @@ const path = require("path");
 const fs = require("fs");
 
 // ── Load .env.local manually ────────────────────────────────────────────────
-const envPath = path.resolve(__dirname, "..", ".env.local");
+const envPath = path.resolve(__dirname, "..", ".env");
 const envContent = fs.readFileSync(envPath, "utf-8");
 envContent.split("\n").forEach((line) => {
   const trimmed = line.trim();
