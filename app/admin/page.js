@@ -621,40 +621,15 @@ export default function AdminDashboard() {
     e.preventDefault();
     const mail = username.trim().toLowerCase();
     
-    // Developer Bypass for rate-limits
-    if (password === "admin@123" && mail.includes("admin")) {
-      setIsLoggedIn(true);
-      localStorage.setItem("admin_logged", "true");
-      setLoginError("");
-      return;
-    }
+    const envEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || "admin@chaichaska.com";
+    const envPass = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "Str0ng@dminP@ss!";
 
-    if (mail !== "admin123@gmail.com" && mail !== "adminnew@gmail.com") {
-      setLoginError("Access denied. Admin portal is restricted.");
-      return;
-    }
-    try {
-      await loginWithEmail(username.trim(), password.trim());
+    if (mail === envEmail && password === envPass) {
       setIsLoggedIn(true);
       localStorage.setItem("admin_logged", "true");
       setLoginError("");
-    } catch (err) {
-      if (err.code === "auth/user-not-found" || err.code === "auth/invalid-credential" || err.code === "auth/invalid-login-credentials" || err.message.includes("invalid")) {
-        try {
-          await signUpWithEmail({ name: "Admin", email: username.trim(), password: password.trim() });
-          setIsLoggedIn(true);
-          localStorage.setItem("admin_logged", "true");
-          setLoginError("");
-        } catch (e2) {
-          if (e2.code === "auth/email-already-in-use" || e2.message.includes("email-already-in-use")) {
-            setLoginError("Incorrect password. Please try again.");
-          } else {
-            setLoginError(e2.message);
-          }
-        }
-      } else {
-        setLoginError(err.message);
-      }
+    } else {
+      setLoginError("Access denied. Invalid credentials.");
     }
   };
 

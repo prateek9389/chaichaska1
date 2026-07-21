@@ -135,7 +135,16 @@ export default function ProductDetailPage({ params }) {
 
   // Actions
   const handlePurchase = () => {
-    setModalStep("sugar");
+    const isWaterOrDrinks = product?.category && (
+      product.category.toLowerCase().includes("water") || 
+      product.category.toLowerCase().includes("drink")
+    );
+    if (isWaterOrDrinks) {
+      setSugarLevel("none");
+      setModalStep("addons");
+    } else {
+      setModalStep("sugar");
+    }
     setIsAddonModalOpen(true);
   };
 
@@ -469,7 +478,17 @@ export default function ProductDetailPage({ params }) {
 
                 {/* Checkout Finalize */}
                 <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", marginTop: "24px", paddingTop: "20px", textAlign: "center", display: "flex", gap: "12px", justifyContent: "center" }}>
-                  <button onClick={() => setModalStep("sugar")} className="btn-finalize-order" style={{ background: "#f5f5f7", color: "#2c1b0d", border: "1.5px solid rgba(44, 27, 13, 0.15)" }}>
+                  <button onClick={() => {
+                    const isWaterOrDrinks = product?.category && (
+                      product.category.toLowerCase().includes("water") || 
+                      product.category.toLowerCase().includes("drink")
+                    );
+                    if (isWaterOrDrinks) {
+                      setIsAddonModalOpen(false);
+                    } else {
+                      setModalStep("sugar");
+                    }
+                  }} className="btn-finalize-order" style={{ background: "#f5f5f7", color: "#2c1b0d", border: "1.5px solid rgba(44, 27, 13, 0.15)" }}>
                     ← Back
                   </button>
                   <button onClick={handleFinishCheckout} className="btn-finalize-order" style={{ flexGrow: 1 }}>

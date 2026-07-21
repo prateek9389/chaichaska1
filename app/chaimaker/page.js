@@ -398,17 +398,17 @@ export default function AdminDashboard() {
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    if (username !== "brewmaster@gmail.com") {
-      setLoginError("Access Denied: Only brewmaster@gmail.com is allowed.");
-      return;
-    }
-    try {
-      await loginWithEmail(username, password);
+    const mail = username.trim().toLowerCase();
+
+    const envEmail = process.env.NEXT_PUBLIC_BREWMASTER_EMAIL || "brewmaster@chaichaska.com";
+    const envPass = process.env.NEXT_PUBLIC_BREWMASTER_PASSWORD || "Str0ngBr3wP@ss!";
+
+    if (mail === envEmail && password === envPass) {
       setIsLoggedIn(true);
       localStorage.setItem("brewmaster_logged", "true");
       setLoginError("");
-    } catch (err) {
-      setLoginError(err.message || "Invalid credentials.");
+    } else {
+      setLoginError("Access denied. Invalid credentials.");
     }
   };
 

@@ -61,10 +61,6 @@ export default function Footer() {
             <Link href="/shop" style={{ color: "inherit", textDecoration: "none" }}>Shop</Link>
             <br />
             <Link href="/orders" style={{ color: "inherit", textDecoration: "none" }}>My Orders</Link>
-            <br />
-            <Link href="/chaimaker" style={{ color: "inherit", textDecoration: "none", fontWeight: "bold", color: "#f1c40f" }}>⚡ Brewmaster Panel</Link>
-            <br />
-            <Link href="/admin" style={{ color: "inherit", textDecoration: "none", fontWeight: "bold", color: "#e74c3c" }}>🛡️ Admin Panel</Link>
           </p>
         </div>
 
