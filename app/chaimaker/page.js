@@ -55,7 +55,21 @@ export default function AdminDashboard() {
   };
 
   // Tabs State (1st tab is Dashboard)
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTabState, setActiveTabState] = useState("dashboard");
+  
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedTab = localStorage.getItem("brewmaster_active_tab");
+      if (savedTab) setActiveTabState(savedTab);
+    }
+  }, []);
+
+  const setActiveTab = (tab) => {
+    localStorage.setItem("brewmaster_active_tab", tab);
+    window.location.reload();
+  };
+  
+  const activeTab = activeTabState;
   const [timeFilter, setTimeFilter] = useState("Weekly");
   const [queueFilter, setQueueFilter] = useState("All");
   const [queueTab, setQueueTab] = useState("one-time");
@@ -401,15 +415,6 @@ export default function AdminDashboard() {
       unsubAuth();
     };
   }, [router]);
-
-  useEffect(() => {
-    if (isLoggedIn) {
-      const reloadInterval = setInterval(() => {
-        window.location.reload();
-      }, 2000);
-      return () => clearInterval(reloadInterval);
-    }
-  }, [isLoggedIn]);
 
   const allocateTime = async (id, timeVal) => {
     try {
