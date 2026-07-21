@@ -6,9 +6,11 @@ import { db, auth } from "@/lib/firebase";
 import { collection, onSnapshot, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { onOrdersSnapshot, getSubscriptions, updateSubscription, updateOrder, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings } from "@/lib/firestore";
-import { loginWithEmail, signOut, signInWithGoogle } from "@/lib/auth";
+import { loginWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
+import { useRouter } from "next/navigation";
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -32,7 +34,7 @@ export default function AdminDashboard() {
       if (auth.currentUser) {
         const credential = EmailAuthProvider.credential(auth.currentUser.email, currentPassword);
         await reauthenticateWithCredential(auth.currentUser, credential);
-        
+
         await updatePassword(auth.currentUser, newPassword);
         setPasswordMessage("Password updated successfully!");
         setCurrentPassword("");
@@ -53,9 +55,9 @@ export default function AdminDashboard() {
   };
 
   // Tabs State (1st tab is Dashboard)
-  const [activeTab, setActiveTab] = useState("dashboard"); 
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [timeFilter, setTimeFilter] = useState("Weekly");
-  const [queueFilter, setQueueFilter] = useState("All"); 
+  const [queueFilter, setQueueFilter] = useState("All");
   const [queueTab, setQueueTab] = useState("one-time");
   const [selectedQueueOrder, setSelectedQueueOrder] = useState(null);
   const [isQueueSidebarOpen, setIsQueueSidebarOpen] = useState(false);
@@ -105,7 +107,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     const saved = localStorage.getItem("readNotifications_chaimaker");
     if (saved) {
-      try { setReadNotifications(JSON.parse(saved)); } catch(e) {}
+      try { setReadNotifications(JSON.parse(saved)); } catch (e) { }
     }
   }, []);
 
@@ -187,7 +189,7 @@ export default function AdminDashboard() {
     const customizations = [];
     if (o.sugar) customizations.push(`Sugar: ${o.sugar}`);
     if (o.milk) customizations.push(`Milk: ${o.milk}`);
-    
+
     return {
       id: o.id.startsWith("#") ? o.id : `#${o.id.replace("CHAI-ORD-", "")}`,
       customer: o.customer || "Loyal Customer",
@@ -279,7 +281,7 @@ export default function AdminDashboard() {
   const [newMenuItemPrice, setNewMenuItemPrice] = useState("");
   const [newMenuItemImg, setNewMenuItemImg] = useState("");
   const [newMenuItemDesc, setNewMenuItemDesc] = useState("");
-  
+
   const [newMenuCategory, setNewMenuCategory] = useState("Chai");
   const [newMenuUnit, setNewMenuUnit] = useState("Cup");
   const [newMenuPrepTime, setNewMenuPrepTime] = useState("8 mins");
@@ -337,10 +339,21 @@ export default function AdminDashboard() {
   const [timeTick, setTimeTick] = useState(0);
 
   useEffect(() => {
-    const savedLogin = localStorage.getItem("brewmaster_logged");
-    if (savedLogin === "true") {
-      setIsLoggedIn(true);
-    }
+    const unsubAuth = onAuthStateChange((user) => {
+      if (user) {
+        if (user.email === "rohitsengar02@gmail.com") {
+          setIsLoggedIn(true);
+        } else {
+          setIsLoggedIn(false);
+          localStorage.removeItem("brewmaster_logged");
+          router.push("/");
+        }
+      } else {
+        setIsLoggedIn(false);
+        localStorage.removeItem("brewmaster_logged");
+      }
+    });
+
     let prevOrderIds = [];
     const unsubOrders = onOrdersSnapshot((data) => {
       const currentPending = data.filter(o => o.status === "Received" || o.status === "Pending");
@@ -385,8 +398,18 @@ export default function AdminDashboard() {
       unsubStock();
       unsubRestock();
       unsubLeave();
+      unsubAuth();
     };
-  }, []);
+  }, [router]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      const reloadInterval = setInterval(() => {
+        window.location.reload();
+      }, 2000);
+      return () => clearInterval(reloadInterval);
+    }
+  }, [isLoggedIn]);
 
   const allocateTime = async (id, timeVal) => {
     try {
@@ -400,8 +423,8 @@ export default function AdminDashboard() {
     e.preventDefault();
     const mail = username.trim().toLowerCase();
 
-    const envEmail = process.env.NEXT_PUBLIC_BREWMASTER_EMAIL || "brewmaster@chaichaska.com";
-    const envPass = process.env.NEXT_PUBLIC_BREWMASTER_PASSWORD || "Str0ngBr3wP@ss!";
+    const envEmail = process.env.NEXT_PUBLIC_BREWMASTER_EMAIL || "[EMAIL_ADDRESS]";
+    const envPass = process.env.NEXT_PUBLIC_BREWMASTER_PASSWORD || "brewmaster@123";
 
     if (mail === envEmail && password === envPass) {
       setIsLoggedIn(true);
@@ -455,7 +478,7 @@ export default function AdminDashboard() {
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.35);
-    } catch (err) {}
+    } catch (err) { }
   };
 
   const startAlertRinging = () => {
@@ -483,7 +506,7 @@ export default function AdminDashboard() {
       office: "Office 305, Block C",
       sugar: "Mild Sugar",
       milk: "Organic Oat Milk",
-      
+
       img: "https://i.pinimg.com/736x/21/74/32/2174329b8ef1603c1cbc68bd9ef5865a.jpg",
     };
     setIncomingOrder(mockOrderObj);
@@ -507,7 +530,7 @@ export default function AdminDashboard() {
     if (incomingOrder) {
       try {
         await updateOrder(incomingOrder.id, { status: "Preparing" });
-      } catch(err) {
+      } catch (err) {
         console.error(err);
       }
     }
@@ -519,7 +542,7 @@ export default function AdminDashboard() {
     if (incomingOrder) {
       try {
         await updateOrder(incomingOrder.id, { status: "Cancelled" });
-      } catch(err) {
+      } catch (err) {
         console.error(err);
       }
     }
@@ -558,7 +581,7 @@ export default function AdminDashboard() {
       setToastMsg(`🚨 Restock alert for "${selectedItem}" has been sent to the Admin!`);
       setRequestQty("");
       setRequestNotes("");
-    } catch(err) {
+    } catch (err) {
       console.error(err);
       setToastMsg("Error sending request.");
     }
@@ -642,7 +665,7 @@ export default function AdminDashboard() {
     const isHigh = o.priority === "High";
     const isLow = o.priority === "Low";
     const isNormal = o.priority === "Normal" || !o.priority;
-    
+
     // Calculate live ticking elapsed time
     const elapsedMs = Date.now() - o.createdAt;
     const mins = Math.floor(elapsedMs / 60000);
@@ -654,7 +677,7 @@ export default function AdminDashboard() {
         {/* Card top details */}
         <div className="queue-card-top-row">
           <span className="queue-card-id">{o.id}</span>
-          
+
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
             {/* Toggle Priority Button: High -> Normal -> Low -> High */}
             <button
@@ -685,12 +708,12 @@ export default function AdminDashboard() {
         {/* Card core body */}
         <div className="queue-card-body-wrap">
           <img src={o.img} alt={o.item} className="queue-card-thumbnail" />
-          
+
           <div className="queue-card-text-details">
             <h4>{o.item}</h4>
             <span className="queue-customer-lbl">👤 Client: {o.customer}</span>
             <span className="queue-office-lbl">🏢 Office: {o.office}</span>
-            
+
             {/* Date and Time Placed */}
             <span style={{ fontSize: "11px", color: "#888", display: "block", marginTop: "2px" }}>
               📅 Placed: {o.date} at {new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -864,14 +887,14 @@ export default function AdminDashboard() {
 
   return (
     <div style={{ background: "#fcfaf7", minHeight: "100vh", color: "#2c1b0d", fontFamily: "var(--font-body)", overflowX: "hidden" }}>
-      
+
       {!isLoggedIn ? (
         <div className="login-gate-container">
           <form onSubmit={handleLoginSubmit} className="login-card">
             <div className="brewmaster-badge">BREWMASTER ACCESS ONLY</div>
             <h2>Authenticate Terminal</h2>
             <p>Enter operator credentials to link with active brewing controllers.</p>
-            
+
             {loginError && <div className="login-error-alert">{loginError}</div>}
 
             <div className="form-group">
@@ -909,7 +932,7 @@ export default function AdminDashboard() {
       ) : (
         /* BREWMASTER PANEL */
         <div className="dashboard-wrapper">
-          
+
           {/* FIXED LEFT SIDEBAR */}
           <aside className="dashboard-sidebar">
             <div className="sidebar-logo">
@@ -948,15 +971,15 @@ export default function AdminDashboard() {
           </aside>
 
           {/* MAIN CONTAINER */}
-          <div 
+          <div
             className="dashboard-container"
-            style={{ 
-              marginRight: "0", 
+            style={{
+              marginRight: "0",
               width: "calc(100% - 200px)",
               transition: "all 0.3s ease-in-out"
             }}
           >
-            
+
             {/* TOP HEADER */}
             <header className="dashboard-header-new">
               <div>
@@ -970,19 +993,19 @@ export default function AdminDashboard() {
               </div>
 
               <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                <button 
-                  onClick={() => setShowPendingSidebar(!showPendingSidebar)} 
-                  style={{ 
-                    background: "#2c1b0d", 
-                    color: "#ffffff", 
-                    border: "none", 
-                    padding: "10px 18px", 
-                    borderRadius: "20px", 
-                    fontWeight: "bold", 
-                    fontSize: "12.5px", 
-                    cursor: "pointer", 
-                    display: "flex", 
-                    alignItems: "center", 
+                <button
+                  onClick={() => setShowPendingSidebar(!showPendingSidebar)}
+                  style={{
+                    background: "#2c1b0d",
+                    color: "#ffffff",
+                    border: "none",
+                    padding: "10px 18px",
+                    borderRadius: "20px",
+                    fontWeight: "bold",
+                    fontSize: "12.5px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
                     gap: "8px",
                     boxShadow: "0 4px 10px rgba(44, 27, 13, 0.15)"
                   }}
@@ -1029,7 +1052,7 @@ export default function AdminDashboard() {
             {/* TAB CONTENT */}
             {activeTab === "dashboard" && (
               <div>
-                
+
                 {/* SUBHEADER */}
                 <div className="sales-order-subheader">
                   <div>
@@ -1038,10 +1061,10 @@ export default function AdminDashboard() {
                   </div>
 
                   <div className="subheader-controls">
-                    <button 
+                    <button
                       className="btn-export-data"
                       onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8," + 
+                        const csvContent = "data:text/csv;charset=utf-8," +
                           "Order ID,Customer,Status,Total,Item,Date\n" +
                           filteredOrders.map(o => `${o.id},${o.customer || "N/A"},${o.status || "N/A"},${o.total || "0"},"${o.item || "N/A"}","${o.date || "N/A"}"`).join("\n");
                         const encodedUri = encodeURI(csvContent);
@@ -1055,7 +1078,7 @@ export default function AdminDashboard() {
                     >
                       📤 Export Data
                     </button>
-                    
+
                     <div className="filter-pill-group">
                       {["Daily", "Weekly", "Monthly"].map((pill) => (
                         <button
@@ -1072,7 +1095,7 @@ export default function AdminDashboard() {
 
                 {/* STATS ROW */}
                 <div className="stats-cards-row-new">
-                  
+
 
                   <div className="stats-card-item">
                     <div className="stats-card-title-row">
@@ -1101,7 +1124,7 @@ export default function AdminDashboard() {
                     <span className="stats-percent-tag red">-5% <span style={{ color: "#777" }}>vs month</span></span>
                   </div>
 
-                  
+
                 </div>
 
                 {/* MIDDLE ROW */}
@@ -1135,7 +1158,7 @@ export default function AdminDashboard() {
                               >
                                 {bar.highlighted && (
                                   <div className="chart-tooltip-bubble">
-                                    
+
                                   </div>
                                 )}
                               </div>
@@ -1159,7 +1182,7 @@ export default function AdminDashboard() {
                             <th>Customer Name</th>
                             <th>Date</th>
                             <th>Status</th>
-                            
+
                           </tr>
                         </thead>
                         <tbody>
@@ -1173,7 +1196,7 @@ export default function AdminDashboard() {
                                   {o.status}
                                 </span>
                               </td>
-                              
+
                             </tr>
                           ))}
                         </tbody>
@@ -1248,8 +1271,8 @@ export default function AdminDashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                   <h3 className="section-title" style={{ margin: 0 }}>Order Queue (List View)</h3>
                   <div className="admin-tabs" style={{ background: 'transparent', padding: 0, display: "flex", gap: "10px" }}>
-                    <button 
-                      className={`admin-tab ${queueTab === "one-time" ? "active" : ""}`} 
+                    <button
+                      className={`admin-tab ${queueTab === "one-time" ? "active" : ""}`}
                       onClick={() => setQueueTab("one-time")}
                       style={{
                         background: queueTab === "one-time" ? "#8e44ad" : "#f5f5f5",
@@ -1259,8 +1282,8 @@ export default function AdminDashboard() {
                     >
                       One-Time Orders
                     </button>
-                    <button 
-                      className={`admin-tab ${queueTab === "subscription" ? "active" : ""}`} 
+                    <button
+                      className={`admin-tab ${queueTab === "subscription" ? "active" : ""}`}
                       onClick={() => setQueueTab("subscription")}
                       style={{
                         background: queueTab === "subscription" ? "#8e44ad" : "#f5f5f5",
@@ -1475,114 +1498,114 @@ export default function AdminDashboard() {
 
                   <div style={{ maxWidth: "600px", margin: "0 auto", width: "100%" }}>
 
-                      {/* Raise Restock Alert Form */}
-                      <h3 className="section-title">Raise Restock Request</h3>
-                      <form onSubmit={handleRaiseAlert} style={{ background: "#ffffff", padding: "30px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.08)", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: "32px" }}>
-                        <div className="form-group" style={{ marginBottom: "20px" }}>
-                          <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Ingredient Name</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Assam Loose Tea Leaves"
-                            value={selectedItem}
-                            onChange={(e) => setSelectedItem(e.target.value)}
-                            required
-                            style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", transition: "all 0.2s ease" }}
-                            onFocus={(e) => e.target.style.borderColor = "#8a583c"}
-                            onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
-                          />
-                        </div>
+                    {/* Raise Restock Alert Form */}
+                    <h3 className="section-title">Raise Restock Request</h3>
+                    <form onSubmit={handleRaiseAlert} style={{ background: "#ffffff", padding: "30px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.08)", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: "32px" }}>
+                      <div className="form-group" style={{ marginBottom: "20px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Ingredient Name</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Assam Loose Tea Leaves"
+                          value={selectedItem}
+                          onChange={(e) => setSelectedItem(e.target.value)}
+                          required
+                          style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", transition: "all 0.2s ease" }}
+                          onFocus={(e) => e.target.style.borderColor = "#8a583c"}
+                          onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
+                        />
+                      </div>
 
-                        <div className="form-group" style={{ marginBottom: "20px" }}>
-                          <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Requested Quantity</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 20 Kg, 50 Litres"
-                            value={requestQty}
-                            onChange={(e) => setRequestQty(e.target.value)}
-                            required
-                            style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", transition: "all 0.2s ease" }}
-                            onFocus={(e) => e.target.style.borderColor = "#8a583c"}
-                            onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
-                          />
-                        </div>
+                      <div className="form-group" style={{ marginBottom: "20px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Requested Quantity</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 20 Kg, 50 Litres"
+                          value={requestQty}
+                          onChange={(e) => setRequestQty(e.target.value)}
+                          required
+                          style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", transition: "all 0.2s ease" }}
+                          onFocus={(e) => e.target.style.borderColor = "#8a583c"}
+                          onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
+                        />
+                      </div>
 
-                        <div className="form-group" style={{ marginBottom: "24px" }}>
-                          <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "10px", display: "block" }}>Urgency Level</label>
-                          <div style={{ display: "flex", gap: "12px" }}>
-                            {["Low", "Medium", "High"].map((level) => (
-                              <button
-                                key={level}
-                                type="button"
-                                onClick={() => setUrgency(level)}
-                                style={{
-                                  flex: 1,
-                                  padding: "10px",
-                                  border: "2px solid",
-                                  borderColor: urgency === level ? "#2c1b0d" : "rgba(44,27,13,0.08)",
-                                  background: urgency === level ? "#2c1b0d" : "#ffffff",
-                                  color: urgency === level ? "#ffffff" : "#555",
-                                  borderRadius: "10px",
-                                  fontSize: "12px",
-                                  fontWeight: "800",
-                                  cursor: "pointer",
-                                  transition: "all 0.2s ease",
-                                  boxShadow: urgency === level ? "0 4px 12px rgba(44,27,13,0.15)" : "none"
-                                }}
-                              >
-                                {level === "High" ? "🚨 High" : level}
-                              </button>
-                            ))}
-                          </div>
+                      <div className="form-group" style={{ marginBottom: "24px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "10px", display: "block" }}>Urgency Level</label>
+                        <div style={{ display: "flex", gap: "12px" }}>
+                          {["Low", "Medium", "High"].map((level) => (
+                            <button
+                              key={level}
+                              type="button"
+                              onClick={() => setUrgency(level)}
+                              style={{
+                                flex: 1,
+                                padding: "10px",
+                                border: "2px solid",
+                                borderColor: urgency === level ? "#2c1b0d" : "rgba(44,27,13,0.08)",
+                                background: urgency === level ? "#2c1b0d" : "#ffffff",
+                                color: urgency === level ? "#ffffff" : "#555",
+                                borderRadius: "10px",
+                                fontSize: "12px",
+                                fontWeight: "800",
+                                cursor: "pointer",
+                                transition: "all 0.2s ease",
+                                boxShadow: urgency === level ? "0 4px 12px rgba(44,27,13,0.15)" : "none"
+                              }}
+                            >
+                              {level === "High" ? "🚨 High" : level}
+                            </button>
+                          ))}
                         </div>
+                      </div>
 
-                        <div className="form-group" style={{ marginBottom: "24px" }}>
-                          <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Urgent Notes (optional)</label>
-                          <textarea
-                            placeholder="Why is this restock urgent?"
-                            value={requestNotes}
-                            onChange={(e) => setRequestNotes(e.target.value)}
-                            rows="2"
-                            style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", resize: "none", transition: "all 0.2s ease" }}
-                            onFocus={(e) => e.target.style.borderColor = "#8a583c"}
-                            onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
-                          />
-                        </div>
+                      <div className="form-group" style={{ marginBottom: "24px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Urgent Notes (optional)</label>
+                        <textarea
+                          placeholder="Why is this restock urgent?"
+                          value={requestNotes}
+                          onChange={(e) => setRequestNotes(e.target.value)}
+                          rows="2"
+                          style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", resize: "none", transition: "all 0.2s ease" }}
+                          onFocus={(e) => e.target.style.borderColor = "#8a583c"}
+                          onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
+                        />
+                      </div>
 
-                        <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "14px", borderRadius: "12px", fontWeight: "800", fontSize: "13px", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase", boxShadow: "0 6px 16px rgba(44,27,13,0.2)", transition: "transform 0.1s ease" }}
+                      <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "14px", borderRadius: "12px", fontWeight: "800", fontSize: "13px", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase", boxShadow: "0 6px 16px rgba(44,27,13,0.2)", transition: "transform 0.1s ease" }}
                         onMouseDown={(e) => e.target.style.transform = "scale(0.98)"}
                         onMouseUp={(e) => e.target.style.transform = "scale(1)"}
                         onMouseLeave={(e) => e.target.style.transform = "scale(1)"}>
-                          SEND ALERT TO ADMIN
-                        </button>
-                      </form>
+                        SEND ALERT TO ADMIN
+                      </button>
+                    </form>
 
-                      {/* Logs of Raised Requests */}
-                      <h4 style={{ fontSize: "13px", color: "#2c1b0d", marginBottom: "12px", fontWeight: "800" }}>📋 Restock Requests Log</h4>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        {restockRequests.map((r, i) => (
-                          <div key={i} style={{ background: "#ffffff", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.03)", fontSize: "12px" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                              <strong>{r.item}</strong>
-                              <span style={{ fontSize: "10px", background: r.urgency === "High" ? "rgba(231,76,60,0.1)" : "rgba(0,0,0,0.05)", color: r.urgency === "High" ? "#e74c3c" : "#555", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
-                                {r.urgency} Urgency
-                              </span>
-                            </div>
-                            <span style={{ display: "block", color: "#666" }}>Qty Requested: {r.qty}</span>
-                            <span style={{ display: "block", color: "#888", fontStyle: "italic", fontSize: "11px", marginTop: "2px" }}>Notes: {r.notes}</span>
-                            
-                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.02)", paddingTop: "6px", fontSize: "10px" }}>
-                              <span style={{ color: "#27ae60" }}>● {r.status}</span>
-                              <span style={{ color: "#999" }}>{r.date}</span>
-                            </div>
-                            
-                            {r.adminMessage && (
-                              <div style={{ marginTop: "6px", padding: "6px", background: "#f8f9fa", borderRadius: "4px", fontSize: "10px", color: "#444", borderLeft: "2px solid #3498db" }}>
-                                <strong>Admin Reply:</strong> {r.adminMessage}
-                              </div>
-                            )}
+                    {/* Logs of Raised Requests */}
+                    <h4 style={{ fontSize: "13px", color: "#2c1b0d", marginBottom: "12px", fontWeight: "800" }}>📋 Restock Requests Log</h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                      {restockRequests.map((r, i) => (
+                        <div key={i} style={{ background: "#ffffff", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.03)", fontSize: "12px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                            <strong>{r.item}</strong>
+                            <span style={{ fontSize: "10px", background: r.urgency === "High" ? "rgba(231,76,60,0.1)" : "rgba(0,0,0,0.05)", color: r.urgency === "High" ? "#e74c3c" : "#555", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                              {r.urgency} Urgency
+                            </span>
                           </div>
-                        ))}
-                      </div>
+                          <span style={{ display: "block", color: "#666" }}>Qty Requested: {r.qty}</span>
+                          <span style={{ display: "block", color: "#888", fontStyle: "italic", fontSize: "11px", marginTop: "2px" }}>Notes: {r.notes}</span>
+
+                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.02)", paddingTop: "6px", fontSize: "10px" }}>
+                            <span style={{ color: "#27ae60" }}>● {r.status}</span>
+                            <span style={{ color: "#999" }}>{r.date}</span>
+                          </div>
+
+                          {r.adminMessage && (
+                            <div style={{ marginTop: "6px", padding: "6px", background: "#f8f9fa", borderRadius: "4px", fontSize: "10px", color: "#444", borderLeft: "2px solid #3498db" }}>
+                              <strong>Admin Reply:</strong> {r.adminMessage}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
 
                   </div>
                 </div>
@@ -1611,17 +1634,17 @@ export default function AdminDashboard() {
 
               return (
                 <div className="tab-body-wrapper">
-                  
+
                   {/* Earnings Metrics Cards */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "28px" }}>
                     <div style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
                       <span style={{ fontSize: "11px", color: "#666", display: "block" }}>💰 Total Gross Earnings</span>
-                      
+
                       <span style={{ fontSize: "10.5px", color: "#27ae60", display: "block", marginTop: "4px" }}>▲ +14% from last week</span>
                     </div>
                     <div style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
                       <span style={{ fontSize: "11px", color: "#666", display: "block" }}>🏦 Pending Payout (Auto-Transfer)</span>
-                      
+
                       <span style={{ fontSize: "10.5px", color: "#8a583c", display: "block", marginTop: "4px" }}>Scheduled: Friday, 6:00 PM</span>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
@@ -1632,15 +1655,15 @@ export default function AdminDashboard() {
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-                    
+
                     {/* Left Column: Earnings Graph & settlements */}
                     <div>
                       <h3 className="section-title">Weekly Revenue Trends</h3>
-                      
+
                       {/* Premium CSS Chart */}
                       <div style={{ background: "#ffffff", padding: "24px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "28px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", height: "200px", paddingBottom: "10px", borderBottom: "1px solid rgba(0,0,0,0.06)", position: "relative" }}>
-                          
+
                           {/* Y-Axis Guideline markers */}
                           <div style={{ position: "absolute", left: 0, right: 0, top: "25%", borderBottom: "1px dashed rgba(0,0,0,0.03)", pointerEvents: "none" }} />
                           <div style={{ position: "absolute", left: 0, right: 0, top: "50%", borderBottom: "1px dashed rgba(0,0,0,0.03)", pointerEvents: "none" }} />
@@ -1648,7 +1671,7 @@ export default function AdminDashboard() {
 
                           {chartData.map((d, i) => (
                             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1, position: "relative", zIndex: 1 }}>
-                              
+
                               {/* Hover Tooltip Value */}
                               <span style={{ fontSize: "10px", background: "#2c1b0d", color: "#fdf5e9", padding: "2px 6px", borderRadius: "4px", position: "absolute", bottom: `${d.val + 8}%`, opacity: 0.9, fontWeight: "bold" }}>
                                 {d.amount}
@@ -1687,7 +1710,7 @@ export default function AdminDashboard() {
                     {/* Right Column: Payments transaction feed */}
                     <div>
                       <h3 className="section-title">All Transaction Payments</h3>
-                      
+
                       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                         {transactions.map((t, idx) => (
                           <div key={idx} style={{ background: "#ffffff", padding: "16px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1731,11 +1754,11 @@ export default function AdminDashboard() {
 
               return (
                 <div className="tab-body-wrapper">
-                  
+
                   {/* Invoice Modal Overlay */}
                   {activeInvoice && (() => {
                     const cleanId = activeInvoice.id.replace("#", "");
-                    
+
                     const subTotal = (priceVal / 1.05).toFixed(2);
                     const taxVal = (priceVal - subTotal).toFixed(2);
 
@@ -1769,7 +1792,7 @@ export default function AdminDashboard() {
                         `}</style>
                         {/* Wrapper for Printable card and control buttons */}
                         <div style={{ width: "680px" }}>
-                          
+
                           {/* Close & Print Buttons Panel */}
                           <div className="no-print" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
                             <button
@@ -1790,7 +1813,7 @@ export default function AdminDashboard() {
 
                           {/* INVOICE CARD (replicates corporate template layout) */}
                           <div id="printable-invoice-card" style={{ background: "#ffffff", padding: "48px", borderRadius: "8px", boxShadow: "0 10px 40px rgba(0,0,0,0.15)", border: "1px solid rgba(0,0,0,0.08)", color: "#2c1b0d", fontFamily: "Arial, sans-serif" }}>
-                            
+
                             {/* Row 1: Logo & INVOICE header */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -1921,7 +1944,7 @@ export default function AdminDashboard() {
 
                   {/* View Toggles & Filters Row */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "16px" }}>
-                    
+
                     {/* Date Filters */}
                     <div style={{ display: "flex", background: "rgba(44,27,13,0.05)", padding: "4px", borderRadius: "8px" }}>
                       {["today", "7days", "all"].map((filter) => (
@@ -2000,7 +2023,7 @@ export default function AdminDashboard() {
                             <span style={{ fontSize: "13px", fontWeight: "800", color: "#8a583c" }}>{h.id}</span>
                             <span style={{ fontSize: "11px", color: "#888" }}>{h.date}</span>
                           </div>
-                          
+
                           <div style={{ marginBottom: "14px" }}>
                             <span style={{ fontSize: "14px", display: "block", fontWeight: "bold" }}>👤 {h.customer}</span>
                             <span style={{ fontSize: "12px", color: "#555", display: "block", margin: "4px 0" }}>📦 {h.items}</span>
@@ -2110,16 +2133,16 @@ export default function AdminDashboard() {
               return (
                 <div className="tab-body-wrapper">
                   <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-                    
+
                     {/* Left Panel: Active Subscriptions */}
                     <div>
                       <h3 className="section-title">Corporate Subscriptions Ledger</h3>
                       <p style={{ fontSize: "12px", color: "#666", marginTop: "-12px", marginBottom: "20px" }}>Active recurring beverage plans mapped to office locations.</p>
-                      
+
                       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                         {activeSubs.map((sub, i) => (
                           <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", borderTop: sub.status === "Active" ? "4px solid #27ae60" : sub.status === "Paused" ? "4px solid #f39c12" : "4px solid #e74c3c", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "16px" }}>
-                            
+
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", borderBottom: "1px dashed rgba(0,0,0,0.1)", paddingBottom: "12px" }}>
                               <div>
                                 <h4 style={{ fontSize: "16px", fontWeight: "800", color: "#2c1b0d", margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
@@ -2132,13 +2155,13 @@ export default function AdminDashboard() {
                                 </h4>
                                 <span style={{ fontSize: "11px", color: "#8a583c", fontWeight: "600", background: "rgba(138,88,60,0.1)", padding: "2px 8px", borderRadius: "12px" }}>ID: {sub.id}</span>
                               </div>
-                              
+
                               <div style={{ textAlign: "right" }}>
                                 <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500", marginBottom: "2px" }}>
-                                  <span style={{color:"#888"}}>Start:</span> <strong style={{color:"#2c1b0d"}}>{sub.startDate}</strong>
+                                  <span style={{ color: "#888" }}>Start:</span> <strong style={{ color: "#2c1b0d" }}>{sub.startDate}</strong>
                                 </div>
                                 <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500" }}>
-                                  <span style={{color:"#888"}}>End:</span> <strong style={{color:"#2c1b0d"}}>{sub.endDate || "Ongoing"}</strong>
+                                  <span style={{ color: "#888" }}>End:</span> <strong style={{ color: "#2c1b0d" }}>{sub.endDate || "Ongoing"}</strong>
                                 </div>
                               </div>
                             </div>
@@ -2161,7 +2184,7 @@ export default function AdminDashboard() {
                                 </span>
                                 <span style={{ fontSize: "12px", color: "#666", fontWeight: "500" }}>({sub.schedule || "Daily"})</span>
                               </div>
-                              
+
                               <div style={{ display: "flex", gap: "10px" }}>
                                 <button
                                   type="button"
@@ -2192,7 +2215,7 @@ export default function AdminDashboard() {
                     <div>
                       <h3 className="section-title">Today's Subscription Schedule</h3>
                       <p style={{ fontSize: "12px", color: "#666", marginTop: "-12px", marginBottom: "20px" }}>Live queue of active subscription deliveries for today.</p>
-                      
+
                       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                         {activeSubs.filter(sub => sub.status === "Active").map((sub, i) => (
                           <div key={i} style={{ background: "#ffffff", padding: "16px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2231,11 +2254,11 @@ export default function AdminDashboard() {
             {activeTab === "leave" && (
               <div className="tab-body-wrapper">
                 <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "28px" }}>
-                  
+
                   {/* Left Column: Apply Leave Form */}
                   <div>
                     <h3 className="section-title">Leave Request Hub</h3>
-                    
+
                     <form
                       onSubmit={async (e) => {
                         e.preventDefault();
@@ -2324,7 +2347,7 @@ export default function AdminDashboard() {
                           style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
                         />
                       </div>
-                      
+
                       <button
                         type="button"
                         onClick={async () => {
@@ -2346,11 +2369,11 @@ export default function AdminDashboard() {
             {activeTab === "profile" && (
               <div className="tab-body-wrapper">
                 <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-                  
+
                   {/* Left Column: Brewmaster Profile Details */}
                   <div>
                     <h3 className="section-title">Brewmaster Identity Profile</h3>
-                    
+
                     <div style={{ background: "#ffffff", padding: "28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "24px", display: "flex", gap: "20px", alignItems: "center" }}>
                       <div style={{ width: "80px", height: "80px", borderRadius: "50%", background: "#2c1b0d", color: "#fdf5e9", display: "flex", justifyContent: "center", alignItems: "center", fontSize: "36px", fontWeight: "bold" }}>
                         👨‍🍳
@@ -2459,7 +2482,7 @@ export default function AdminDashboard() {
                   {/* Right Column: Station Configuration & Settings */}
                   <div>
                     <h3 className="section-title">Kitchen Operations Settings</h3>
-                    
+
                     <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "24px" }}>
                       <div className="form-group" style={{ marginBottom: "16px" }}>
                         <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Active Station Outlet Name</label>
@@ -2470,7 +2493,7 @@ export default function AdminDashboard() {
                           style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
                         />
                       </div>
-                      
+
                       <button
                         type="button"
                         onClick={async () => {
@@ -2488,7 +2511,7 @@ export default function AdminDashboard() {
                     <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
                       <h4 style={{ fontSize: "12px", textTransform: "uppercase", margin: "0 0 12px", color: "#e74c3c", fontWeight: "bold" }}>Session & Security</h4>
                       <p style={{ fontSize: "11.5px", color: "#666", marginBottom: "20px" }}>Log out of the active terminal session. All local configurations remain saved on the server database.</p>
-                      
+
                       <button
                         type="button"
                         onClick={() => {
@@ -2509,7 +2532,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* FIXED RIGHT SIDEBAR (PENDING ORDERS WITH PRODUCT IMAGE & ALL DETAILS) */}
-          <aside 
+          <aside
             className="dashboard-right-sidebar"
             style={{
               transform: showPendingSidebar ? "translateX(0)" : "translateX(100%)",
@@ -2522,14 +2545,14 @@ export default function AdminDashboard() {
                 <h3>📥 Pending Requests</h3>
                 <span className="pending-badge-count" style={{ display: "inline-block", marginTop: "4px" }}>{pendingSidebarOrders.length} Queue</span>
               </div>
-              <button 
+              <button
                 onClick={() => setShowPendingSidebar(false)}
-                style={{ 
-                  background: "transparent", 
-                  border: "none", 
-                  fontSize: "20px", 
-                  cursor: "pointer", 
-                  color: "#e74c3c", 
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  fontSize: "20px",
+                  cursor: "pointer",
+                  color: "#e74c3c",
                   fontWeight: "bold",
                   padding: "4px 8px"
                 }}
@@ -2547,41 +2570,41 @@ export default function AdminDashboard() {
               ) : (
                 pendingSidebarOrders.map((o) => (
                   <div key={o.id} className="right-sidebar-order-card">
-                    
+
                     {/* ID & Date top line */}
                     <div className="sidebar-card-header">
                       <strong className="sidebar-order-id">{o.id}</strong>
                       <span className="sidebar-order-date">{o.date}</span>
                     </div>
 
-                                      {/* Main order info with product image layout */}
-                  <div className="sidebar-card-body-detailed">
-                    <img src={o.img} alt={o.item} className="sidebar-product-img" />
-                    
-                    <div className="sidebar-product-details">
-                      <h4 className="sidebar-product-title">{o.item}</h4>
-                      <span className="sidebar-customer-name">👤 {o.customer}</span>
-                    </div>
-                  </div>
+                    {/* Main order info with product image layout */}
+                    <div className="sidebar-card-body-detailed">
+                      <img src={o.img} alt={o.item} className="sidebar-product-img" />
 
-                  {/* Office Number & Customizations moved below image to save height */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", borderTop: "1px dashed rgba(0,0,0,0.05)", paddingTop: "10px" }}>
-                    <div className="sidebar-office-badge" style={{ margin: 0, flexShrink: 0, display: "flex", alignItems: "flex-start", gap: "4px" }}>
-                      <span style={{ marginTop: "1px" }}>🏢</span>
-                      <div style={{ display: "flex", flexDirection: "column" }}>
-                        {(o.office || "Desk Area").split(',').map((part, i, arr) => (
-                          <span key={i}>{part.trim()}{i !== arr.length - 1 ? ',' : ''}</span>
-                        ))}
+                      <div className="sidebar-product-details">
+                        <h4 className="sidebar-product-title">{o.item}</h4>
+                        <span className="sidebar-customer-name">👤 {o.customer}</span>
                       </div>
                     </div>
-                    
-                    <div className="sidebar-extra-details" style={{ display: "flex", flexDirection: "column", gap: "4px", margin: 0, alignItems: "flex-end", textAlign: "right", fontSize: "10.5px" }}>
-                      <span>Sugar: {o.sugar}</span>
-                      <span>Milk: {o.milk}</span>
-                    </div>
-                  </div>
 
-                  {/* Actions */}
+                    {/* Office Number & Customizations moved below image to save height */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", borderTop: "1px dashed rgba(0,0,0,0.05)", paddingTop: "10px" }}>
+                      <div className="sidebar-office-badge" style={{ margin: 0, flexShrink: 0, display: "flex", alignItems: "flex-start", gap: "4px" }}>
+                        <span style={{ marginTop: "1px" }}>🏢</span>
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          {(o.office || "Desk Area").split(',').map((part, i, arr) => (
+                            <span key={i}>{part.trim()}{i !== arr.length - 1 ? ',' : ''}</span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="sidebar-extra-details" style={{ display: "flex", flexDirection: "column", gap: "4px", margin: 0, alignItems: "flex-end", textAlign: "right", fontSize: "10.5px" }}>
+                        <span>Sugar: {o.sugar}</span>
+                        <span>Milk: {o.milk}</span>
+                      </div>
+                    </div>
+
+                    {/* Actions */}
                     <div className="sidebar-card-actions">
                       <button onClick={() => rejectSpecificOrder(o.id)} className="sidebar-action-btn reject">
                         Reject

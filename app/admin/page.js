@@ -575,15 +575,19 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const unsubAuth = onAuthStateChange((user) => {
-      if (user && user.email !== "rohitsengar02@gmail.com") {
+      if (user) {
+        if (user.email === "rohitsengar02@gmail.com") {
+          setIsLoggedIn(true);
+        } else {
+          setIsLoggedIn(false);
+          localStorage.removeItem("admin_logged");
+          router.push("/");
+        }
+      } else {
         setIsLoggedIn(false);
         localStorage.removeItem("admin_logged");
-        router.push("/");
       }
     });
-    
-    const savedLogin = localStorage.getItem("admin_logged");
-    if (savedLogin === "true") setIsLoggedIn(true);
     const unsubOrders = onOrdersSnapshot((data) => setOrders(data));
     getMenuItems().then(setMenuItems);
     getCombos().then(setCombos);
@@ -610,6 +614,15 @@ export default function AdminDashboard() {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      const reloadInterval = setInterval(() => {
+        window.location.reload();
+      }, 2000);
+      return () => clearInterval(reloadInterval);
+    }
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (showImageLibrary) {
