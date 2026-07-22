@@ -172,15 +172,15 @@ export default function WalletPage() {
           <div className="wallet-stats-row">
             <div className="stat-card">
               <span>Lifetime Coins</span>
-              <strong>{balance + 100} Coins</strong>
+              <strong>{balance} Coins</strong>
             </div>
             <div className="stat-card">
               <span>Subscriptions Linked</span>
-              <strong>2 Active</strong>
+              <strong>0 Active</strong>
             </div>
             <div className="stat-card">
               <span>Total Cash Saved</span>
-              <strong>₹480.00</strong>
+              <strong>₹0.00</strong>
             </div>
           </div>
         </section>
