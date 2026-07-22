@@ -716,9 +716,13 @@ function CheckoutPortal() {
                     ))}
                   </strong>
                 </div>
+                <div className="receipt-row" style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px dashed rgba(0,0,0,0.08)" }}>
+                  <span>Payment Method:</span>
+                  <strong style={{ color: "#8a583c" }}>Loyalty Coin Wallet</strong>
+                </div>
                 <div className="receipt-row">
-                  <span>Total Paid amount:</span>
-                  <strong style={{ color: "#8a583c" }}>₹{finalPayable}</strong>
+                  <span>Total Paid Amount:</span>
+                  <strong style={{ color: "#27ae60", fontSize: "16px" }}>₹{finalPayable}</strong>
                 </div>
                 <div className="receipt-row">
                   <span>Estimated Delivery Time:</span>

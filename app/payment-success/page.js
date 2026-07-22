@@ -12,6 +12,22 @@ function PaymentSuccessContent() {
   const orderId = searchParams.get("order_id");
   const type = searchParams.get("type"); // "checkout" or "wallet"
   const { clearCart } = useCart();
+  const [orderDetails, setOrderDetails] = useState(null);
+
+  useEffect(() => {
+    async function fetchOrder() {
+      if (orderId && type === "checkout") {
+        try {
+          const { getOrderById } = await import("@/lib/firestore");
+          const order = await getOrderById(orderId);
+          if (order) setOrderDetails(order);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+    fetchOrder();
+  }, [orderId, type]);
 
   useEffect(() => {
     if (orderId && type === "checkout") {
@@ -40,26 +56,51 @@ function PaymentSuccessContent() {
             : " Your order is confirmed and heading to the brewing counter."}
         </p>
 
-        <div className="receipt-box" style={{ marginTop: "24px", padding: "16px", background: "#fbf9f6", borderRadius: "12px", border: "1px dashed rgba(0,0,0,0.1)" }}>
-          <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+        <div className="receipt-box" style={{ marginTop: "32px", padding: "24px", background: "#fbf9f6", borderRadius: "16px", border: "1px dashed rgba(138,88,60,0.3)" }}>
+          <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
             <span style={{ color: "#666" }}>Reference ID:</span>
-            <strong>{orderId}</strong>
+            <strong style={{ color: "#2c1b0d" }}>{orderId}</strong>
           </div>
-          <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "#666" }}>Status:</span>
-            <strong style={{ color: "#27ae60" }}>PAID</strong>
-          </div>
+          
+          {orderDetails && (
+            <>
+              <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
+                <span style={{ color: "#666" }}>Amount Paid:</span>
+                <strong style={{ color: "#2c1b0d", fontSize: "16px" }}>{orderDetails.total}</strong>
+              </div>
+              <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
+                <span style={{ color: "#666" }}>Payment Method:</span>
+                <strong style={{ color: "#8a583c" }}>Cashfree (Online)</strong>
+              </div>
+              <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", borderTop: "1px dashed rgba(0,0,0,0.1)", paddingTop: "12px" }}>
+                <span style={{ color: "#666" }}>Status:</span>
+                <strong style={{ color: "#27ae60" }}>{orderDetails.payment_status || "PAID"}</strong>
+              </div>
+            </>
+          )}
+
+          {!orderDetails && type === "wallet" && (
+             <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between" }}>
+               <span style={{ color: "#666" }}>Status:</span>
+               <strong style={{ color: "#27ae60" }}>PAID</strong>
+             </div>
+          )}
         </div>
 
-        <div style={{ marginTop: "32px" }}>
+        <div style={{ marginTop: "32px", display: "flex", gap: "12px", justifyContent: "center" }}>
           {type === "wallet" ? (
-            <Link href="/wallet" className="btn-continue-checkout" style={{ display: "inline-block", padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "8px", fontWeight: "bold" }}>
+            <Link href="/wallet" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
               Return to Wallet
             </Link>
           ) : (
-            <Link href="/" className="btn-continue-checkout" style={{ display: "inline-block", padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "8px", fontWeight: "bold" }}>
-              Return to Home
-            </Link>
+            <>
+              <Link href={`/orders/${orderId}`} className="btn-continue-checkout" style={{ padding: "14px 24px", background: "#fbf9f6", color: "#2c1b0d", border: "1px solid rgba(0,0,0,0.1)", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
+                Track Order
+              </Link>
+              <Link href="/" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
+                Return to Home
+              </Link>
+            </>
           )}
         </div>
       </div>
