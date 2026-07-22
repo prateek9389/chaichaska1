@@ -126,7 +126,10 @@ export default function ShopPage() {
               {["All", "Chai", "Coffee", "Drinks", "Water"].map((cat) => (
                 <button
                   key={cat}
-                  onClick={() => setSelectedCategory(cat)}
+                  onClick={() => {
+                    setSelectedCategory(cat);
+                    setMobileFilterOpen(false);
+                  }}
                   className={`filter-btn ${selectedCategory === cat ? "active" : ""}`}
                 >
                   {cat}

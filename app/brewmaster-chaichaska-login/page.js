@@ -75,6 +75,7 @@ export default function AdminDashboard() {
   const [queueTab, setQueueTab] = useState("one-time");
   const [selectedQueueOrder, setSelectedQueueOrder] = useState(null);
   const [isQueueSidebarOpen, setIsQueueSidebarOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [deliveryTimeInput, setDeliveryTimeInput] = useState("");
   const [isOnline, setIsOnline] = useState(true);
 
@@ -939,7 +940,7 @@ export default function AdminDashboard() {
         <div className="dashboard-wrapper">
 
           {/* FIXED LEFT SIDEBAR */}
-          <aside className="dashboard-sidebar">
+          <aside className={`dashboard-sidebar ${isMobileMenuOpen ? "mobile-open" : ""}`}>
             <div className="sidebar-logo">
               <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "50%" }} />
             </div>
@@ -974,6 +975,22 @@ export default function AdminDashboard() {
               </button>
             </div>
           </aside>
+          
+          {/* MOBILE BOTTOM NAVBAR */}
+          <div className="mobile-bottom-navbar" style={{ display: 'none' }}>
+            <button onClick={() => setActiveTab("dashboard")} className={`mobile-bottom-nav-item ${activeTab === "dashboard" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
+              <span className="btn-emoji">📊</span> Dashboard
+            </button>
+            <button onClick={() => setActiveTab("queue")} className={`mobile-bottom-nav-item ${activeTab === "queue" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
+              <span className="btn-emoji">📥</span> Orders
+            </button>
+            <button onClick={() => setActiveTab("shop")} className={`mobile-bottom-nav-item ${activeTab === "shop" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
+              <span className="btn-emoji">🛍️</span> Shop
+            </button>
+            <button onClick={() => setActiveTab("profile")} className={`mobile-bottom-nav-item ${activeTab === "profile" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
+              <span className="btn-emoji">⚙️</span> Profile
+            </button>
+          </div>
 
           {/* MAIN CONTAINER */}
           <div
@@ -987,9 +1004,18 @@ export default function AdminDashboard() {
 
             {/* TOP HEADER */}
             <header className="dashboard-header-new">
-              <div>
-                <span className="welcome-label">Welcome!</span>
-                <h1 className="operator-title">{brewmasterName}</h1>
+              <div className="header-left-wrap" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <button 
+                  className="mobile-menu-btn" 
+                  onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                  style={{ background: "transparent", border: "none", fontSize: "24px", cursor: "pointer", display: "none" }}
+                >
+                  ☰
+                </button>
+                <div>
+                  <span className="welcome-label">Welcome!</span>
+                  <h1 className="operator-title">{brewmasterName}</h1>
+                </div>
               </div>
 
               <div className="header-search-box-wrap">
@@ -997,9 +1023,10 @@ export default function AdminDashboard() {
                 <input type="text" placeholder="Search Here" className="search-input-new" />
               </div>
 
-              <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+              <div className="header-actions-wrap" style={{ display: "flex", gap: "16px", alignItems: "center" }}>
                 <button
-                  onClick={() => setShowPendingSidebar(!showPendingSidebar)}
+                  className="btn-pending-requests"
+                  onClick={() => setIsQueueSidebarOpen(true)}
                   style={{
                     background: "#2c1b0d",
                     color: "#ffffff",
@@ -2785,6 +2812,9 @@ export default function AdminDashboard() {
         .dashboard-wrapper {
           display: flex;
           min-height: 100vh;
+          overflow-x: hidden;
+          width: 100%;
+          max-width: 100vw;
         }
 
         .dashboard-sidebar {
@@ -2868,11 +2898,11 @@ export default function AdminDashboard() {
         /* Container main */
         .dashboard-container {
           margin-left: 20%;
-          margin-right: 20%;
+          margin-right: 0;
           flex-grow: 1;
           padding: 24px;
           box-sizing: border-box;
-          width: 60%;
+          width: 80%;
         }
 
         /* Fixed Right Sidebar for Pending Queue (Detailed cards style) */
@@ -3858,15 +3888,132 @@ export default function AdminDashboard() {
         }
 
         @media (max-width: 860px) {
+          .mobile-menu-btn {
+            display: block !important;
+          }
           .dashboard-sidebar {
-            display: none;
+            transform: translateX(-100%);
+            display: flex !important;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            z-index: 9999;
+            transition: transform 0.3s ease;
+            box-shadow: 10px 0 30px rgba(0,0,0,0.2);
+          }
+          .dashboard-sidebar.mobile-open {
+            transform: translateX(0);
           }
           .dashboard-container {
-            margin-left: 0;
-            width: 100%;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 16px !important;
+            padding-bottom: 80px !important; /* space for bottom navbar */
+            overflow-x: hidden;
           }
+          
+          .dashboard-container.pending-open {
+            margin-right: 0 !important;
+            width: 100% !important;
+          }
+          
+          .dashboard-container.pending-open {
+            margin-right: 0 !important;
+            width: 100vw !important;
+          }
+          
+          /* Mobile Header Fixes */
+          .dashboard-header-new {
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: space-between;
+          }
+          .header-left-wrap {
+            gap: 8px !important;
+          }
+          .header-actions-wrap {
+            gap: 8px !important;
+          }
+          .btn-pending-requests {
+            padding: 8px 10px !important;
+            font-size: 11px !important;
+          }
+          .operator-title {
+            font-size: 18px !important;
+          }
+          .header-search-box-wrap {
+            order: 3;
+            max-width: 100%;
+            width: 100%;
+            margin-top: 4px;
+          }
+          
+          /* Mobile Subheader Fixes */
+          .sales-order-subheader {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+          }
+          .subheader-controls {
+            width: 100%;
+            justify-content: flex-start;
+            flex-wrap: wrap;
+          }
+          
+          /* Mobile Stats Carousel */
           .stats-cards-row-new {
-            grid-template-columns: repeat(2, 1fr);
+            display: flex !important;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+            gap: 12px;
+            padding-bottom: 12px;
+          }
+          .stats-cards-row-new > div {
+            flex: 0 0 80%; /* 80% width so the next card peeks out */
+            scroll-snap-align: start;
+          }
+          .stats-cards-row-new::-webkit-scrollbar {
+            display: none;
+          }
+          
+          /* Mobile Bottom Navbar */
+          .mobile-bottom-navbar {
+            display: flex !important;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100vw;
+            background: #ffffff;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.1);
+            z-index: 9999;
+            justify-content: space-around;
+            padding: 12px 0;
+            border-top: 1px solid rgba(44, 27, 13, 0.1);
+          }
+          .mobile-bottom-nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #666;
+            font-size: 10px;
+            font-weight: 700;
+            gap: 4px;
+            text-transform: uppercase;
+          }
+          .mobile-bottom-nav-item.active {
+            color: #2c1b0d;
+          }
+          .mobile-bottom-nav-item .btn-emoji {
+            font-size: 20px;
+            margin-right: 0;
+          }
+          .mobile-menu-btn {
+            display: none !important; /* Hide hamburger since we have bottom nav */
           }
         }
         .queue-list-item {
