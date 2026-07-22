@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateOrder, updateUserCoins } from "@/lib/firestore";
 import { db } from "@/lib/firestore";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 
 export async function GET(req) {
   try {
@@ -51,8 +51,9 @@ export async function GET(req) {
             if (userSnap.exists()) {
               currentCoins = userSnap.data().coins;
               if (typeof currentCoins === 'string') currentCoins = parseFloat(currentCoins) || 0;
+              if (typeof currentCoins !== 'number' || isNaN(currentCoins)) currentCoins = 0;
             }
-            await updateDoc(userRef, { coins: currentCoins + txData.coins });
+            await setDoc(userRef, { coins: currentCoins + txData.coins }, { merge: true });
           }
         }
       }
@@ -76,3 +77,4 @@ export async function GET(req) {
     return NextResponse.redirect(new URL("/payment-decline", req.url));
   }
 }
+
