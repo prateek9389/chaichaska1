@@ -16,6 +16,7 @@ function CheckoutPortal() {
   const { cartItems, getCartTotal, clearCart, isLoaded: cartLoaded } = useCart();
   const [checkoutStep, setCheckoutStep] = useState("shipping");
   const [orderRef, setOrderRef] = useState("");
+  const [receiptData, setReceiptData] = useState(null);
 
   useEffect(() => {
     if (cartLoaded && cartItems.length === 0 && checkoutStep !== "thankyou") {
@@ -341,6 +342,11 @@ function CheckoutPortal() {
           await updateUserCoins(user.uid, -finalPayable, `Order ${id}`);
         }
         setOrderRef(id);
+        setReceiptData({
+          cartItems: [...cartItems],
+          finalPayable,
+          paymentMethod
+        });
         clearCart();
         setCheckoutStep("thankyou");
       } catch (err) {
@@ -698,7 +704,7 @@ function CheckoutPortal() {
                 <div className="receipt-row">
                   <span>Items:</span>
                   <strong>
-                    {cartItems.map((item, idx) => (
+                    {receiptData?.cartItems?.map((item, idx) => (
                       <div key={idx} style={{ marginBottom: item.addonsList?.length > 0 ? "8px" : "4px" }}>
                         <div>{item.quantity}x {item.name}</div>
                         {item.addonsList && item.addonsList.length > 0 ? (
@@ -718,11 +724,11 @@ function CheckoutPortal() {
                 </div>
                 <div className="receipt-row" style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px dashed rgba(0,0,0,0.08)" }}>
                   <span>Payment Method:</span>
-                  <strong style={{ color: "#8a583c" }}>Loyalty Coin Wallet</strong>
+                  <strong style={{ color: "#8a583c" }}>{receiptData?.paymentMethod === 'wallet' ? 'Loyalty Coin Wallet' : 'Online Payment'}</strong>
                 </div>
                 <div className="receipt-row">
                   <span>Total Paid Amount:</span>
-                  <strong style={{ color: "#27ae60", fontSize: "16px" }}>₹{finalPayable}</strong>
+                  <strong style={{ color: "#27ae60", fontSize: "16px" }}>₹{receiptData?.finalPayable}</strong>
                 </div>
                 <div className="receipt-row">
                   <span>Estimated Delivery Time:</span>
