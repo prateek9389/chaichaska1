@@ -14,13 +14,26 @@ export default function ChaiShowcase() {
 
 
   const [teas, setTeas] = useState([]);
-  
+  const [allProducts, setAllProducts] = useState([]);
+  const [activeCategory, setActiveCategory] = useState("All");
+
   useEffect(() => {
     getProducts().then(all => {
+      setAllProducts(all);
       // Show 8 products for 4x2 grid
       setTeas(all.slice(0, 8));
     });
   }, []);
+
+  const handleCategoryClick = (cat) => {
+    setActiveCategory(cat);
+    if (cat === "All") {
+      setTeas(allProducts.slice(0, 8));
+    } else {
+      const filterCat = cat === 'Tea' ? 'Chai' : cat;
+      setTeas(allProducts.filter(p => p.category === filterCat).slice(0, 8));
+    }
+  };
 
   const handleAddToCart = (tea) => {
     if (!user) {
@@ -84,11 +97,40 @@ export default function ChaiShowcase() {
             Our Menu
           </div>
           <h2 style={{ fontSize: "clamp(24px, 3.5vw, 34px)", fontWeight: 800, color: "#111111" }}>
-            Explore Our Premium Handcrafted Blends
+            Explore Our Most Demanding Products
           </h2>
           <p style={{ color: "#666666", fontSize: "14.5px", marginTop: "6px" }}>
-            Freshly brewed and spiced traditional teas to elevate your senses.
+            Freshly brewed and spiced traditional beverages to elevate your senses.
           </p>
+          <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "24px", flexWrap: "wrap" }}>
+            {["All", "Tea", "Coffee", "Drinks", "Water"].map(cat => {
+              const categoryColors = {
+                All: "#111111", // Dark gray/black
+                Tea: "#8a583c", // Brown
+                Coffee: "#b5845c", // Light brown
+                Drinks: "#e84393", // Vibrant pink/berry for drinks
+                Water: "#000080" // Navy blue
+              };
+              return (
+              <button
+                key={cat}
+                onClick={() => handleCategoryClick(cat)}
+                style={{
+                  background: activeCategory === cat ? categoryColors[cat] : "#efe3d5",
+                  color: activeCategory === cat ? "#ffffff" : "#634023",
+                  border: "none",
+                  padding: "8px 24px",
+                  borderRadius: "999px",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "all 0.3s ease"
+                }}
+              >
+                {cat}
+              </button>
+            )})}
+          </div>
         </div>
 
         {/* Full Width Layout */}

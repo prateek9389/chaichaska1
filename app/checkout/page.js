@@ -99,7 +99,10 @@ function CheckoutPortal() {
   const [fullname, setFullname] = useState("");
   const [phone, setPhone] = useState("");
   const [pincode, setPincode] = useState("");
-  const [address, setAddress] = useState("");
+  const [officeNo, setOfficeNo] = useState("");
+  const [floor, setFloor] = useState("");
+  const [building, setBuilding] = useState("");
+  const [landmark, setLandmark] = useState("");
   const [locLoading, setLocLoading] = useState(false);
 
   // Coupons
@@ -115,7 +118,7 @@ function CheckoutPortal() {
     if (user) {
       setFullname(profile?.name || user.displayName || "");
       setPhone(profile?.phone || "");
-      setAddress(profile?.floor || "");
+      setOfficeNo(profile?.floor || "");
       setPaymentMethod("wallet");
     } else {
       setPaymentMethod("upi");
@@ -129,7 +132,10 @@ function CheckoutPortal() {
       setFullname(profile?.name || user?.displayName || "Royal Tea Aficionado");
       setPhone(profile?.phone || "9876543210");
       setPincode("302001");
-      setAddress(profile?.floor ? `${profile.floor}, Jaipur, Rajasthan` : "Palace Square Vista, Block 4-C, Jaipur, Rajasthan, India");
+      setOfficeNo(profile?.floor || "4-C");
+      setFloor("Floor 4");
+      setBuilding("Palace Square Vista");
+      setLandmark("Jaipur, Rajasthan, India");
       setLocLoading(false);
     }, 1500);
   };
@@ -207,8 +213,12 @@ function CheckoutPortal() {
 
   const handlePlaceOrder = async () => {
     if (checkoutStep === "shipping") {
-      if ((!fullname || !phone) && savedAddresses.length === 0) {
-        alert("Please provide contact details.");
+      if (!fullname || !phone || phone.length < 10) {
+        alert("Please provide your full name and a valid 10-digit mobile number.");
+        return;
+      }
+      if (savedAddresses.length === 0 && (!officeNo || !floor || !building || !landmark)) {
+        alert("Please fill in all office address fields (Office No, Floor, Building, Landmark).");
         return;
       }
       if (savedAddresses.length > 0 && !selectedAddressId) {
@@ -229,7 +239,7 @@ function CheckoutPortal() {
 
       setCheckoutStep("processing");
       
-      let finalAddress = address;
+      let finalAddress = `${officeNo}, ${floor}, ${building}, ${landmark}`;
       if (savedAddresses.length > 0) {
          const sel = savedAddresses.find(a => a.id === selectedAddressId);
          if(sel) finalAddress = `${sel.officeNumber}, ${sel.officeName}, Floor ${sel.floor}, ${sel.address}`;
@@ -409,15 +419,23 @@ function CheckoutPortal() {
                       </div>
                     </div>
                     {(!user || savedAddresses.length === 0) && (
-                      <div className="form-group full-width" style={{ gridColumn: "1 / -1" }}>
-                        <label>Office Address</label>
-                        <textarea 
-                          placeholder="House No, Street, Landmark, City" 
-                          value={address} 
-                          onChange={(e) => setAddress(e.target.value)} 
-                          className="checkout-text-input" 
-                          style={{ minHeight: "80px", resize: "vertical" }}
-                        />
+                      <div className="address-inputs-grid full-width" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "16px" }}>
+                        <div className="form-group">
+                          <label>Office No</label>
+                          <input type="text" placeholder="e.g. 402" value={officeNo} onChange={(e) => setOfficeNo(e.target.value)} className="checkout-text-input" />
+                        </div>
+                        <div className="form-group">
+                          <label>Floor</label>
+                          <input type="text" placeholder="e.g. 4th Floor" value={floor} onChange={(e) => setFloor(e.target.value)} className="checkout-text-input" />
+                        </div>
+                        <div className="form-group">
+                          <label>Building</label>
+                          <input type="text" placeholder="e.g. Infinity Tower" value={building} onChange={(e) => setBuilding(e.target.value)} className="checkout-text-input" />
+                        </div>
+                        <div className="form-group">
+                          <label>Landmark</label>
+                          <input type="text" placeholder="e.g. Near Metro Station" value={landmark} onChange={(e) => setLandmark(e.target.value)} className="checkout-text-input" />
+                        </div>
                       </div>
                     )}
                   </div>

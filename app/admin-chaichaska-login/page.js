@@ -1003,8 +1003,8 @@ export default function AdminDashboard() {
     try {
       await updateAddon(editingAddon.id, {
         name: editAddonName,
-        price: editAddonPrice,
-        image: editAddonImg
+        price: parseFloat(editAddonPrice) || 0,
+        image: editAddonImg || "/chai-ingredients.png"
       });
       setToastMsg("Addon updated successfully!");
       setEditingAddon(null);
@@ -3126,7 +3126,7 @@ export default function AdminDashboard() {
                     <div>
                       <h3 className="section-title">Create Custom Add-on</h3>
                       <form
-                        onSubmit={(e) => {
+                        onSubmit={async (e) => {
                           e.preventDefault();
                           if (!newAddonName || !newAddonPrice) return;
                           const newAdd = {
@@ -3136,13 +3136,19 @@ export default function AdminDashboard() {
                             image: newAddonImg || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg",
                             active: true
                           };
-                          setAddonsList(prev => [...prev, newAdd]);
-                          setNewAddonName("");
-                          setNewAddonPrice("");
-                          setNewAddonDesc("");
-                          setNewAddonImg("");
-                          setToastMsg(`🌱 Added add-on "${newAddonName}" successfully!`);
-                          setTimeout(() => setToastMsg(""), 3000);
+                          try {
+                            await addAddon(newAdd);
+                            setNewAddonName("");
+                            setNewAddonPrice("");
+                            setNewAddonDesc("");
+                            setNewAddonImg("");
+                            setToastMsg(`🌱 Added add-on "${newAddonName}" successfully!`);
+                            setTimeout(() => setToastMsg(""), 3000);
+                            getAddons().then(setAddonsList);
+                          } catch (err) {
+                            setToastMsg(`❌ Error: ${err.message}`);
+                            setTimeout(() => setToastMsg(""), 3000);
+                          }
                         }}
                         style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}
                       >
@@ -3740,14 +3746,20 @@ export default function AdminDashboard() {
                     onClick={async () => {
                       if (!newAddonName || !newAddonPrice) return alert("Fill required fields");
                       try {
-                        await addAddon({ name: newAddonName, price: newAddonPrice, image: newAddonImg || "/chai-ingredients.png" });
+                        await addAddon({ 
+                          name: newAddonName, 
+                          price: parseFloat(newAddonPrice) || 0, 
+                          image: newAddonImg || "/chai-ingredients.png",
+                          desc: newAddonDesc || "Fresh add-on suggestion.",
+                          active: true
+                        });
                         alert("Add-on created successfully!");
                         setNewAddonName(""); setNewAddonPrice(""); setNewAddonImg("");
                         // Refresh
                         getAddons().then(setAddonsList);
                       } catch (e) {
                         console.error(e);
-                        alert("Error adding addon");
+                        alert("Error adding addon: " + e.message);
                       }
                     }}
                   >
