@@ -1247,9 +1247,9 @@ export default function AdminDashboard() {
       } else {
         refundAmount = order.total || 0;
       }
-      
       if (order.paymentMethod !== "wallet" && order.purchaseType !== "subscription") {
-        alert("This order was not paid using the Coin Wallet. No coins will be refunded. Marking as Refunded for external gateway records.");
+        alert("This order was paid via UPI/External Gateway. You must process the refund manually through your Cashfree Dashboard.");
+        return; // Abort and do not mark as Refunded
       } else if (refundAmount > 0) {
         if (order.uid) {
           await updateUserCoins(order.uid, refundAmount, `Refund for Order ${order.id}`);
