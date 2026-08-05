@@ -156,7 +156,7 @@ export default function WalletPage() {
           <div className="wallet-main-row">
             <div>
               <span className="wallet-tag">ROYAL LOYALTY CLUB</span>
-              <h1 className="wallet-title">ChaiCo Coin Wallet</h1>
+              <h1 className="wallet-title">Chai Chaska Coin Wallet</h1>
               <p className="wallet-subtitle">Accumulate gold coins with every subscription and spend them like cash!</p>
             </div>
             
@@ -164,7 +164,7 @@ export default function WalletPage() {
               <span className="gold-coin-floating" />
               <div style={{ textAlign: "right" }}>
                 <span className="balance-value">{balance}</span>
-                <span className="balance-label">Active Coins (₹{(balance / 10).toFixed(2)})</span>
+                <span className="balance-label">Active Coins</span>
               </div>
             </div>
           </div>

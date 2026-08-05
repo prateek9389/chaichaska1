@@ -53,7 +53,7 @@ function LoginForm() {
         {/* Logo */}
         <div style={styles.logoWrap}>
           <span style={styles.logoIcon}>☕</span>
-          <span style={styles.logoText}>Chai Chuska</span>
+          <span style={styles.logoText}>Chai Chaska</span>
         </div>
 
         <h1 style={styles.title}>Welcome back</h1>

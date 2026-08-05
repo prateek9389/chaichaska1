@@ -13,14 +13,26 @@ import { onProductsSnapshot } from "@/lib/firestore";
 export default function ShopPage() {
   const router = useRouter();
   const { user } = useAuth();
-  // Products fetched from Firestore
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const cached = sessionStorage.getItem('chai_products_cache');
+      if (cached) return JSON.parse(cached);
+    }
+    return [];
+  });
+  
+  const [loading, setLoading] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return !sessionStorage.getItem('chai_products_cache');
+    }
+    return true;
+  });
 
   useEffect(() => {
     const unsubscribe = onProductsSnapshot((items) => {
       setProducts(items);
       setLoading(false);
+      sessionStorage.setItem('chai_products_cache', JSON.stringify(items));
     });
     return () => unsubscribe();
   }, []);
@@ -41,7 +53,7 @@ export default function ShopPage() {
 
   // Filtering Logic
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    const result = products.filter((p) => {
       // 1. Category filter
       if (selectedCategory !== "All" && p.category !== selectedCategory) return false;
 
@@ -68,6 +80,15 @@ export default function ShopPage() {
       if (searchQuery && !p.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
 
       return true;
+    });
+
+    // Define category priority for sorting
+    const categoryOrder = { "Chai": 1, "Coffee": 2, "Drinks": 3 };
+    
+    return result.sort((a, b) => {
+      const orderA = categoryOrder[a.category] || 99;
+      const orderB = categoryOrder[b.category] || 99;
+      return orderA - orderB;
     });
   }, [
     products,

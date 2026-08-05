@@ -419,7 +419,7 @@ function CheckoutPortal() {
                       </div>
                     </div>
                     {(!user || savedAddresses.length === 0) && (
-                      <div className="address-inputs-grid full-width" style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "16px" }}>
+                      <div className="address-inputs-grid full-width" style={{ gridColumn: "1 / -1", marginTop: "16px" }}>
                         <div className="form-group">
                           <label>Office No</label>
                           <input type="text" placeholder="e.g. 402" value={officeNo} onChange={(e) => setOfficeNo(e.target.value)} className="checkout-text-input" />
@@ -907,6 +907,8 @@ function CheckoutPortal() {
           background: #fbf9f6;
           color: #2c1b0d;
           outline: none;
+          width: 100%;
+          box-sizing: border-box;
         }
 
         .checkout-text-input.area {
@@ -959,6 +961,7 @@ function CheckoutPortal() {
         .steps-status-bar {
           display: flex;
           align-items: center;
+          flex-wrap: wrap;
           gap: 12px;
           background: #ffffff;
           padding: 16px 24px;
@@ -1348,6 +1351,19 @@ function CheckoutPortal() {
         @media (max-width: 990px) {
           .checkout-grid-layout {
             grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 768px) {
+          .checkout-page-container {
+            padding: 100px 16px 40px;
+          }
+          .steps-status-bar {
+            padding: 12px 16px;
+            gap: 8px;
+          }
+          .step-indicator {
+            font-size: 12px;
           }
         }
 
