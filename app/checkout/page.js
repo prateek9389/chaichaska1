@@ -265,7 +265,8 @@ function CheckoutPortal() {
         addons: combinedAddons,
         coupon: couponCode || "None",
         deliveryTime: deliveryTime,
-        purchaseType: purchaseType
+        purchaseType: purchaseType,
+        paymentMethod: paymentMethod || "wallet"
       };
       
       try {

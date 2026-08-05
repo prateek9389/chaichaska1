@@ -121,7 +121,7 @@ export default function OrderDetailPage({ params }) {
           </div>
 
           {/* Tracker visual */}
-          {order.status !== "Cancelled" && (
+          {order.status !== "Cancelled" && order.status !== "Cancelled by User" && order.status !== "Refunded" ? (
             <div className="tracking-visual-card">
               <h4>Live Shipment Status</h4>
               <div className="stepper-track">
@@ -145,6 +145,25 @@ export default function OrderDetailPage({ params }) {
                   <span className="step-text">Delivered</span>
                 </div>
               </div>
+            </div>
+          ) : (
+            <div className="tracking-visual-card" style={{ textAlign: "center", padding: "30px" }}>
+              {(order.status === "Cancelled" || order.status === "Cancelled by User") && (
+                <>
+                  <h4 style={{ color: "#e74c3c" }}>Order Cancelled</h4>
+                  <p style={{ marginTop: "10px", fontSize: "14px" }}>
+                    Your refund will be processed in 4 hours. If paid via Coins, they will be credited back to your wallet.
+                  </p>
+                </>
+              )}
+              {order.status === "Refunded" && (
+                <>
+                  <h4 style={{ color: "#3498db" }}>Refund Processed</h4>
+                  <p style={{ marginTop: "10px", fontSize: "14px" }}>
+                    Your refund was processed successfully. If you paid via Coins, they have been credited back to your wallet.
+                  </p>
+                </>
+              )}
             </div>
           )}
 

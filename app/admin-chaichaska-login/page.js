@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteAddon, updateAddon, getStock, updateOrder, addMenuItem, addStockItem, updateStockItem, getSubscriptions, onSubscriptionsSnapshot, onProductsSnapshot, addProduct, deleteProduct, updateProduct, updateSubscription, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
+import { updateUserCoins, onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteAddon, updateAddon, getStock, updateOrder, addMenuItem, addStockItem, updateStockItem, getSubscriptions, onSubscriptionsSnapshot, onProductsSnapshot, addProduct, deleteProduct, updateProduct, updateSubscription, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
 import { loginWithEmail, signUpWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -1184,15 +1184,25 @@ export default function AdminDashboard() {
               </button>
             )}
             {o.status === "Delivered" && <span style={{ background: "rgba(39,174,96,0.1)", color: "#27ae60", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>✓ Delivered</span>}
-            {o.status === "Cancelled" && <span style={{ fontSize: "12px", color: "#e74c3c", fontWeight: "bold" }}>❌ Cancelled</span>}
-            {o.status === "Cancelled by User" && <span style={{ fontSize: "12px", color: "#e74c3c", fontWeight: "bold" }}>❌ Cancelled by User</span>}
+            {(o.status === "Cancelled" || o.status === "Cancelled by User") && (
+              <>
+                <span style={{ fontSize: "12px", color: "#e74c3c", fontWeight: "bold" }}>❌ {o.status}</span>
+                <button
+                  onClick={() => handleRefund(o)}
+                  style={{ background: "#3498db", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "bold", cursor: "pointer", marginLeft: "8px" }}
+                >
+                  Refund
+                </button>
+              </>
+            )}
+            {o.status === "Refunded" && <span style={{ background: "rgba(52, 152, 219, 0.1)", color: "#3498db", padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>💰 Refunded</span>}
           </div>
         </div>
       </div>
     );
   };
 
-  const activeUnservedOrders = orders.filter((o) => o.status !== "Delivered" && o.status !== "Cancelled" && o.status !== "Cancelled by User");
+  const activeUnservedOrders = orders.filter((o) => o.status !== "Delivered" && o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
   const totalBrewsSummary = {};
   const addOnsSummary = { "Oat Milk": 0, "Almond Milk": 0, "No Sugar": 0, "Mild Sugar": 0 };
 
@@ -1227,6 +1237,32 @@ export default function AdminDashboard() {
   const pendingSidebarOrders = orders
     .filter((o) => o.status === "Received")
     .sort((a, b) => a.id.localeCompare(b.id));
+
+  const handleRefund = async (order) => {
+    if (!window.confirm("Are you sure you want to refund this order? Coins will be added to the user's wallet.")) return;
+    try {
+      let refundAmount = 0;
+      if (typeof order.total === 'string') {
+        refundAmount = parseFloat(order.total.replace(/[^\d\.]/g, "")) || 0;
+      } else {
+        refundAmount = order.total || 0;
+      }
+      
+      if (order.paymentMethod !== "wallet" && order.purchaseType !== "subscription") {
+        alert("This order was not paid using the Coin Wallet. No coins will be refunded. Marking as Refunded for external gateway records.");
+      } else if (refundAmount > 0) {
+        if (order.uid) {
+          await updateUserCoins(order.uid, refundAmount, `Refund for Order ${order.id}`);
+        }
+      }
+      await updateOrder(order.id, { status: "Refunded" });
+      setToastMsg(`Order refunded successfully!`);
+      setTimeout(() => setToastMsg(""), 3000);
+    } catch (err) {
+      setToastMsg(`Error processing refund: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 3000);
+    }
+  };
 
   const toggleSubscriptionStatus = async (sub) => {
     const newStatus = sub.status === "Active" ? "Paused" : "Active";
