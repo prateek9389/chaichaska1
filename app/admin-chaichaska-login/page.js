@@ -277,14 +277,16 @@ export default function AdminDashboard() {
     return true;
   });
 
-  const totalSalesVal = filteredOrders.reduce((acc, o) => {
+  const validOrders = filteredOrders.filter(o => o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
+
+  const totalSalesVal = validOrders.reduce((acc, o) => {
     const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
 
-  const totalOrdersCount = filteredOrders.length;
-  const completedOrdersCount = filteredOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
-  const pendingOrdersCount = filteredOrders.filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing").length;
+  const totalOrdersCount = validOrders.length;
+  const completedOrdersCount = validOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
+  const pendingOrdersCount = validOrders.filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing").length;
   const avgOrderValueVal = totalOrdersCount > 0 ? (totalSalesVal / totalOrdersCount) : 0;
 
   const statsSummary = {
@@ -1565,7 +1567,6 @@ export default function AdminDashboard() {
                       <span>Total Sales</span>
                     </div>
                     <h3>{statsSummary.totalSales}</h3>
-                    <span className="stats-percent-tag green">+8% <span style={{ color: "#777" }}>vs month</span></span>
                   </div>
 
                   <div className="stats-card-item">
@@ -1574,7 +1575,6 @@ export default function AdminDashboard() {
                       <span>Total Orders</span>
                     </div>
                     <h3>{statsSummary.totalOrders}</h3>
-                    <span className="stats-percent-tag red">-3% <span style={{ color: "#777" }}>vs month</span></span>
                   </div>
 
                   <div className="stats-card-item">
@@ -1583,7 +1583,6 @@ export default function AdminDashboard() {
                       <span>Delivery Shipment</span>
                     </div>
                     <h3>{statsSummary.deliveryShipment}</h3>
-                    <span className="stats-percent-tag green">+12% <span style={{ color: "#777" }}>vs month</span></span>
                   </div>
 
                   <div className="stats-card-item">
@@ -1592,7 +1591,6 @@ export default function AdminDashboard() {
                       <span>Pending Shipment</span>
                     </div>
                     <h3>{statsSummary.pendingShipment}</h3>
-                    <span className="stats-percent-tag red">-5% <span style={{ color: "#777" }}>vs month</span></span>
                   </div>
 
                   <div className="stats-card-item">
@@ -1601,7 +1599,6 @@ export default function AdminDashboard() {
                       <span>AVG Order Value</span>
                     </div>
                     <h3>{statsSummary.avgOrderValue}</h3>
-                    <span className="stats-percent-tag green">+5% <span style={{ color: "#777" }}>vs month</span></span>
                   </div>
                 </div>
 
@@ -2386,23 +2383,34 @@ export default function AdminDashboard() {
                         <style dangerouslySetInnerHTML={{
                           __html: `
                           @media print {
-                            body {
-                              background: #ffffff !important;
+                            @page {
+                              size: auto;
+                              margin: 0mm;
                             }
-                            body * {
-                              visibility: hidden !important;
+                            /* Hide all elements except the invoice lineage and its descendants */
+                            body *:not(#printable-invoice-card):not(:has(#printable-invoice-card)):not(#printable-invoice-card *) {
+                              display: none !important;
                             }
-                            #printable-invoice-card, #printable-invoice-card * {
-                              visibility: visible !important;
+                            /* Strip layout from the lineage ancestors to avoid extra spacing/scrollbars */
+                            body *:has(#printable-invoice-card) {
+                              margin: 0 !important;
+                              padding: 0 !important;
+                              border: none !important;
+                              background: transparent !important;
+                              height: auto !important;
+                              min-height: 0 !important;
+                              overflow: visible !important;
+                              position: static !important;
                             }
                             #printable-invoice-card {
                               position: absolute !important;
                               left: 0 !important;
                               top: 0 !important;
                               width: 100% !important;
+                              max-width: 100% !important;
                               border: none !important;
                               box-shadow: none !important;
-                              padding: 0 !important;
+                              padding: 20px !important;
                               margin: 0 !important;
                             }
                             .no-print {
@@ -2411,7 +2419,7 @@ export default function AdminDashboard() {
                           }
                         `}} />
                         {/* Wrapper for Printable card and control buttons */}
-                        <div style={{ width: "680px" }}>
+                        <div style={{ width: "100%", maxWidth: "800px", margin: "0 auto" }}>
 
                           {/* Close & Print Buttons Panel */}
                           <div className="no-print" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
@@ -2436,11 +2444,10 @@ export default function AdminDashboard() {
 
                             {/* Row 1: Logo & INVOICE header */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                <span style={{ fontSize: "28px" }}>🍵</span>
+                              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "50%" }} />
                                 <div>
-                                  <strong style={{ fontSize: "20px", color: "#2c1b0d", letterSpacing: "0.5px" }}>CHAI HEROES</strong>
-                                  <span style={{ display: "block", fontSize: "9px", color: "#8a583c", textTransform: "uppercase", fontWeight: "bold", letterSpacing: "1px" }}>Brewmaster Terminal</span>
+                                  <strong style={{ fontSize: "20px", color: "#2c1b0d", letterSpacing: "0.5px" }}>CHAI CHASKA</strong>
                                 </div>
                               </div>
                               <h1 style={{ fontSize: "28px", color: "#2c1b0d", letterSpacing: "2px", margin: 0, fontWeight: "300", textTransform: "uppercase" }}>INVOICE</h1>
@@ -2454,7 +2461,7 @@ export default function AdminDashboard() {
                               </div>
                               <div>
                                 <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Date</span>
-                                <strong style={{ fontSize: "13px" }}>{activeInvoice.date.split(" ")[0]}</strong>
+                                <strong style={{ fontSize: "13px" }}>{new Date(activeInvoice.createdAt || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</strong>
                               </div>
                               <div>
                                 <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Invoice to:</span>
@@ -2534,9 +2541,9 @@ export default function AdminDashboard() {
 
                             {/* Bottom Info bar */}
                             <div style={{ borderTop: "1px solid #eee", marginTop: "40px", paddingTop: "16px", display: "flex", justifyContent: "space-between", fontSize: "9.5px", color: "#999" }}>
-                              <span>🏢 Corporate Park Hub Road, Block A</span>
-                              <span>📞 Support Desk: +91 99999 00000</span>
-                              <span>✉️ billing@chaiheroes.com</span>
+                              <span style={{ maxWidth: "200px" }}>🏢 TF-57, 3rd floor, Gaur City Center, Near Gaur Chowk, Greater Noida West (UP)</span>
+                              <span>📞 +91 96676-23-123</span>
+                              <span>✉️ chaichaska.support@gmail.com</span>
                             </div>
 
                           </div>

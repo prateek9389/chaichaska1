@@ -117,6 +117,14 @@ export default function OrderDetailPage({ params }) {
                   Cancel Order
                 </button>
               )}
+              
+              <button
+                onClick={() => window.print()}
+                className="no-print"
+                style={{ background: "#2c1b0d", color: "#fff", padding: "8px 16px", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
+              >
+                🖨️ Download Invoice
+              </button>
             </div>
           </div>
 
@@ -448,7 +456,179 @@ export default function OrderDetailPage({ params }) {
             font-size: 10px;
           }
         }
+
+        @media print {
+          @page {
+            size: auto;
+            margin: 0mm;
+          }
+          /* Hide all elements except the invoice lineage and its descendants */
+          body *:not(#printable-invoice-card):not(:has(#printable-invoice-card)):not(#printable-invoice-card *) {
+            display: none !important;
+          }
+          /* Strip layout from the lineage ancestors to avoid extra spacing/scrollbars */
+          body *:has(#printable-invoice-card) {
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            background: transparent !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            position: static !important;
+          }
+          #printable-invoice-card {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 20px !important;
+            margin: 0 !important;
+            display: block !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
       `}</style>
+
+      {/* INVOICE CARD (Hidden normally, shown only on print) */}
+      <div id="printable-invoice-card" className="print-only-invoice" style={{ display: "none" }}>
+        <style dangerouslySetInnerHTML={{ __html: `
+          @media print {
+            .print-only-invoice {
+              display: block !important;
+            }
+          }
+        `}} />
+        <div style={{ background: "#ffffff", padding: "48px", borderRadius: "8px", color: "#2c1b0d", fontFamily: "Arial, sans-serif" }}>
+          
+          {/* Row 1: Logo & INVOICE header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "50%" }} />
+              <div>
+                <strong style={{ fontSize: "20px", color: "#2c1b0d", letterSpacing: "0.5px" }}>CHAI CHASKA</strong>
+              </div>
+            </div>
+            <h1 style={{ fontSize: "28px", color: "#2c1b0d", letterSpacing: "2px", margin: 0, fontWeight: "300", textTransform: "uppercase" }}>INVOICE</h1>
+          </div>
+
+          {/* Row 2: Details Columns */}
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 2fr", gap: "16px", borderBottom: "1px solid #eee", paddingBottom: "20px", marginBottom: "20px" }}>
+            <div>
+              <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Invoice no.</span>
+              <strong style={{ fontSize: "13px" }}>#{orderId.replace("CHAI-ORD-", "CH-")}</strong>
+            </div>
+            <div>
+              <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Date</span>
+              <strong style={{ fontSize: "13px" }}>{new Date(order.createdAt || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</strong>
+            </div>
+            <div>
+              <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Invoice to:</span>
+              <strong style={{ fontSize: "13.5px", display: "block" }}>{order.customer || "Customer"}</strong>
+              <span style={{ fontSize: "11px", color: "#666" }}>Corporate Desk Partner</span>
+            </div>
+          </div>
+
+          {/* Row 3: Total Due block */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fbf9f6", padding: "20px 24px", borderRadius: "6px", marginBottom: "28px", border: "1px solid rgba(44,27,13,0.03)" }}>
+            <div>
+              <span style={{ fontSize: "10px", color: "#8a583c", textTransform: "uppercase", display: "block", fontWeight: "bold", letterSpacing: "0.5px" }}>TOTAL DUE</span>
+              <strong style={{ fontSize: "24px", color: "#2c1b0d" }}>{typeof order.total === 'string' && order.total.includes('₹') ? order.total : `₹${order.total}`}</strong>
+            </div>
+            <div style={{ textAlign: "right", fontSize: "11.5px", color: "#555" }}>
+              <span style={{ display: "block", fontWeight: "bold", color: "#2c1b0d" }}>📍 Delivery Destination</span>
+              <span>{order.office || "General Area"}</span>
+            </div>
+          </div>
+
+          {/* Row 4: Main Itemized Table */}
+          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "28px" }}>
+            <thead>
+              <tr style={{ background: "#2c1b0d", color: "#ffffff", fontSize: "12px", textTransform: "uppercase" }}>
+                <th style={{ padding: "10px 16px", textAlign: "left", borderRadius: "4px 0 0 4px" }}>Item Description</th>
+                <th style={{ padding: "10px 16px", textAlign: "right" }}>Unit Price</th>
+                <th style={{ padding: "10px 16px", textAlign: "center" }}>Qty</th>
+                <th style={{ padding: "10px 16px", textAlign: "right", borderRadius: "0 4px 4px 0" }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(() => {
+                const priceVal = parseFloat((order.total || "").toString().replace("₹", "")) || 0;
+                const subTotal = (priceVal / 1.05).toFixed(2);
+                const taxVal = (priceVal - subTotal).toFixed(2);
+                
+                return (
+                  <>
+                    <tr style={{ borderBottom: "1px solid #eee", fontSize: "13px" }}>
+                      <td style={{ padding: "16px" }}>
+                        <strong style={{ display: "block" }}>{order.item || "Chai"}</strong>
+                        <span style={{ fontSize: "11px", color: "#666" }}>Pref: Sugar: {order.sugar || "Default"}, Milk: {order.milk || "Default"}</span>
+                      </td>
+                      <td style={{ padding: "16px", textAlign: "right" }}>₹{subTotal}</td>
+                      <td style={{ padding: "16px", textAlign: "center" }}>1</td>
+                      <td style={{ padding: "16px", textAlign: "right", fontWeight: "bold" }}>₹{subTotal}</td>
+                    </tr>
+                  </>
+                )
+              })()}
+            </tbody>
+          </table>
+
+          {/* Row 5: Payout acceptance & totals */}
+          <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "40px", marginBottom: "40px" }}>
+            <div>
+              <strong style={{ fontSize: "11px", textTransform: "uppercase", display: "block", color: "#666", marginBottom: "8px" }}>Payment Method We Accept</strong>
+              <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                <span style={{ fontSize: "12px", background: "rgba(44,27,13,0.05)", padding: "4px 8px", borderRadius: "4px", fontWeight: "bold" }}>UPI (Instant)</span>
+                <span style={{ fontSize: "12px", background: "rgba(44,27,13,0.05)", padding: "4px 8px", borderRadius: "4px", fontWeight: "bold" }}>Corporate Wallet</span>
+              </div>
+            </div>
+
+            <div style={{ fontSize: "12.5px" }}>
+              {(() => {
+                const priceVal = parseFloat((order.total || "").toString().replace("₹", "")) || 0;
+                const subTotal = (priceVal / 1.05).toFixed(2);
+                const taxVal = (priceVal - subTotal).toFixed(2);
+                return (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", color: "#666" }}>
+                      <span>Sub Total:</span>
+                      <span>₹{subTotal}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", color: "#666", borderBottom: "1px solid #eee", paddingBottom: "10px" }}>
+                      <span>Tax (GST 5%):</span>
+                      <span>₹{taxVal}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", background: "#2c1b0d", color: "#ffffff", borderRadius: "4px", marginTop: "10px", fontWeight: "bold" }}>
+                      <span>Grand Total:</span>
+                      <span>{typeof order.total === 'string' && order.total.includes('₹') ? order.total : `₹${order.total}`}</span>
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "40px" }}>
+            <div style={{ textAlign: "center", width: "160px" }}>
+              <span style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: "16px", color: "#8a583c", display: "block", marginBottom: "4px" }}>Brewmaster Admin</span>
+              <div style={{ borderTop: "1px solid #ccc", paddingTop: "6px", fontSize: "10.5px", color: "#888", textTransform: "uppercase", fontWeight: "bold" }}>Accounts Manager</div>
+            </div>
+          </div>
+
+          <div style={{ borderTop: "1px solid #eee", marginTop: "40px", paddingTop: "16px", display: "flex", justifyContent: "space-between", fontSize: "9.5px", color: "#999" }}>
+            <span style={{ maxWidth: "200px" }}>🏢 TF-57, 3rd floor, Gaur City Center, Near Gaur Chowk, Greater Noida West (UP)</span>
+            <span>📞 +91 96676-23-123</span>
+            <span>✉️ chaichaska.support@gmail.com</span>
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 }
