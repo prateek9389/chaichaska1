@@ -52,7 +52,7 @@ function LoginForm() {
       <div style={styles.card}>
         {/* Logo */}
         <div style={styles.logoWrap}>
-          <span style={styles.logoIcon}>☕</span>
+          <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: '36px', height: '36px', objectFit: 'contain' }} />
           <span style={styles.logoText}>Chai Chaska</span>
         </div>
 
