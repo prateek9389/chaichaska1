@@ -5,11 +5,12 @@ import { getProducts } from "@/lib/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCart } from "@/contexts/CartContext";
 
 export default function ChaiShowcase() {
   const router = useRouter();
   const { user } = useAuth();
-  const [cartItems, setCartItems] = useState([]);
+  const { cartItems, addToCart, removeFromCart, updateQuantity } = useCart();
   const [isCartOpen, setIsCartOpen] = useState(false);
 
 
@@ -40,32 +41,29 @@ export default function ChaiShowcase() {
       router.push(`/login?redirect=/product/${tea.id}`);
       return;
     }
-    setCartItems((prev) => {
-      const existing = prev.find((item) => item.id === tea.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === tea.id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      }
-      return [...prev, { ...tea, quantity: 1 }];
+    
+    addToCart({
+      id: tea.id,
+      name: tea.name,
+      price: tea.price,
+      basePrice: parseInt(String(tea.price).replace(/[^0-9]/g, "")) || 0,
+      image: tea.image,
+      quantity: 1,
+      sugar: "Regular",
+      addons: "",
     });
+    
     setIsCartOpen(true);
   };
 
-  const handleRemoveFromCart = (id) => {
-    setCartItems((prev) => prev.filter((item) => item.id !== id));
+  const handleRemoveFromCart = (index) => {
+    removeFromCart(index);
   };
 
-  const handleUpdateQuantity = (id, delta) => {
-    setCartItems((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          const newQty = item.quantity + delta;
-          return newQty > 0 ? { ...item, quantity: newQty } : item;
-        }
-        return item;
-      })
-    );
+  const handleUpdateQuantity = (index, delta, currentQuantity) => {
+    const newQuantity = currentQuantity + delta;
+    if (newQuantity < 1) return;
+    updateQuantity(index, newQuantity);
   };
 
   const handleCardClick = (e, id) => {
@@ -236,9 +234,9 @@ export default function ChaiShowcase() {
               <p style={{ fontSize: "14px", fontWeight: 500 }}>Your cart is empty.</p>
             </div>
           ) : (
-            cartItems.map((item) => (
+            cartItems.map((item, idx) => (
               <div
-                key={item.id}
+                key={idx}
                 style={{
                   display: "flex",
                   gap: "12px",
@@ -259,7 +257,7 @@ export default function ChaiShowcase() {
                   {/* Quantity controls */}
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px" }}>
                     <button
-                      onClick={() => handleUpdateQuantity(item.id, -1)}
+                      onClick={() => handleUpdateQuantity(idx, -1, item.quantity)}
                       style={{
                         width: "22px",
                         height: "22px",
@@ -278,7 +276,7 @@ export default function ChaiShowcase() {
                     </button>
                     <span style={{ fontSize: "13px", fontWeight: 600 }}>{item.quantity}</span>
                     <button
-                      onClick={() => handleUpdateQuantity(item.id, 1)}
+                      onClick={() => handleUpdateQuantity(idx, 1, item.quantity)}
                       style={{
                         width: "22px",
                         height: "22px",
@@ -298,7 +296,7 @@ export default function ChaiShowcase() {
                   </div>
                 </div>
                 <button
-                  onClick={() => handleRemoveFromCart(item.id)}
+                  onClick={() => handleRemoveFromCart(idx)}
                   style={{
                     background: "transparent",
                     color: "#e2123a",
@@ -321,7 +319,7 @@ export default function ChaiShowcase() {
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "16px" }}>
               <span style={{ fontSize: "14.5px", fontWeight: 600, color: "#555" }}>Subtotal</span>
               <span style={{ fontSize: "18px", fontWeight: 800, color: "#111111" }}>
-                ₹{cartItems.reduce((acc, item) => acc + parseInt(item.price.replace("₹", "")) * item.quantity, 0)}
+                ₹{cartItems.reduce((acc, item) => acc + parseInt(String(item.price).replace(/[^0-9]/g, "")) * item.quantity, 0)}
               </span>
             </div>
             <button
@@ -330,8 +328,7 @@ export default function ChaiShowcase() {
                   router.push("/login?redirect=/shop");
                   return;
                 }
-                const first = cartItems[0];
-                if (first) router.push(`/checkout?productId=${first.id}&quantity=${first.quantity}`);
+                router.push(`/cart`);
               }}
               style={{
                 width: "100%",

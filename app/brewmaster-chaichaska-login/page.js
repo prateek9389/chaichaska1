@@ -856,6 +856,63 @@ export default function AdminDashboard() {
     .filter((o) => o.status === "Received")
     .sort((a, b) => a.id.localeCompare(b.id));
 
+  const toggleDeliveryDate = async (sub, dateStr) => {
+    try {
+      const currentDates = sub.deliveredDates || [];
+      let newDates;
+      if (currentDates.includes(dateStr)) {
+        newDates = currentDates.filter(d => d !== dateStr);
+      } else {
+        newDates = [...currentDates, dateStr];
+      }
+      await updateSubscription(sub.id, { deliveredDates: newDates });
+      setToastMsg(`Delivery status updated for ${dateStr}`);
+      setTimeout(() => setToastMsg(""), 2000);
+    } catch (err) {
+      setToastMsg(`Error updating delivery status: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 3000);
+    }
+  };
+
+  const generateDateRange = (startDateStr, endDateStr) => {
+    const parseDate = (dStr) => {
+      if (!dStr) return null;
+      const parts = dStr.split("/");
+      if (parts.length === 3) return new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
+      return new Date(dStr);
+    };
+    
+    let start = parseDate(startDateStr);
+    if (!start || isNaN(start)) {
+      start = new Date();
+      start.setDate(1);
+    }
+    
+    let end = parseDate(endDateStr);
+    if (!end || isNaN(end)) {
+      end = new Date();
+      end.setMonth(end.getMonth() + 1);
+      end.setDate(0); 
+    }
+    
+    const dates = [];
+    let current = new Date(start);
+    let limit = 0;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    while (current <= end && limit < 60) {
+      const day = String(current.getDate()).padStart(2, '0');
+      const monthStr = months[current.getMonth()];
+      const year = current.getFullYear();
+      const formattedDate = `${day} ${monthStr} ${year}`;
+      
+      dates.push(formattedDate);
+      current.setDate(current.getDate() + 1);
+      limit++;
+    }
+    return dates;
+  };
+
   const toggleSubscriptionStatus = async (sub) => {
     const newStatus = sub.status === "Active" ? "Paused" : "Active";
     try {
@@ -891,6 +948,15 @@ export default function AdminDashboard() {
       setTimeout(() => setToastMsg(""), 3000);
     }
   };
+
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) {
+    return <div style={{ background: "#fcfaf7", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center", color: "#2c1b0d", fontWeight: "bold" }}>Loading Dashboard...</div>;
+  }
 
   return (
     <div style={{ background: "#fcfaf7", minHeight: "100vh", color: "#2c1b0d", fontFamily: "var(--font-body)", overflowX: "hidden" }}>
@@ -1027,7 +1093,7 @@ export default function AdminDashboard() {
               <div className="header-actions-wrap" style={{ display: "flex", gap: "16px", alignItems: "center" }}>
                 <button
                   className="btn-pending-requests"
-                  onClick={() => setIsQueueSidebarOpen(true)}
+                  onClick={() => setShowPendingSidebar(!showPendingSidebar)}
                   style={{
                     background: "#2c1b0d",
                     color: "#ffffff",
@@ -2294,6 +2360,36 @@ export default function AdminDashboard() {
                                 >
                                   Force Dispatch
                                 </button>
+                              </div>
+                            </div>
+                            
+                            <div suppressHydrationWarning style={{ marginTop: "16px", padding: "12px", background: "#fcfaf7", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.05)" }}>
+                              <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "8px", textTransform: "uppercase", fontWeight: "bold" }}>📅 Delivery Tracker</span>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                                {generateDateRange(sub.startDate, sub.endDate || sub.expiryDate).map((dateStr, idx) => {
+                                  const isDelivered = (sub.deliveredDates || []).includes(dateStr);
+                                  return (
+                                    <button
+                                      key={idx}
+                                      type="button"
+                                      suppressHydrationWarning
+                                      onClick={() => toggleDeliveryDate(sub, dateStr)}
+                                      style={{
+                                        background: isDelivered ? "#27ae60" : "#fff",
+                                        color: isDelivered ? "#fff" : "#555",
+                                        border: isDelivered ? "1px solid #27ae60" : "1px solid #ddd",
+                                        padding: "4px 8px",
+                                        borderRadius: "6px",
+                                        fontSize: "10px",
+                                        fontWeight: "600",
+                                        cursor: "pointer",
+                                        transition: "all 0.2s"
+                                      }}
+                                    >
+                                      {isDelivered ? `✓ ${dateStr.substring(0, 6)}` : dateStr.substring(0, 6)}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                           </div>
@@ -3928,11 +4024,13 @@ export default function AdminDashboard() {
             width: calc(100% - 260px);
           }
           .dashboard-right-sidebar {
-            position: static;
-            width: 100%;
-            border-left: none;
-            border-top: 1px solid rgba(44, 27, 13, 0.08);
-            margin-top: 40px;
+            position: fixed;
+            width: 400px;
+            max-width: 100vw;
+            border-left: 1px solid rgba(44, 27, 13, 0.08);
+            border-top: none;
+            margin-top: 0;
+            z-index: 9999;
           }
         }
 

@@ -856,6 +856,7 @@ function CheckoutPortal() {
           display: flex;
           flex-direction: column;
           gap: 24px;
+          min-width: 0;
         }
 
         .checkout-card {
@@ -864,6 +865,9 @@ function CheckoutPortal() {
           padding: 30px;
           border: 1px solid rgba(0,0,0,0.04);
           box-shadow: 0 4px 30px rgba(0,0,0,0.01);
+          min-width: 0;
+          box-sizing: border-box;
+          width: 100%;
         }
 
         .checkout-card.compact {
@@ -962,12 +966,15 @@ function CheckoutPortal() {
         .steps-status-bar {
           display: flex;
           align-items: center;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
           gap: 12px;
           background: #ffffff;
           padding: 16px 24px;
           border-radius: 12px;
           border: 1px solid rgba(0,0,0,0.03);
+          box-sizing: border-box;
+          width: 100%;
+          overflow: hidden;
         }
 
         .step-indicator {
@@ -1058,6 +1065,7 @@ function CheckoutPortal() {
           display: flex;
           flex-direction: column;
           gap: 24px;
+          min-width: 0;
         }
 
         .checkout-video-card {
@@ -1359,12 +1367,21 @@ function CheckoutPortal() {
           .checkout-page-container {
             padding: 100px 16px 40px;
           }
+          .checkout-card {
+            padding: 20px;
+          }
           .steps-status-bar {
             padding: 12px 16px;
             gap: 8px;
           }
           .step-indicator {
             font-size: 12px;
+          }
+          .step-indicator span:last-child {
+            display: none;
+          }
+          .checkout-title-row h1 {
+            font-size: 24px;
           }
         }
 
