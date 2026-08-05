@@ -1873,6 +1873,25 @@ export default function AdminDashboard() {
                           <option value="Delivered">Delivered</option>
                           <option value="Cancelled">Cancelled</option>
                         </select>
+                        
+                        {(selectedQueueOrder.status === "Cancelled" || selectedQueueOrder.status === "Cancelled by User") && (
+                          <div style={{ marginTop: "12px" }}>
+                            <button
+                              onClick={() => {
+                                handleRefund(selectedQueueOrder);
+                                setSelectedQueueOrder(null);
+                              }}
+                              style={{ width: "100%", background: "#3498db", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" }}
+                            >
+                              Refund to Coin Wallet
+                            </button>
+                          </div>
+                        )}
+                        {selectedQueueOrder.status === "Refunded" && (
+                          <div style={{ marginTop: "12px", background: "rgba(52, 152, 219, 0.1)", color: "#3498db", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: "bold", textAlign: "center" }}>
+                            💰 Refunded
+                          </div>
+                        )}
                       </div>
 
                       <div className="sidebar-detail-group">
