@@ -229,6 +229,7 @@ export default function ProductDetailPage({ params }) {
                   src={product.gallery[activeMediaIndex].url}
                   alt={product.name}
                   className="nordic-main-media"
+                  data-pin-nopin="true"
                 />
               )}
 
@@ -249,7 +250,7 @@ export default function ProductDetailPage({ params }) {
                   {media.type === "video" ? (
                     <video src={media.url} muted playsInline className="nordic-thumb-media" />
                   ) : (
-                    <img src={media.url} alt="thumb" className="nordic-thumb-media" />
+                    <img src={media.url} alt="thumb" className="nordic-thumb-media" data-pin-nopin="true" />
                   )}
                 </div>
               ))}

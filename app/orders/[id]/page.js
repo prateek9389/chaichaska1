@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { getOrderById, updateOrder } from "@/lib/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function OrderDetailPage({ params }) {
   const orderId = params.id;
@@ -13,15 +15,18 @@ export default function OrderDetailPage({ params }) {
 
   useEffect(() => {
     if (orderId) {
-      getOrderById(orderId)
-        .then((data) => {
-          setOrder(data);
-          setLoading(false);
-        })
-        .catch((err) => {
-          console.error(err);
-          setLoading(false);
-        });
+      const unsub = onSnapshot(doc(db, "orders", orderId), (docSnap) => {
+        if (docSnap.exists()) {
+          setOrder({ id: docSnap.id, ...docSnap.data() });
+        } else {
+          setOrder(null);
+        }
+        setLoading(false);
+      }, (err) => {
+        console.error(err);
+        setLoading(false);
+      });
+      return () => unsub();
     } else {
       setLoading(false);
     }
@@ -54,8 +59,8 @@ export default function OrderDetailPage({ params }) {
   }
 
   const isReceived = true;
-  const isBrewed = ["Pending", "Shipped", "Delivered"].includes(order.status);
-  const isDispatched = ["Shipped", "Delivered"].includes(order.status);
+  const isPreparing = ["Pending", "Preparing", "Shipped", "Out for Delivery", "Delivered"].includes(order.status);
+  const isOutForDelivery = ["Shipped", "Out for Delivery", "Delivered"].includes(order.status);
   const isDelivered = order.status === "Delivered";
   
   const dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString('en-US', { month: 'long', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : "Just now";
@@ -122,17 +127,17 @@ export default function OrderDetailPage({ params }) {
               <div className="stepper-track">
                 <div className={`step ${isReceived ? "active" : ""}`}>
                   <span className="step-circle">{isReceived ? "✓" : "1"}</span>
-                  <span className="step-text">Ordered</span>
+                  <span className="step-text">Received</span>
                 </div>
-                <div className={`track-line ${isBrewed ? "active" : ""}`} />
-                <div className={`step ${isBrewed ? "active" : ""}`}>
-                  <span className="step-circle">{isBrewed ? "✓" : "2"}</span>
-                  <span className="step-text">Brewed</span>
+                <div className={`track-line ${isPreparing ? "active" : ""}`} />
+                <div className={`step ${isPreparing ? "active" : ""}`}>
+                  <span className="step-circle">{isPreparing ? "✓" : "2"}</span>
+                  <span className="step-text">Preparing</span>
                 </div>
-                <div className={`track-line ${isDispatched ? "active" : ""}`} />
-                <div className={`step ${isDispatched ? "active" : ""}`}>
-                  <span className="step-circle">{isDispatched ? "✓" : "3"}</span>
-                  <span className="step-text">Dispatched</span>
+                <div className={`track-line ${isOutForDelivery ? "active" : ""}`} />
+                <div className={`step ${isOutForDelivery ? "active" : ""}`}>
+                  <span className="step-circle">{isOutForDelivery ? "✓" : "3"}</span>
+                  <span className="step-text">Out for Delivery</span>
                 </div>
                 <div className={`track-line ${isDelivered ? "active" : ""}`} />
                 <div className={`step ${isDelivered ? "active" : ""}`}>

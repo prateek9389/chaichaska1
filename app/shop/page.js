@@ -211,7 +211,7 @@ export default function ShopPage() {
                     }}
                   >
                     <div className="shop-card-img-box">
-                      <img src={product.image} alt={product.name} className="shop-card-img" />
+                      <img src={product.image} alt={product.name} className="shop-card-img" data-pin-nopin="true" />
                       <span className="card-rating-badge">★ {product.rating}</span>
                       <span className="card-category-badge">{product.category}</span>
                     </div>
