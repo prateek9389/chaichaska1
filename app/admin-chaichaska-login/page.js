@@ -3394,16 +3394,7 @@ export default function AdminDashboard() {
                               <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Product Image</label>
                               <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowImageLibrary(true);
-                                window.libraryTarget = "edit";
-                              }}
-                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
-                            >
-                              📂 Image Library
-                            </button>
+                            
                           </div>
                           <div>
                             <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
@@ -3416,16 +3407,7 @@ export default function AdminDashboard() {
                               <div style={{ flex: 1 }}>
                                 <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowImageLibrary(true);
-                                  window.libraryTarget = "edit_gallery";
-                                }}
-                                style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
-                              >
-                                📂 Image Library
-                              </button>
+                              
                             </div>
                             {editProdGallery.length > 0 && (
                               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
@@ -3601,16 +3583,7 @@ export default function AdminDashboard() {
                               <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Product Image</label>
                               <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e)} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowImageLibrary(true);
-                                window.libraryTarget = "new";
-                              }}
-                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
-                            >
-                              📂 Image Library
-                            </button>
+                            
                           </div>
                           <div>
                             <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
@@ -3624,16 +3597,7 @@ export default function AdminDashboard() {
                             <div style={{ flex: 1 }}>
                               <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "new_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowImageLibrary(true);
-                                window.libraryTarget = "new_gallery";
-                              }}
-                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
-                            >
-                              📂 Image Library
-                            </button>
+                            
                           </div>
                           {newProdGallery.length > 0 && (
                             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
@@ -3648,37 +3612,6 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
-                      <div style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555", display: "block", marginBottom: "6px" }}>Select from Premium Gallery</label>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
-                          {[
-                            { name: "Masala Chai", url: "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80" },
-                            { name: "Ginger Chai", url: "https://images.unsplash.com/photo-1594631252845-29fc4586d56c?auto=format&fit=crop&w=600&q=80" },
-                            { name: "Saffron Royal", url: "https://images.unsplash.com/photo-1563887589-6601ea06285b?auto=format&fit=crop&w=600&q=80" },
-                            { name: "Filter Coffee", url: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=600&q=80" },
-                            { name: "Green Tea", url: "https://images.unsplash.com/photo-1564890369478-c89ca6d9cde9?auto=format&fit=crop&w=600&q=80" },
-                            { name: "Iced Brew", url: "https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&w=600&q=80" }
-                          ].map((img, idx) => (
-                            <div
-                              key={idx}
-                              onClick={() => setNewProdImage(img.url)}
-                              style={{
-                                cursor: "pointer",
-                                border: newProdImage === img.url ? "2px solid #8a583c" : "2px solid transparent",
-                                borderRadius: "8px",
-                                overflow: "hidden",
-                                height: "55px",
-                                position: "relative"
-                              }}
-                            >
-                              <img src={img.url} alt={img.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: "8px", textAlign: "center", padding: "2px 0" }}>
-                                {img.name}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
 
                       <div className="form-group" style={{ marginBottom: "16px" }}>
                         <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Description</label>
