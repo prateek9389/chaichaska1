@@ -8,6 +8,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
+import Image from "next/image";
 
 export default function ProductDetailPage({ params }) {
   const productId = params.id;
@@ -22,16 +23,17 @@ export default function ProductDetailPage({ params }) {
   useEffect(() => {
     async function loadData() {
       try {
-        const p = await getProductById(productId);
-        const a = await getAddons();
-        const all = await getProducts();
+        const [p, a, all] = await Promise.all([
+          getProductById(productId),
+          getAddons(),
+          getProducts()
+        ]);
         
         let finalP = p || all.find(item => item.id === productId) || all[0];
         if (finalP) {
           if (!finalP.gallery || finalP.gallery.length === 0) {
             finalP.gallery = [
-              { type: "image", url: finalP.imagePath || finalP.image || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg" },
-              { type: "video", url: "/sub-video.mp4" }
+              { type: "image", url: finalP.imagePath || finalP.image || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg" }
             ];
           } else {
             let normalizedGallery = [];
@@ -41,14 +43,14 @@ export default function ProductDetailPage({ params }) {
             }
             finalP.gallery.forEach(item => {
               if (typeof item === 'string') {
-                if (item !== mainImageUrl) {
-                  normalizedGallery.push({ type: item.toLowerCase().endsWith('.mp4') ? 'video' : 'image', url: item });
+                if (item !== mainImageUrl && !item.toLowerCase().endsWith('.mp4')) {
+                  normalizedGallery.push({ type: 'image', url: item });
                 }
-              } else if (item && item.url) {
-                normalizedGallery.push(item);
+              } else if (item && item.url && !item.url.toLowerCase().endsWith('.mp4')) {
+                normalizedGallery.push({ ...item, type: 'image' });
               }
             });
-            finalP.gallery = normalizedGallery.length > 0 ? normalizedGallery : [
+            finalP.gallery = normalizedGallery.length > 0 ? [normalizedGallery[0]] : [
               { type: "image", url: finalP.imagePath || finalP.image || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg" }
             ];
           }
@@ -190,7 +192,47 @@ export default function ProductDetailPage({ params }) {
 
   const [openFaq, setOpenFaq] = useState(null);
 
-  if (loading) return <div style={{ background: "#fcfaf7", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}><h2>Brewing Details...</h2></div>;
+  if (loading) {
+    return (
+      <div style={{ background: "#f5f5f7", minHeight: "100vh", color: "#2c1b0d", width: "100vw", overflowX: "hidden" }}>
+        <Navbar />
+        <style suppressHydrationWarning>{`
+          @keyframes pulse-bg {
+            0% { background-color: #eaeaea; }
+            50% { background-color: #f7f7f7; }
+            100% { background-color: #eaeaea; }
+          }
+          .skeleton {
+            animation: pulse-bg 1.5s infinite ease-in-out;
+            border-radius: 12px;
+          }
+          .skeleton-image { width: 100%; aspect-ratio: 1 / 1; }
+          .skeleton-title { width: 60%; height: 36px; margin-bottom: 16px; }
+          .skeleton-text { width: 100%; height: 16px; margin-bottom: 8px; }
+          .skeleton-button { width: 100%; height: 48px; border-radius: 999px; }
+        `}</style>
+        <div className="product-page-container-full" style={{ padding: "110px 40px 30px" }}>
+          <div className="nordic-layout-container" style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "20px", background: "#ffffff", borderRadius: "24px", padding: "30px", boxShadow: "0 4px 30px rgba(0,0,0,0.02)" }}>
+            <div className="nordic-gallery">
+              <div className="skeleton skeleton-image" style={{ borderRadius: "16px", maxWidth: "580px", margin: "0 auto", background: "#f5f5f7" }}></div>
+            </div>
+            <div className="nordic-details" style={{ paddingTop: "20px" }}>
+              <div className="skeleton skeleton-title"></div>
+              <div className="skeleton skeleton-text"></div>
+              <div className="skeleton skeleton-text"></div>
+              <div className="skeleton skeleton-text" style={{ width: "80%" }}></div>
+              <div className="skeleton skeleton-title" style={{ width: "30%", marginTop: "24px", height: "24px" }}></div>
+              <div style={{ display: "flex", gap: "10px", width: "100%", marginTop: "24px" }}>
+                <div className="skeleton skeleton-button" style={{ width: "120px", borderRadius: "8px" }}></div>
+                <div className="skeleton skeleton-button" style={{ flexGrow: 1 }}></div>
+                <div className="skeleton skeleton-button" style={{ flexGrow: 1 }}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
   if (!product) return <div style={{ background: "#fcfaf7", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}><h2>Product not found</h2></div>;
 
   return (
@@ -210,51 +252,46 @@ export default function ProductDetailPage({ params }) {
           {/* Column 2: Gallery (Center) - order: 1 on mobile */}
           <div className="nordic-gallery">
             <div className="nordic-main-media-wrapper">
-              {/* Carousel Left Arrow */}
-              <button className="carousel-nav-btn left-nav" onClick={handlePrevMedia}>
-                ‹
-              </button>
-
-              {product.gallery[activeMediaIndex].type === "video" ? (
-                <video
-                  src={product.gallery[activeMediaIndex].url}
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="nordic-main-media"
-                />
-              ) : (
-                <img
-                  src={product.gallery[activeMediaIndex].url}
-                  alt={product.name}
-                  className="nordic-main-media"
-                  data-pin-nopin="true"
-                />
+              {product.gallery.length > 1 && (
+                <button className="carousel-nav-btn left-nav" onClick={handlePrevMedia}>
+                  ‹
+                </button>
               )}
 
-              {/* Carousel Right Arrow */}
-              <button className="carousel-nav-btn right-nav" onClick={handleNextMedia}>
-                ›
-              </button>
+              <Image
+                src={product.gallery[activeMediaIndex].url}
+                alt={product.name}
+                fill
+                priority
+                sizes="(max-width: 991px) 100vw, 50vw"
+                style={{ objectFit: 'cover' }}
+                className="nordic-main-media"
+                data-pin-nopin="true"
+              />
+
+              {product.gallery.length > 1 && (
+                <button className="carousel-nav-btn right-nav" onClick={handleNextMedia}>
+                  ›
+                </button>
+              )}
             </div>
 
             {/* Thumbnail selector */}
-            <div className="nordic-thumbnails">
-              {product.gallery.map((media, idx) => (
-                <div
-                  key={idx}
-                  className={`nordic-thumbnail-card ${idx === activeMediaIndex ? "active" : ""}`}
-                  onClick={() => setActiveMediaIndex(idx)}
-                >
-                  {media.type === "video" ? (
-                    <video src={media.url} muted playsInline className="nordic-thumb-media" />
-                  ) : (
-                    <img src={media.url} alt="thumb" className="nordic-thumb-media" data-pin-nopin="true" />
-                  )}
-                </div>
-              ))}
-            </div>
+            {product.gallery.length > 1 && (
+              <div className="nordic-thumbnails">
+                {product.gallery.map((media, idx) => (
+                  <div
+                    key={idx}
+                    className={`nordic-thumbnail-card ${idx === activeMediaIndex ? "active" : ""}`}
+                    onClick={() => setActiveMediaIndex(idx)}
+                  >
+                    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+                      <Image src={media.url} alt="thumb" fill sizes="64px" style={{ objectFit: 'cover' }} className="nordic-thumb-media" data-pin-nopin="true" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {/* Sugar selection is now inside the add-to-cart/buy-now modal flow */}
 
@@ -380,7 +417,7 @@ export default function ProductDetailPage({ params }) {
               <Link href={`/product/${tea.id}`} key={tea.id} style={{ textDecoration: "none" }}>
                 <div className="cross-sell-card">
                   <div className="cross-sell-img-container">
-                    <img src={tea.image} alt={tea.name} className="cross-sell-img" />
+                    <Image src={tea.image} alt={tea.name} width={300} height={300} style={{ width: '100%', height: 'auto', aspectRatio: '1/1', objectFit: 'cover' }} className="cross-sell-img" />
                   </div>
                   <h3 className="cross-sell-name">{tea.name}</h3>
                   <div className="cross-sell-footer">

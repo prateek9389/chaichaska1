@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { signOut } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/contexts/CartContext";
+import Image from "next/image";
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -72,7 +73,7 @@ export default function Navbar() {
             textDecoration: "none",
           }}
         >
-          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "75px", objectFit: "contain", borderRadius: "50%" }} />
+          <Image src="/logo.png" alt="Chai Chaska Logo" width={75} height={75} style={{ objectFit: "contain", borderRadius: "50%" }} />
         </Link>
 
         <ul
@@ -320,7 +321,7 @@ export default function Navbar() {
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "40px" }}>
-          <img src="/logo.png" alt="Chai Chaska Logo" style={{ height: "65px", objectFit: "contain", borderRadius: "50%" }} />
+          <Image src="/logo.png" alt="Chai Chaska Logo" width={65} height={65} style={{ objectFit: "contain", borderRadius: "50%" }} />
           <button
             onClick={() => setOpen(false)}
             style={{

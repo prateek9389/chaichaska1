@@ -2,6 +2,7 @@
 
 import React from "react";
 import { motion } from "framer-motion";
+import Image from "next/image";
 
 export default function AppDownloadCTA() {
   return (
@@ -219,7 +220,7 @@ export default function AppDownloadCTA() {
                 zIndex: 3
               }}
             >
-               <img src="/assets/images/tea_icon.png" alt="Chai" style={{ width: "70%", height: "70%", objectFit: "contain" }} />
+               <Image src="/assets/images/tea_icon.png" alt="Chai" width={84} height={84} style={{ objectFit: "contain" }} />
             </motion.div>
           </motion.div>
         </motion.div>

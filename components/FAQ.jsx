@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 
 export default function FAQ() {
   const [openIndex, setOpenIndex] = useState(null);
@@ -56,10 +57,13 @@ export default function FAQ() {
       <div className="faq-grid">
         {/* Left Side: Image */}
         <div className="faq-image-container">
-          <img
+          <Image
             src="/chai-ingredients.png"
             alt="Handcrafted Organic Chai Spices"
+            width={600}
+            height={520}
             className="faq-image"
+            style={{ objectFit: 'cover' }}
           />
         </div>
 

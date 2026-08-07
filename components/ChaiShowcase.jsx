@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/CartContext";
+import Image from "next/image";
 
 export default function ChaiShowcase() {
   const router = useRouter();
@@ -143,7 +144,7 @@ export default function ChaiShowcase() {
                   style={{ cursor: "pointer" }}
                 >
                   <Link href={`/product/${tea.id}`}>
-                    <img src={tea.image} alt={tea.name} className="tea-image" />
+                    <Image src={tea.image} alt={tea.name} width={300} height={300} className="tea-image" />
                   </Link>
 
                   {/* Header Row: Title & Mini Icon */}
@@ -245,10 +246,12 @@ export default function ChaiShowcase() {
                   alignItems: "center",
                 }}
               >
-                <img
+                <Image
                   src={item.image}
                   alt={item.name}
-                  style={{ width: "60px", height: "60px", borderRadius: "8px", objectFit: "cover" }}
+                  width={60}
+                  height={60}
+                  style={{ borderRadius: "8px", objectFit: "cover" }}
                 />
                 <div style={{ flexGrow: 1 }}>
                   <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#111111" }}>{item.name}</h4>

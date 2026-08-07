@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { getProducts } from "@/lib/firestore";
 import Link from "next/link";
+import Image from "next/image";
 
 export default function ProductCarousel() {
   const [teas, setTeas] = useState([]);
@@ -37,7 +38,7 @@ export default function ProductCarousel() {
               >
                 <Link href={`/product/${tea.id}`} style={{ textDecoration: "none", color: "inherit", display: "flex", flexDirection: "column", height: "100%" }}>
                   <div className="card-media-wrapper">
-                    <img src={tea.image} alt={tea.name} className="card-media" />
+                    <Image src={tea.image} alt={tea.name} fill sizes="250px" className="card-media" />
                   </div>
                   <div className="card-details">
                     <h3 className="card-name">{tea.name}</h3>

@@ -66,7 +66,7 @@ export default function AdminDashboard() {
 
   const setActiveTab = (tab) => {
     localStorage.setItem("admin_active_tab", tab);
-    window.location.reload();
+    setActiveTabState(tab);
   };
   
   const activeTab = activeTabState;

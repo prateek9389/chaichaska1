@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 export default function Subscription() {
   const { user } = useAuth();
@@ -109,12 +110,12 @@ export default function Subscription() {
         {/* Right Video Column (2px padding from top, bottom, and right) */}
         <div className="sub-right">
           <div className="sub-image-container">
-            <video
-              src="/sub-video.mp4"
-              autoPlay
-              loop
-              muted
-              playsInline
+            <Image
+              src="/chai-ingredients.png"
+              alt="Chai Club"
+              fill
+              sizes="(max-width: 991px) 100vw, 50vw"
+              style={{ objectFit: 'cover' }}
               className="sub-main-image"
             />
             {/* Float Badge */}
