@@ -109,39 +109,7 @@ export default function Navbar() {
         </ul>
 
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          {/* Animated Gold Coins Wallet Link */}
-          <Link
-            href="/wallet"
-            className="navbar-wallet-btn"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              background: "#ffffff",
-              border: "1.5px solid rgba(220, 160, 40, 0.4)",
-              padding: "8px 14px",
-              borderRadius: "999px",
-              fontSize: "13.5px",
-              fontWeight: 800,
-              color: "#d35400",
-              cursor: "pointer",
-              boxShadow: "0 4px 10px rgba(0,0,0,0.02)",
-              transition: "transform 0.2s, background 0.2s",
-              textDecoration: "none",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "scale(1.04)";
-              e.currentTarget.style.background = "#fffbf0";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1)";
-              e.currentTarget.style.background = "#ffffff";
-            }}
-            title="View Coin Wallet & Balance"
-          >
-            <span className="gold-coin-3d" />
-            <span>{user ? (profile?.coins || 0) : 0} Coins</span>
-          </Link>
+
 
           {/* Cart Button */}
           <Link
@@ -363,28 +331,7 @@ export default function Navbar() {
         </ul>
         
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "12px" }}>
-          {/* Wallet for mobile drawer */}
-          <Link
-            href="/wallet"
-            onClick={() => setOpen(false)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-              background: "#fffbf0",
-              border: "1.5px solid rgba(220, 160, 40, 0.4)",
-              padding: "14px",
-              borderRadius: "999px",
-              fontSize: "15px",
-              fontWeight: 800,
-              color: "#d35400",
-              textDecoration: "none",
-            }}
-          >
-            <span className="gold-coin-3d" />
-            <span>{user ? (profile?.coins || 0) : 0} Balance Coins</span>
-          </Link>
+
 
           {user ? (
             <>
@@ -451,24 +398,9 @@ export default function Navbar() {
       </div>
 
       <style>{`
-        @keyframes spinCoin {
-          0% { transform: rotateY(0deg); }
-          100% { transform: rotateY(360deg); }
-        }
-        .gold-coin-3d {
-          width: 18px;
-          height: 18px;
-          border-radius: 50%;
-          background: radial-gradient(circle, #ffe066 0%, #f5b041 70%, #d35400 100%);
-          box-shadow: inset 0 0 4px #ffffff, 0 1px 3px rgba(0,0,0,0.15);
-          border: 1px solid #d35400;
-          display: inline-block;
-          animation: spinCoin 3s infinite linear;
-        }
         @media (max-width: 860px) {
           .nav-links { display: none !important; }
           .nav-buy-btn { display: none !important; }
-          .navbar-wallet-btn { display: none !important; }
           .user-auth-btn { display: none !important; }
           .burger { display: flex !important; }
         }

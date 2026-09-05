@@ -10,13 +10,13 @@ import { useCart } from "@/contexts/CartContext";
 function PaymentSuccessContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order_id");
-  const type = searchParams.get("type"); // "checkout" or "wallet"
+  const type = searchParams.get("type");
   const { clearCart } = useCart();
   const [orderDetails, setOrderDetails] = useState(null);
 
   useEffect(() => {
     async function fetchOrder() {
-      if (orderId && type === "checkout") {
+      if (orderId) {
         try {
           const { getOrderById } = await import("@/lib/firestore");
           const order = await getOrderById(orderId);
@@ -27,10 +27,10 @@ function PaymentSuccessContent() {
       }
     }
     fetchOrder();
-  }, [orderId, type]);
+  }, [orderId]);
 
   useEffect(() => {
-    if (orderId && type === "checkout") {
+    if (orderId) {
       clearCart();
       try {
         const existing = JSON.parse(localStorage.getItem("guest_orders") || "[]");
@@ -42,7 +42,7 @@ function PaymentSuccessContent() {
         console.error("Could not save guest order", e);
       }
     }
-  }, [orderId, type]);
+  }, [orderId]);
 
   return (
     <div className="thank-you-layout">
@@ -50,10 +50,7 @@ function PaymentSuccessContent() {
         <div className="success-badge-circle">✓</div>
         <h2 className="success-title">Payment Successful!</h2>
         <p className="success-message">
-          Your payment was processed successfully. 
-          {type === "wallet" 
-            ? " Your loyalty coin wallet has been recharged." 
-            : " Your order is confirmed and heading to the brewing counter."}
+          Your payment was processed successfully. Your order is confirmed and heading to the brewing counter.
         </p>
 
         <div className="receipt-box" style={{ marginTop: "32px", padding: "24px", background: "#fbf9f6", borderRadius: "16px", border: "1px dashed rgba(138,88,60,0.3)" }}>
@@ -70,38 +67,24 @@ function PaymentSuccessContent() {
               </div>
               <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
                 <span style={{ color: "#666" }}>Payment Method:</span>
-                <strong style={{ color: "#8a583c" }}>Cashfree (Online)</strong>
+                <strong style={{ color: "#8a583c" }}>Paytm (Online)</strong>
               </div>
               <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", borderTop: "1px dashed rgba(0,0,0,0.1)", paddingTop: "12px" }}>
                 <span style={{ color: "#666" }}>Status:</span>
-                <strong style={{ color: "#27ae60" }}>{orderDetails.payment_status || "PAID"}</strong>
+                <strong style={{ color: "#27ae60" }}>{orderDetails.status || "PAID"}</strong>
               </div>
             </>
           )}
 
-          {!orderDetails && type === "wallet" && (
-             <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between" }}>
-               <span style={{ color: "#666" }}>Status:</span>
-               <strong style={{ color: "#27ae60" }}>PAID</strong>
-             </div>
-          )}
         </div>
 
         <div style={{ marginTop: "32px", display: "flex", gap: "12px", justifyContent: "center" }}>
-          {type === "wallet" ? (
-            <Link href="/wallet" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
-              Return to Wallet
-            </Link>
-          ) : (
-            <>
-              <Link href={`/orders/${orderId}`} className="btn-continue-checkout" style={{ padding: "14px 24px", background: "#fbf9f6", color: "#2c1b0d", border: "1px solid rgba(0,0,0,0.1)", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
-                Track Order
-              </Link>
-              <Link href="/" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
-                Return to Home
-              </Link>
-            </>
-          )}
+          <Link href={`/orders/${orderId}`} className="btn-continue-checkout" style={{ padding: "14px 24px", background: "#fbf9f6", color: "#2c1b0d", border: "1px solid rgba(0,0,0,0.1)", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
+            Track Order
+          </Link>
+          <Link href="/" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
+            Return to Home
+          </Link>
         </div>
       </div>
 

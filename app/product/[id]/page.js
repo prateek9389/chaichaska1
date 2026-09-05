@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { getProductById, getProducts, getAddons, submitProductFeedback, getApprovedFeedbackForProduct } from "@/lib/firestore";
+import { getProductById, getProducts, submitProductFeedback, getApprovedFeedbackForProduct } from "@/lib/firestore";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useCart } from "@/contexts/CartContext";
@@ -16,16 +16,15 @@ export default function ProductDetailPage({ params }) {
   const { user } = useAuth();
 
   const [product, setProduct] = useState(null);
-  const [addons, setAddons] = useState([]);
+
   const [crossSellTeas, setCrossSellTeas] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       try {
-        const [p, a, all] = await Promise.all([
+        const [p, all] = await Promise.all([
           getProductById(productId),
-          getAddons(),
           getProducts()
         ]);
         
@@ -56,7 +55,7 @@ export default function ProductDetailPage({ params }) {
           }
         }
         setProduct(finalP);
-        setAddons(a);
+
         setCrossSellTeas(all.filter(t => String(t.id) !== String(productId)));
       } catch (e) {
         console.error(e);
@@ -80,16 +79,11 @@ export default function ProductDetailPage({ params }) {
     setActiveMediaIndex((prev) => (prev - 1 + product.gallery.length) % product.gallery.length);
   };
 
-  // Subscription Type selection
-  const [purchaseType, setPurchaseType] = useState("one-time");
-
   // Quantity selection
   const [quantity, setQuantity] = useState(1);
 
-  // Addons Modal State
   const [isAddonModalOpen, setIsAddonModalOpen] = useState(false);
-  const [modalStep, setModalStep] = useState("sugar"); // "sugar" | "addons"
-  const [selectedAddons, setSelectedAddons] = useState([]);
+  const [modalStep, setModalStep] = useState("sugar");
 
   // Review System State
   const [reviews, setReviews] = useState([]);
@@ -143,50 +137,36 @@ export default function ProductDetailPage({ params }) {
     );
     if (isWaterOrDrinks) {
       setSugarLevel("none");
-      setModalStep("addons");
+      handleFinishCheckout("none");
     } else {
-      setModalStep("sugar");
+      setIsAddonModalOpen(true);
     }
-    setIsAddonModalOpen(true);
+  };
+  const handleAddToCartClick = () => {
+    const isWaterOrDrinks = product?.category === "Water" || product?.category === "Drinks";
+    if (isWaterOrDrinks) {
+      setSugarLevel("none");
+      handleFinishCheckout("none");
+    } else {
+      setIsAddonModalOpen(true);
+    }
   };
 
-  const toggleAddon = (addon) => {
-    setSelectedAddons((prev) => {
-      const exists = prev.find((a) => a.id === addon.id);
-      if (exists) {
-        return prev.filter((a) => a.id !== addon.id);
-      }
-      return [...prev, addon];
-    });
-  };
-
-  const handleFinishCheckout = () => {
-    const addonIds = selectedAddons.map((a) => a.id).join(",");
-    
+  const handleFinishCheckout = (overrideSugar) => {
     const basePrice = parseInt(String(product.price).replace(/[^0-9]/g, "")) || 0;
-    const addonsTotal = selectedAddons.reduce((sum, a) => {
-      return sum + (parseInt(String(a.price).replace(/[^0-9]/g, "")) || 0);
-    }, 0);
-    const finalPrice = basePrice + addonsTotal;
-
+    
     const itemToAdd = {
       id: product.id,
       name: product.name,
-      price: `₹${finalPrice}`,
+      price: `₹${basePrice}`,
       basePrice: basePrice,
       image: product.image || product.gallery?.[0]?.url,
       quantity: quantity,
-      sugar: sugarLevel,
-      addons: selectedAddons.map(a => a.name).join(", "),
-      addonsList: selectedAddons.map(a => ({ name: a.name, price: a.price, priceVal: parseInt(String(a.price).replace(/[^0-9]/g, "")) || 0 })),
+      sugar: overrideSugar || sugarLevel,
     };
 
     addToCart(itemToAdd);
-    if (purchaseType === "subscription") {
-      router.push(`/checkout?type=subscription`);
-    } else {
-      router.push(`/checkout`);
-    }
+    router.push(`/checkout`);
     setIsAddonModalOpen(false);
   };
 
@@ -236,6 +216,7 @@ export default function ProductDetailPage({ params }) {
   if (!product) return <div style={{ background: "#fcfaf7", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}><h2>Product not found</h2></div>;
 
   return (
+    <>
     <div style={{ background: "#f5f5f7", minHeight: "100vh", color: "#2c1b0d", width: "100vw", overflowX: "hidden" }}>
       <Navbar />
 
@@ -441,7 +422,7 @@ export default function ProductDetailPage({ params }) {
               ✕
             </button>
 
-            {modalStep === "sugar" ? (
+            {modalStep === "sugar" && (
               <div style={{ textAlign: "center", padding: "10px" }}>
                 <h3 style={{ fontSize: "22px", fontWeight: 800, color: "#2c1b0d", marginBottom: "8px" }}>
                   Customize Sugar
@@ -453,7 +434,7 @@ export default function ProductDetailPage({ params }) {
                   <button
                     onClick={() => {
                       setSugarLevel("none");
-                      setModalStep("addons");
+                      handleFinishCheckout("none");
                     }}
                     className="sugar-modal-btn"
                   >
@@ -463,7 +444,7 @@ export default function ProductDetailPage({ params }) {
                   <button
                     onClick={() => {
                       setSugarLevel("with");
-                      setModalStep("addons");
+                      handleFinishCheckout("with");
                     }}
                     className="sugar-modal-btn"
                   >
@@ -471,70 +452,9 @@ export default function ProductDetailPage({ params }) {
                     <span style={{ fontSize: "15px", fontWeight: 700 }}>With Sugar</span>
                   </button>
                 </div>
-              </div>
-            ) : (
-              <>
-                <h3 style={{ fontSize: "20px", fontWeight: 800, color: "#2c1b0d", marginBottom: "8px", textAlign: "center" }}>
-                  Quick Add Add-ons
-                </h3>
-                <p style={{ fontSize: "13px", color: "#666", textAlign: "center", marginBottom: "24px" }}>
-                  Chai is incomplete without hot cookies and butter toasts. Complete your brew!
-                </p>
-
-                {/* Addons Grid */}
-                <div className="addons-grid">
-                  {addons.map((addon) => {
-                    const isSelected = selectedAddons.some((a) => a.id === addon.id);
-                    return (
-                      <div key={addon.id} className={`addon-card ${isSelected ? "selected" : ""}`}>
-                        <img src={addon.image || "/chai-ingredients.png"} onError={(e) => { e.target.src = "/chai-ingredients.png"; }} alt={addon.name} className="addon-img" />
-                        <div style={{ padding: "12px", display: "flex", flexDirection: "column", flexGrow: 1 }}>
-                          <h4 style={{ fontSize: "13px", fontWeight: 700, color: "#2c1b0d", flexGrow: 1 }}>{addon.name}</h4>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "10px" }}>
-                            <span style={{ fontSize: "13px", fontWeight: 800, color: "#8a583c" }}>{addon.price}</span>
-                            <button
-                              onClick={() => toggleAddon(addon)}
-                              style={{
-                                background: isSelected ? "#5c7a4d" : "#2c1b0d",
-                                color: "#ffffff",
-                                border: "none",
-                                borderRadius: "999px",
-                                padding: "4px 10px",
-                                fontSize: "11px",
-                                fontWeight: 700,
-                                cursor: "pointer",
-                              }}
-                            >
-                              {isSelected ? "Added ✓" : "Add +"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
+              )}
 
-                {/* Checkout Finalize */}
-                <div style={{ borderTop: "1px solid rgba(0,0,0,0.06)", marginTop: "24px", paddingTop: "20px", textAlign: "center", display: "flex", gap: "12px", justifyContent: "center" }}>
-                  <button onClick={() => {
-                    const isWaterOrDrinks = product?.category && (
-                      product.category.toLowerCase().includes("water") || 
-                      product.category.toLowerCase().includes("drink")
-                    );
-                    if (isWaterOrDrinks) {
-                      setIsAddonModalOpen(false);
-                    } else {
-                      setModalStep("sugar");
-                    }
-                  }} className="btn-finalize-order" style={{ background: "#f5f5f7", color: "#2c1b0d", border: "1.5px solid rgba(44, 27, 13, 0.15)" }}>
-                    ← Back
-                  </button>
-                  <button onClick={handleFinishCheckout} className="btn-finalize-order" style={{ flexGrow: 1 }}>
-                    Continue to Checkout
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}
@@ -1350,5 +1270,6 @@ export default function ProductDetailPage({ params }) {
         }
       `}</style>
     </div>
+    </>
   );
 }

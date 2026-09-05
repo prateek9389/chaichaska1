@@ -51,7 +51,7 @@ export default function ChaiShowcase() {
       image: tea.image,
       quantity: 1,
       sugar: "Regular",
-      addons: "",
+
     });
     
     setIsCartOpen(true);

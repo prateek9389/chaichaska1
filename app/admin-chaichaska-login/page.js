@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { updateUserCoins, onOrdersSnapshot, getMenuItems, getCombos, getAddons, addAddon, deleteAddon, updateAddon, getStock, updateOrder, addMenuItem, addStockItem, updateStockItem, getSubscriptions, onSubscriptionsSnapshot, onProductsSnapshot, addProduct, deleteProduct, updateProduct, updateSubscription, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
+import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
 import { loginWithEmail, signUpWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { db, auth } from "@/lib/firebase";
-import { collection, addDoc, query, orderBy, onSnapshot, doc, getDoc } from "firebase/firestore";
+import { collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, getDocs, updateDoc, deleteField, deleteDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 
 export default function AdminDashboard() {
@@ -19,6 +19,26 @@ export default function AdminDashboard() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
+  const [isWiping, setIsWiping] = useState(false);
+
+  const handleWipeAddonsDB = async () => {
+    if (!confirm("Are you sure you want to permanently delete all addons from the database?")) return;
+    setIsWiping(true);
+    try {
+      const snap = await getDocs(collection(db, "addons"));
+      let count = 0;
+      for (const d of snap.docs) {
+        await deleteDoc(d.ref);
+        count++;
+      }
+      alert(`Wiped ${count} addons successfully.`);
+    } catch (e) {
+      console.error(e);
+      alert("Error wiping DB: " + e.message);
+    }
+    setIsWiping(false);
+  };
+
 
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
@@ -56,7 +76,7 @@ export default function AdminDashboard() {
 
   // Tabs State (1st tab is Dashboard)
   const [activeTabState, setActiveTabState] = useState("dashboard");
-  
+  const [activeStatsModal, setActiveStatsModal] = useState(null);
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedTab = localStorage.getItem("admin_active_tab");
@@ -72,7 +92,7 @@ export default function AdminDashboard() {
   const activeTab = activeTabState;
   const [timeFilter, setTimeFilter] = useState("Weekly");
   const [queueFilter, setQueueFilter] = useState("All");
-  const [queueTab, setQueueTab] = useState("one-time"); // "one-time" or "subscription"
+  
   const [isOnline, setIsOnline] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -258,7 +278,11 @@ export default function AdminDashboard() {
   // Inline stock edit state
   const [editingStockIdx, setEditingStockIdx] = useState(null);
   const [editStockQty, setEditStockQty] = useState("");
-  const [editStockLevel, setEditStockLevel] = useState("In Stock");
+  const [editStockMinLimit, setEditStockMinLimit] = useState(10);
+  const [restockingIdx, setRestockingIdx] = useState(null);
+  const [restockAmount, setRestockAmount] = useState("");
+  const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("All");
+  const [inventorySelectedDate, setInventorySelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Customer Management Table
   const customerManagement = [
@@ -284,17 +308,28 @@ export default function AdminDashboard() {
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
 
+  const pendingAmountVal = orders.filter(o => o.paymentStatus === "Pending").reduce((acc, o) => {
+    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+    return acc + (isNaN(val) ? 0 : val);
+  }, 0);
+
   const totalOrdersCount = validOrders.length;
   const completedOrdersCount = validOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
   const pendingOrdersCount = validOrders.filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing").length;
   const avgOrderValueVal = totalOrdersCount > 0 ? (totalSalesVal / totalOrdersCount) : 0;
 
+  const offlineOrdersCount = validOrders.filter(o => o.isOffline === true).length;
+  const onlineOrdersCount = totalOrdersCount - offlineOrdersCount;
+
   const statsSummary = {
     totalSales: `₹${totalSalesVal.toLocaleString()}`,
+    pendingAmount: `₹${pendingAmountVal.toLocaleString()}`,
     totalOrders: `${totalOrdersCount} orders`,
     deliveryShipment: `${completedOrdersCount} Delivery`,
     pendingShipment: `${pendingOrdersCount} orders`,
     avgOrderValue: `₹${Math.round(avgOrderValueVal)}/Order`,
+    offlineOrders: offlineOrdersCount.toLocaleString(),
+    onlineOrders: onlineOrdersCount.toLocaleString(),
   };
 
   // Top Items sold calculation
@@ -440,22 +475,7 @@ export default function AdminDashboard() {
     { name: "Kesar Winter Booster", items: "Saffron Royal Chai + Saffron Biscuits", price: 299, active: true, desc: "Luxury Saffron tea served with premium custom saffron-dipped biscuits." }
   ]);
 
-  const [addonsList, setAddonsList] = useState([
-    { name: "Almond Cookies", price: 50, image: "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg", desc: "Crisp biscuits baked with almond flakes.", active: true },
-    { name: "Almond Slivers Add-on", price: 30, image: "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg", desc: "Toasted sliced almonds to sprinkle.", active: true },
-    { name: "Fresh Mint Leaves", price: 10, image: "/chai-ingredients.png", desc: "Hand-picked cooling mint leaves.", active: true }
-  ]);
 
-  const [newAddonName, setNewAddonName] = useState("");
-  const [newAddonPrice, setNewAddonPrice] = useState("");
-  const [newAddonImg, setNewAddonImg] = useState("");
-  const [newAddonDesc, setNewAddonDesc] = useState("");
-  const [selectedComboAddons, setSelectedComboAddons] = useState([]);
-  
-  const [editingAddon, setEditingAddon] = useState(null);
-  const [editAddonName, setEditAddonName] = useState("");
-  const [editAddonPrice, setEditAddonPrice] = useState("");
-  const [editAddonImg, setEditAddonImg] = useState("");
   const [newMenuItemName, setNewMenuItemName] = useState("");
   const [newMenuItemPrice, setNewMenuItemPrice] = useState("");
   const [newMenuItemImg, setNewMenuItemImg] = useState("");
@@ -479,14 +499,6 @@ export default function AdminDashboard() {
       return () => clearTimeout(timer);
     }
   }, [activeInvoice]);
-
-  const [subscriptions, setSubscriptions] = useState([]);
-
-  // Subscriptions Due
-  const upcomingSubscriptions = [
-    { customer: "Rohan V.", floor: "Floor 4", time: "09:00 AM", items: "1x Masala Chai (Daily)" },
-    { customer: "Meera J.", floor: "Floor 5", time: "11:30 AM", items: "1x Ginger Chai (Weekly)" },
-  ];
 
   // Feedback list
   const [feedbackList, setFeedbackList] = useState([
@@ -562,8 +574,11 @@ export default function AdminDashboard() {
     ...orders
       .filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing")
       .map(o => ({ id: o.id, text: `Order ${o.id} - ${o.item}`, time: o.date })),
+    ...stocks
+      .filter(s => (parseFloat(s.qty) || 0) <= (s.minLimit || 10))
+      .map(s => ({ id: `low-stock-${s.id}`, text: `Low Stock: ${s.name} (${s.qty} ${s.unit} left)`, time: "Now" })),
     ...restockRequests
-      .map((r, i) => ({ id: r.id || `restock-${i}`, text: `Stock Alert: ${r.item} (${r.qty})`, time: r.date || "New" })),
+      .map((r, i) => ({ id: r.id || `restock-${i}`, text: `Restock Req: ${r.item} (${r.qty})`, time: r.date || "New" })),
     ...leaveRequests
       .filter(l => l.status === "Pending")
       .map((l, i) => ({ id: l.id || `leave-${i}`, text: `Leave: ${l.start} to ${l.end}`, time: "New" }))
@@ -609,19 +624,17 @@ export default function AdminDashboard() {
     const unsubOrders = onOrdersSnapshot((data) => setOrders(data));
     getMenuItems().then(setMenuItems);
     getCombos().then(setCombos);
-    getAddons().then(setAddonsList);
-    getStock().then(setStocks);
+    const unsubStock = onStockSnapshot((data) => setStocks(data));
     getFeedback().then(setFeedbackList);
-    const unsubSubscriptions = onSubscriptionsSnapshot((data) => setSubscriptions(data));
     const unsubProducts = onProductsSnapshot((data) => setProductsList(data));
     const unsubRestock = onRestockRequestsSnapshot((data) => setRestockRequests(data));
     const unsubLeave = onLeaveRequestsSnapshot((data) => setLeaveRequests(data));
     return () => {
       unsubOrders();
-      unsubSubscriptions();
       unsubProducts();
       unsubRestock();
       unsubLeave();
+      unsubStock();
       unsubAuth();
     };
   }, [router]);
@@ -996,25 +1009,6 @@ export default function AdminDashboard() {
       setTimeout(() => setToastMsg(""), 3000);
     } catch (err) {
       setToastMsg(`Error updating product: ${err.message}`);
-      setTimeout(() => setToastMsg(""), 3000);
-    }
-  };
-
-  const handleUpdateAddonSubmit = async (e) => {
-    e.preventDefault();
-    if (!editingAddon) return;
-    try {
-      await updateAddon(editingAddon.id, {
-        name: editAddonName,
-        price: parseFloat(editAddonPrice) || 0,
-        image: editAddonImg || "/chai-ingredients.png"
-      });
-      setToastMsg("Addon updated successfully!");
-      setEditingAddon(null);
-      setTimeout(() => setToastMsg(""), 3000);
-      getAddons().then(setAddonsList);
-    } catch (err) {
-      setToastMsg(`Error updating addon: ${err.message}`);
       setTimeout(() => setToastMsg(""), 3000);
     }
   };
@@ -1431,7 +1425,7 @@ export default function AdminDashboard() {
               </button>
 
               <button onClick={() => setActiveTab("stock")} className={`menu-icon-btn ${activeTab === "stock" ? "active" : ""}`}>
-                <span className="btn-emoji">📦</span> Stock & Alerts
+                <span className="btn-emoji">📦</span> Inventory
               </button>
               <button onClick={() => setActiveTab("earnings")} className={`menu-icon-btn ${activeTab === "earnings" ? "active" : ""}`}>
                 <span className="btn-emoji">💰</span> Earnings & Payout
@@ -1446,19 +1440,11 @@ export default function AdminDashboard() {
                 <span className="btn-emoji">➕</span> Create Product
               </button>
 
-              <button onClick={() => setActiveTab("addons")} className={`menu-icon-btn ${activeTab === "addons" ? "active" : ""}`}>
-                <span style={{ fontSize: "18px" }}>🍪</span>
-                <span className="menu-text">Addons</span>
-              </button>
-
               <button onClick={() => setActiveTab("feedback")} className={`menu-icon-btn ${activeTab === "feedback" ? "active" : ""}`}>
                 <span className="btn-emoji">⭐</span> Feedback
               </button>
               <button onClick={() => setActiveTab("contact")} className={`menu-icon-btn ${activeTab === "contact" ? "active" : ""}`}>
                 <span className="btn-emoji">📞</span> Contact Info
-              </button>
-              <button onClick={() => setActiveTab("subs")} className={`menu-icon-btn ${activeTab === "subs" ? "active" : ""}`}>
-                <span className="btn-emoji">📅</span> Subscriptions Due
               </button>
 
               <button onClick={() => setActiveTab("leave")} className={`menu-icon-btn ${activeTab === "leave" ? "active" : ""}`}>
@@ -1515,7 +1501,26 @@ export default function AdminDashboard() {
                 </button>
                 <div>
                   <span className="welcome-label">Welcome!</span>
-                  <h1 className="operator-title">{brewmasterName}</h1>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <h1 className="operator-title">{brewmasterName}</h1>
+                    <button 
+                      onClick={handleWipeAddonsDB}
+                      disabled={isWiping}
+                      style={{
+                        padding: "6px 12px",
+                        background: "#e74c3c",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: "8px",
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        cursor: isWiping ? "not-allowed" : "pointer",
+                        opacity: isWiping ? 0.7 : 1
+                      }}
+                    >
+                      {isWiping ? "Wiping..." : "Wipe Addons DB"}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1583,222 +1588,181 @@ export default function AdminDashboard() {
 
             {/* TAB CONTENT */}
             {activeTab === "dashboard" && (
-              <div>
-
-                {/* SUBHEADER */}
-                <div className="sales-order-subheader">
-                  <div>
-                    <h2>Sales and Order</h2>
-                    <p>Your Sales and Orders Summary Activates</p>
-                  </div>
-
-                  <div className="subheader-controls">
-                    <button
-                      className="btn-export-data"
+              <div style={{ padding: "24px", background: "#f8f9fa", minHeight: "100vh", fontFamily: "sans-serif" }}>
+                {/* TOP ROW: SUMMARY CARDS */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+                  {[
+                    { label: "Total Orders", value: statsSummary.totalOrders, icon: "🧾", color: "#e8f5e9", text: "#2e7d32" },
+                    { label: "Pending Amount", value: statsSummary.pendingAmount, icon: "⏳", color: "#fff3e0", text: "#ef6c00" },
+                    { label: "Offline Orders", value: statsSummary.offlineOrders, icon: "🏪", color: "#fff3e0", text: "#ef6c00" },
+                    { label: "Online Orders", value: statsSummary.onlineOrders, icon: "🌐", color: "#e3f2fd", text: "#1565c0" },
+                    { label: "Shipping Orders", value: statsSummary.deliveryShipment, icon: "🚚", color: "#e3f2fd", text: "#1565c0" },
+                    { label: "Pending Orders", value: statsSummary.pendingShipment, icon: "🕒", color: "#ffebee", text: "#c62828" },
+                    { label: "Total Sales", value: statsSummary.totalSales, icon: "💰", color: "#e8f5e9", text: "#2e7d32" }
+                  ].map((card, i) => (
+                    <div 
+                      key={i} 
                       onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8," +
-                          "Order ID,Customer,Status,Total,Item,Date\n" +
-                          filteredOrders.map(o => `${o.id},${o.customer || "N/A"},${o.status || "N/A"},${o.total || "0"},"${o.item || "N/A"}","${o.date || "N/A"}"`).join("\n");
-                        const encodedUri = encodeURI(csvContent);
-                        const link = document.createElement("a");
-                        link.setAttribute("href", encodedUri);
-                        link.setAttribute("download", `chai_orders_${timeFilter.toLowerCase()}.csv`);
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
+                        if (card.label === "Pending Amount") setActiveStatsModal("pending");
+                        if (card.label === "Offline Orders") setActiveStatsModal("offline");
+                      }}
+                      style={{ 
+                        background: "#ffffff", 
+                        borderRadius: "12px", 
+                        padding: "16px", 
+                        border: "1px solid #eaeaea", 
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.02)", 
+                        display: "flex", 
+                        flexDirection: "column", 
+                        gap: "12px",
+                        cursor: (card.label === "Pending Amount" || card.label === "Offline Orders") ? "pointer" : "default"
                       }}
                     >
-                      📤 Export Data
-                    </button>
-
-                    <div className="filter-pill-group">
-                      {["Daily", "Weekly", "Monthly"].map((pill) => (
-                        <button
-                          key={pill}
-                          onClick={() => setTimeFilter(pill)}
-                          className={`filter-pill-btn ${timeFilter === pill ? "active" : ""}`}
-                        >
-                          {pill}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* STATS ROW */}
-                <div className="stats-cards-row-new">
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle red-bg">📈</span>
-                      <span>Total Sales</span>
-                    </div>
-                    <h3>{statsSummary.totalSales}</h3>
-                  </div>
-
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle yellow-bg">🛍️</span>
-                      <span>Total Orders</span>
-                    </div>
-                    <h3>{statsSummary.totalOrders}</h3>
-                  </div>
-
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle green-bg">🚚</span>
-                      <span>Delivery Shipment</span>
-                    </div>
-                    <h3>{statsSummary.deliveryShipment}</h3>
-                  </div>
-
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle red-bg">📦</span>
-                      <span>Pending Shipment</span>
-                    </div>
-                    <h3>{statsSummary.pendingShipment}</h3>
-                  </div>
-
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle yellow-bg">💵</span>
-                      <span>AVG Order Value</span>
-                    </div>
-                    <h3>{statsSummary.avgOrderValue}</h3>
-                  </div>
-                </div>
-
-                {/* MIDDLE ROW */}
-                <div className="dashboard-double-row-grid">
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Sales Performance</h3>
-                      <span className="payout-status-badge">Monthly ∨</span>
-                    </div>
-                    <div className="performance-tally-pills">
-                      <span className="tally-pill red">{topItem1}</span>
-                      <span className="tally-pill yellow">{topItem2}</span>
-                      <span className="tally-pill green">{topItem3}</span>
-                    </div>
-
-                    <div className="bar-chart-performance-visual">
-                      <div className="y-axis-labels">
-                        <span>250</span><span>200</span><span>150</span><span>100</span><span>50</span><span>0</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div style={{ background: card.color, width: "40px", height: "40px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>{card.icon}</div>
+                        <span style={{ fontSize: "14px", fontWeight: "600", color: "#555" }}>{card.label}</span>
                       </div>
-                      <div className="bars-track-new">
-                        {monthsData.map((bar, i) => (
-                          <div key={i} className="bar-column-new">
-                            <div className="bar-rect-track">
-                              <div
-                                className={`bar-rect-fill ${bar.highlighted ? "highlighted" : ""}`}
-                                style={{ height: `${bar.h}%` }}
-                              >
-                                {bar.highlighted && (
-                                  <div className="chart-tooltip-bubble">
-                                    Total Revenue<br /><strong>₹{bar.val.toLocaleString()}</strong>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <span className="bar-month-lbl">{bar.m}</span>
-                          </div>
+                      <div style={{ fontSize: "24px", fontWeight: "bold", color: "#222" }}>{card.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* MIDDLE ROW: SPLIT COLUMNS */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
+                  
+                  {/* LEFT: High Demanding Products */}
+                  <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>High Demanding Products</h3>
+                      <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                    </div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid #eaeaea", color: "#888", fontSize: "13px" }}>
+                          <th style={{ paddingBottom: "10px" }}>Product</th>
+                          <th style={{ paddingBottom: "10px" }}>Sales</th>
+                          <th style={{ paddingBottom: "10px" }}>Trend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedItems.slice(0, 5).map((item, i) => {
+                          const name = item[0];
+                          const qty = item[1];
+                          const icon = name.toLowerCase().includes("chai") || name.toLowerCase().includes("tea") ? "☕" : name.toLowerCase().includes("coffee") ? "🍵" : "🥤";
+                          const category = name.toLowerCase().includes("chai") || name.toLowerCase().includes("tea") ? "Chai" : name.toLowerCase().includes("coffee") ? "Coffee" : "Beverage";
+                          return (
+                            <tr key={i} style={{ borderBottom: i !== 4 ? "1px solid #f5f5f5" : "none" }}>
+                              <td style={{ padding: "12px 0", display: "flex", alignItems: "center", gap: "10px" }}>
+                                <div style={{ background: "#f8f9fa", width: "36px", height: "36px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>{icon}</div>
+                                <div>
+                                  <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>{name.split(" x")[0]}</div>
+                                  <div style={{ fontSize: "12px", color: "#888" }}>{category}</div>
+                                </div>
+                              </td>
+                              <td style={{ padding: "12px 0", fontSize: "14px", color: "#333", fontWeight: "500" }}>{qty} sold</td>
+                              <td style={{ padding: "12px 0" }}>
+                                 <div style={{ display: "flex", gap: "3px", alignItems: "flex-end", height: "20px" }}>
+                                   <div style={{ width: "4px", height: "40%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "60%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "100%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "80%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "50%", background: "#e0e0e0", borderRadius: "2px" }}></div>
+                                 </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {sortedItems.length === 0 && (
+                          <tr><td colSpan="3" style={{ padding: "20px", textAlign: "center", color: "#999" }}>No products sold yet.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* RIGHT: Pending Orders */}
+                  <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>Pending Orders</h3>
+                      <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid #eaeaea", color: "#888" }}>
+                            <th style={{ paddingBottom: "10px" }}>Order ID</th>
+                            <th style={{ paddingBottom: "10px" }}>Customer Name</th>
+                            <th style={{ paddingBottom: "10px" }}>Amount</th>
+                            <th style={{ paddingBottom: "10px" }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {orders.slice(0, 6).map((o, i) => (
+                            <tr key={o.id} style={{ borderBottom: i !== 5 ? "1px solid #f5f5f5" : "none" }}>
+                              <td style={{ padding: "12px 0", fontWeight: "600", color: "#333" }}>{o.id}</td>
+                              <td style={{ padding: "12px 0", color: "#555" }}>{o.customer}</td>
+                              <td style={{ padding: "12px 0", color: "#333", fontWeight: "500" }}>{o.total}</td>
+                              <td style={{ padding: "12px 0" }}>
+                                <span style={{
+                                  padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold",
+                                  background: o.status === "Pending" || o.status === "Received" ? "#fff3e0" : o.status === "Preparing" ? "#e8f5e9" : "#e3f2fd",
+                                  color: o.status === "Pending" || o.status === "Received" ? "#ef6c00" : o.status === "Preparing" ? "#2e7d32" : "#1565c0"
+                                }}>
+                                  {o.status || "Received"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* BOTTOM ROW: INVENTORY ALERTS */}
+                <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                    <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>Inventory Alerts</h3>
+                    <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                  </div>
+                  <div style={{ maxHeight: "350px", overflowY: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                      <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
+                        <tr style={{ color: "#555" }}>
+                          <th style={{ padding: "12px", borderRadius: "6px 0 0 6px" }}>Product Name</th>
+                          <th style={{ padding: "12px" }}>Current Stock</th>
+                          <th style={{ padding: "12px" }}>Alert Status</th>
+                          <th style={{ padding: "12px", borderRadius: "0 6px 6px 0", textAlign: "right" }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stocks.filter(s => (parseFloat(s.qty) || 0) <= (s.minLimit || 10)).map((s, i) => (
+                          <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                            <td style={{ padding: "12px", display: "flex", alignItems: "center", gap: "10px", color: "#333", fontWeight: "500" }}>
+                               <div style={{ background: "#f8f9fa", width: "28px", height: "28px", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>📦</div>
+                               {s.name}
+                            </td>
+                            <td style={{ padding: "12px", color: "#555" }}>{s.qty} {s.unit}</td>
+                            <td style={{ padding: "12px" }}>
+                              <span style={{ color: "#c62828", fontWeight: "600" }}>
+                                Low Stock
+                              </span>
+                            </td>
+                            <td style={{ padding: "12px", textAlign: "right" }}>
+                              <button onClick={() => setActiveTab("stock")} style={{ padding: "6px 12px", border: "1px solid #eaeaea", background: "#ffffff", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "600", color: "#555" }}>
+                                Reorder
+                              </button>
+                            </td>
+                          </tr>
                         ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Recent Orders</h3>
-                    </div>
-                    <div className="table-wrapper-new">
-                      <table className="recent-orders-table">
-                        <thead>
+                        {stocks.filter(s => (parseFloat(s.qty) || 0) <= (s.minLimit || 10)).length === 0 && (
                           <tr>
-                            <th>ID</th>
-                            <th>Customer Name</th>
-                            <th>Date</th>
-                            <th>Status</th>
-                            <th>Total</th>
+                            <td colSpan="4" style={{ padding: "20px", textAlign: "center", color: "#888" }}>No low stock alerts!</td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {orders.slice(0, 4).map((o) => (
-                            <tr key={o.id}>
-                              <td><strong>{o.id}</strong></td>
-                              <td>{o.customer}</td>
-                              <td>{o.date}</td>
-                              <td>
-                                <span className={`table-status-pill ${o.status.toLowerCase()}`}>
-                                  {o.status}
-                                </span>
-                              </td>
-                              <td>{o.total}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-
-                {/* BOTTOM ROW */}
-                <div className="dashboard-double-row-grid" style={{ marginTop: "28px" }}>
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Inventory Status Check</h3>
-                    </div>
-                    <div className="inventory-cards-grid-new">
-                      {stocks.map((s, i) => (
-                        <div key={i} className="inventory-progress-card-item">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <strong>{s.name.split(" ")[0]}</strong>
-                            <span className="inventory-indicator-bullet">●</span>
-                          </div>
-                          <span style={{ fontSize: "12px", color: "#666", display: "block", marginTop: "4px" }}>
-                            {s.qty}
-                          </span>
-                          <div className="inventory-progress-bar-wrap">
-                            <div className="inventory-progress-bar-fill" style={{ width: "75%" }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Customer Management</h3>
-                    </div>
-                    <div className="table-wrapper-new">
-                      <table className="recent-orders-table">
-                        <thead>
-                          <tr>
-                            <th>Name</th>
-                            <th>Total Orders</th>
-                            <th>Total Value</th>
-                            <th>Loyalty Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {customerManagement.map((c, i) => (
-                            <tr key={i}>
-                              <td><strong>{c.name}</strong></td>
-                              <td>{c.orders}</td>
-                              <td>{c.value}</td>
-                              <td>
-                                <span className={`loyalty-pill ${c.loyalty.toLowerCase()}`}>
-                                  {c.loyalty}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
               </div>
             )}
 
@@ -1807,87 +1771,49 @@ export default function AdminDashboard() {
               <div className="tab-body-wrapper">
                 <div className="queue-header-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <h3 className="section-title">Order Queue (List View)</h3>
-                  <div className="admin-tabs" style={{ background: 'transparent', padding: 0 }}>
-                    <button className={`admin-tab ${queueTab === "one-time" ? "active" : ""}`} onClick={() => setQueueTab("one-time")}>One-Time Orders</button>
-                    <button className={`admin-tab ${queueTab === "subscription" ? "active" : ""}`} onClick={() => setQueueTab("subscription")}>Subscription Orders</button>
-                  </div>
                 </div>
 
                 <div className="queue-list-container">
-                  {queueTab === "one-time" ? (
-                    orders.filter(o => o.priority !== "Subscription").length === 0 ? (
-                      <div className="empty-column-msg">No active one-time orders found.</div>
-                    ) : (
-                      orders
-                        .filter(o => o.priority !== "Subscription")
-                        .sort((a, b) => b.createdAt - a.createdAt)
-                        .map((o) => (
-                          <div
-                            key={o.id}
-                            className="queue-list-item"
-                            onClick={() => {
-                              setSelectedQueueOrder(o);
-                              setDeliveryTimeInput(o.allocatedTime || "");
-                              setIsQueueSidebarOpen(true);
-                            }}
-                          >
-                            <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" />
-                            <div className="queue-list-info">
-                              <h4>{o.id} - {o.customer}</h4>
-                              <p>{o.item}</p>
-                              <span className="time-elapsed">
-                                {Math.floor((Date.now() - o.createdAt) / 60000)}m ago
-                              </span>
-                            </div>
-                            <div className="queue-list-status">
-                              <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
-                                {o.status || "Received"}
-                              </span>
-                            </div>
-                          </div>
-                        ))
-                    )
+                  {orders.filter(o => o.priority !== "Subscription").length === 0 ? (
+                    <div className="empty-column-msg">No active one-time orders found.</div>
                   ) : (
-                    subscriptions.length === 0 ? (
-                      <div className="empty-column-msg">No subscriptions found.</div>
-                    ) : (
-                      subscriptions
-                        .sort((a, b) => {
-                          if (a.status === "Active" && b.status !== "Active") return -1;
-                          if (a.status !== "Active" && b.status === "Active") return 1;
-                          return b.createdAt - a.createdAt;
-                        })
-                        .map((sub) => (
-                          <div
-                            key={sub.id}
-                            className="queue-list-item"
-                            style={{
-                              borderLeft: sub.status === "Active" ? "4px solid #8e44ad" : "4px solid #e74c3c",
-                              opacity: sub.status === "Active" ? 1 : 0.6
-                            }}
-                          >
-                            <img src={sub.image || sub.img || "/assets/images/tea_icon.png"} alt={sub.id} className="queue-list-img" />
-                            <div className="queue-list-info">
-                              <h4>{sub.id} - {sub.customer || "Customer"}</h4>
-                              <p>{sub.items || sub.item}</p>
-                              <span className="time-elapsed">
-                                Time Slot: {sub.timeSlot || "N/A"} | {sub.frequency || "Daily"}
-                              </span>
-                            </div>
-                            <div className="queue-list-status">
-                              {sub.status === "Active" ? (
-                                <span className="table-status-pill received" style={{ background: "#f3e5f5", color: "#8e44ad" }}>
-                                  Daily Delivery
-                                </span>
-                              ) : (
-                                <span className="table-status-pill cancelled" style={{ background: "#fce8e6", color: "#e74c3c" }}>
-                                  Paused
-                                </span>
-                              )}
-                            </div>
+                    orders
+                      .filter(o => o.priority !== "Subscription")
+                      .sort((a, b) => b.createdAt - a.createdAt)
+                      .map((o) => (
+                        <div
+                          key={o.id}
+                          className="queue-list-item"
+                          onClick={() => {
+                            setSelectedQueueOrder(o);
+                            setDeliveryTimeInput(o.allocatedTime || "");
+                            setIsQueueSidebarOpen(true);
+                          }}
+                        >
+                          <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" style={{ objectFit: 'cover' }} />
+                          <div className="queue-list-info">
+                            <h4 style={{ fontSize: '14px', marginBottom: '4px' }}>
+                              <span style={{ color: '#8a583c', fontWeight: '800' }}>{o.orderId || (o.id && o.id.length > 8 ? o.id.substring(0,8) : o.id)}</span> - {o.customer || "Guest"}
+                            </h4>
+                            <p style={{ fontWeight: 'bold', color: '#2c1b0d', fontSize: '13px', marginBottom: '2px' }}>{o.item}</p>
+                            <p style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>📍 {o.office || o.address || (o.walkIn ? "Counter Pickup" : "No Address Provided")}</p>
+                            <span className="time-elapsed" style={{ fontSize: '10px', fontWeight: 'bold', color: '#e74c3c' }}>
+                              {(() => {
+                                const diffMs = Date.now() - o.createdAt;
+                                const diffMins = Math.floor(diffMs / 60000);
+                                if (diffMins < 60) return `${diffMins}m ago`;
+                                if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+                                return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', year: 'numeric' });
+                              })()}
+                            </span>
                           </div>
-                        ))
-                    )
+                          <div className="queue-list-status">
+                            <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
+                              {o.status || "Received"}
+                            </span>
+                          </div>
+                        </div>
+                      ))
                   )}
                 </div>
 
@@ -2197,13 +2123,11 @@ export default function AdminDashboard() {
             )}
 
             {activeTab === "stock" && (() => {
-              const totalValuation = stocks.reduce((acc, curr) => {
-                const numericVal = parseFloat(curr.qty.split(" ")[0]) || 0;
-                return acc + (numericVal * (curr.unitPrice || 0));
-              }, 0);
+              const categories = ["All", "Tea", "Milk", "Coffee", "Shake", "Water", "Maggi", "Snacks", "Toast", "Biscuit", "Namkeen", "Disposable", "Cold Drink"];
+              const filteredInventory = stocks.filter(s => inventoryCategoryFilter === "All" || s.category === inventoryCategoryFilter);
 
               return (
-                <div className="tab-body-wrapper">
+                <div className="tab-body-wrapper" style={{ position: "relative" }}>
                   {/* Toast Message Overlay */}
                   {toastMsg && (
                     <div style={{ position: "fixed", top: "24px", right: "24px", background: "#2c1b0d", color: "#fdf5e9", padding: "16px 24px", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.15)", zIndex: 9999, fontWeight: "bold", borderLeft: "4px solid #e74c3c", display: "flex", gap: "10px", alignItems: "center" }}>
@@ -2211,66 +2135,96 @@ export default function AdminDashboard() {
                     </div>
                   )}
 
-                  <div style={{ maxWidth: "600px", margin: "0 auto", width: "100%" }}>
-
-
-                    {/* Logs of Raised Requests */}
-                    <h4 style={{ fontSize: "13px", color: "#2c1b0d", marginBottom: "12px", fontWeight: "800" }}>📋 Restock Requests Log</h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                      {restockRequests.map((r, i) => (
-                        <div key={i} style={{ background: "#ffffff", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.03)", fontSize: "12px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                            <strong>{r.item}</strong>
-                            <span style={{ fontSize: "10px", background: r.urgency === "High" ? "rgba(231,76,60,0.1)" : "rgba(0,0,0,0.05)", color: r.urgency === "High" ? "#e74c3c" : "#555", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
-                              {r.urgency} Urgency
-                            </span>
-                          </div>
-                          <span style={{ display: "block", color: "#666" }}>Qty Requested: {r.qty}</span>
-                          <span style={{ display: "block", color: "#888", fontStyle: "italic", fontSize: "11px", marginTop: "2px" }}>Notes: {r.notes}</span>
-
-                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.02)", paddingTop: "6px", fontSize: "10px" }}>
-                            <span style={{ color: "#27ae60" }}>● {r.status}</span>
-                            <span style={{ color: "#999" }}>{r.date}</span>
-                          </div>
-
-                          {/* Admin Controls */}
-                          <div style={{ marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.05)", paddingTop: "8px" }}>
-                            <select
-                              value={r.status}
-                              onChange={(e) => updateRestockRequest(r.id, { status: e.target.value })}
-                              style={{ padding: "4px", fontSize: "10px", borderRadius: "4px", width: "100%", marginBottom: "6px", border: "1px solid #ddd" }}>
-                              <option value="Sent to Admin">Sent to Admin</option>
-                              <option value="Approved">Approved</option>
-                              <option value="Ordered">Ordered</option>
-                              <option value="Delivered">Delivered</option>
-                              <option value="Rejected">Rejected</option>
-                            </select>
-                            <div style={{ display: "flex", gap: "4px" }}>
-                              <input
-                                type="text"
-                                placeholder="Admin reply message..."
-                                id={`restock-msg-${r.id}`}
-                                defaultValue={r.adminMessage || ""}
-                                style={{ flex: 1, padding: "4px 8px", fontSize: "10px", borderRadius: "4px", border: "1px solid #ccc" }}
-                              />
-                              <button
-                                onClick={() => {
-                                  const msg = document.getElementById(`restock-msg-${r.id}`).value;
-                                  updateRestockRequest(r.id, { adminMessage: msg });
-                                  alert("Message sent to Chai Maker!");
-                                }}
-                                style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
-                              >
-                                Update Message
-                              </button>
-                            </div>
-                          </div>
-
+                  <div style={{ maxWidth: "1000px", margin: "0 auto", width: "100%" }}>
+                    
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", flex: 1 }}>
+                        {categories.map(cat => (
+                          <button
+                            key={cat}
+                            onClick={() => setInventoryCategoryFilter(cat)}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "20px",
+                              fontSize: "11px",
+                              fontWeight: "bold",
+                              border: "none",
+                              cursor: "pointer",
+                              background: inventoryCategoryFilter === cat ? "#2c1b0d" : "#f0f0f0",
+                              color: inventoryCategoryFilter === cat ? "#fff" : "#555",
+                              transition: "all 0.2s"
+                            }}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f8f9fa", padding: "6px 12px", borderRadius: "8px", border: "1px solid #eaeaea" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>📅 Track Date:</span>
+                          <input 
+                            type="date" 
+                            value={inventorySelectedDate}
+                            onChange={(e) => setInventorySelectedDate(e.target.value)}
+                            style={{ border: "none", background: "transparent", fontSize: "12px", fontWeight: "bold", color: "#2c1b0d", outline: "none", cursor: "pointer" }}
+                          />
                         </div>
-                      ))}
+                      </div>
                     </div>
 
-                  </div>
+                    <div style={{ background: "#ffffff", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", overflow: "hidden", marginBottom: "30px" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12px" }}>
+                        <thead>
+                          <tr style={{ background: "#fbf9f6", color: "#555", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+                            <th style={{ padding: "12px 16px" }}>Category</th>
+                            <th style={{ padding: "12px 16px" }}>Item Name</th>
+                            <th style={{ padding: "12px 16px" }}>Current Qty</th>
+                            <th style={{ padding: "12px 16px", color: "#c62828" }}>Usage ({inventorySelectedDate})</th>
+                            <th style={{ padding: "12px 16px", color: "#1565c0" }}>Uploads ({inventorySelectedDate})</th>
+                            <th style={{ padding: "12px 16px" }}>Min Threshold</th>
+                            <th style={{ padding: "12px 16px", textAlign: "center" }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredInventory.map((item, idx) => {
+                            const qty = parseFloat(item.qty) || 0;
+                            const limit = item.minLimit || 10;
+                            const isLow = qty <= limit;
+                            return (
+                              <tr key={item.id || idx} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold", color: "#666" }}>{item.category}</td>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold", color: "#2c1b0d" }}>{item.name}</td>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold" }}>
+                                  <span>{qty} <span style={{ fontSize: "10px", color: "#888" }}>{item.unit}</span></span>
+                                </td>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold", color: "#c62828" }}>
+                                  {item.dailyUsage?.filter(u => u.date === inventorySelectedDate).reduce((acc, curr) => acc + (curr.used || 0), 0) || 0} <span style={{ fontSize: "10px", color: "#888" }}>{item.unit}</span>
+                                </td>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold", color: "#1565c0" }}>
+                                  {item.uploadHistory?.filter(u => u.date === inventorySelectedDate).reduce((acc, curr) => acc + (curr.added || 0), 0) || 0} <span style={{ fontSize: "10px", color: "#888" }}>{item.unit}</span>
+                                </td>
+                                <td style={{ padding: "12px 16px" }}>
+                                  <span>{limit} <span style={{ fontSize: "10px", color: "#888" }}>{item.unit}</span></span>
+                                </td>
+                                <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                                  <span style={{ background: isLow ? "#fce8e6" : "#e8f6ef", color: isLow ? "#e74c3c" : "#27ae60", padding: "4px 8px", borderRadius: "8px", fontSize: "10px", fontWeight: "bold" }}>
+                                    {isLow ? "Low Stock Alert" : "Healthy"}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {filteredInventory.length === 0 && (
+                            <tr>
+                              <td colSpan="6" style={{ padding: "20px", textAlign: "center", color: "#888", fontStyle: "italic" }}>
+                                No inventory items found for this category.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    </div>
                 </div>
               )
             })()}
@@ -2766,53 +2720,62 @@ export default function AdminDashboard() {
                     </div>
                   ) : (
                     /* LIST VIEW MODE */
-                    <div style={{ background: "#ffffff", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)", overflow: "hidden" }}>
+                    <div style={{ background: "#ffffff", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.08)", boxShadow: "0 10px 30px rgba(0,0,0,0.03)", overflow: "hidden" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
                         <thead>
-                          <tr style={{ background: "#fbf9f6", borderBottom: "1px solid rgba(0,0,0,0.06)", fontSize: "11px", textTransform: "uppercase", color: "#666" }}>
-                            <th style={{ padding: "16px" }}>Order ID</th>
-                            <th style={{ padding: "16px" }}>Customer</th>
-                            <th style={{ padding: "16px" }}>Items & Details</th>
-                            <th style={{ padding: "16px" }}>Desk</th>
-                            <th style={{ padding: "16px" }}>Date</th>
-                            <th style={{ padding: "16px" }}>Total</th>
-                            <th style={{ padding: "16px" }}>Status</th>
-                            <th style={{ padding: "16px", textAlign: "right" }}>Actions</th>
+                          <tr style={{ background: "linear-gradient(to right, #fbf9f6, #ffffff)", borderBottom: "2px solid rgba(44, 27, 13, 0.08)", fontSize: "11px", textTransform: "uppercase", color: "#8a583c", letterSpacing: "0.5px" }}>
+                            <th style={{ padding: "20px" }}>Order ID</th>
+                            <th style={{ padding: "20px" }}>Customer</th>
+                            <th style={{ padding: "20px" }}>Items & Details</th>
+                            <th style={{ padding: "20px" }}>Delivery Desk</th>
+                            <th style={{ padding: "20px" }}>Date</th>
+                            <th style={{ padding: "20px" }}>Total</th>
+                            <th style={{ padding: "20px", textAlign: "center" }}>Status</th>
+                            <th style={{ padding: "20px", textAlign: "right" }}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredHistory.map((h, i) => (
-                            <tr key={i} style={{ borderBottom: i === filteredHistory.length - 1 ? "none" : "1px solid rgba(0,0,0,0.04)", fontSize: "12.5px" }}>
-                              <td style={{ padding: "16px", fontWeight: "bold", color: "#8a583c" }}>{h.id}</td>
-                              <td style={{ padding: "16px", fontWeight: "bold" }}>{h.customer}</td>
-                              <td style={{ padding: "16px" }}>
-                                <span style={{ display: "block" }}>{h.items}</span>
-                                <span style={{ fontSize: "10px", color: "#888" }}>{h.customization}</span>
+                            <tr key={i} className="history-list-row" style={{ borderBottom: i === filteredHistory.length - 1 ? "none" : "1px solid rgba(0,0,0,0.04)", fontSize: "13px", transition: "all 0.2s ease" }} onMouseOver={e => e.currentTarget.style.backgroundColor = '#fdfbf9'} onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}>
+                              <td style={{ padding: "18px 20px", fontWeight: "800", color: "#8a583c", fontSize: "14px" }}>#{h.id.slice(-6).toUpperCase()}</td>
+                              <td style={{ padding: "18px 20px", fontWeight: "bold", color: "#2c1b0d" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                  <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#f0e6d2", display: "flex", alignItems: "center", justifyContent: "center", color: "#8a583c", fontSize: "14px", flexShrink: 0 }}>{h.customer ? h.customer.charAt(0).toUpperCase() : "G"}</div>
+                                  <span>{h.customer}</span>
+                                </div>
                               </td>
-                              <td style={{ padding: "16px", color: "#555" }}>{h.office}</td>
-                              <td style={{ padding: "16px", color: "#777" }}>{h.date}</td>
-                              <td style={{ padding: "16px", fontWeight: "bold", color: "#2c1b0d" }}>{h.total}</td>
-                              <td style={{ padding: "16px" }}>
-                                <span style={{ fontSize: "10px", background: h.status === "Delivered" ? "rgba(39, 174, 96, 0.1)" : "rgba(231, 76, 60, 0.1)", color: h.status === "Delivered" ? "#27ae60" : "#e74c3c", padding: "4px 8px", borderRadius: "6px", fontWeight: "bold" }}>
-                                  {h.status}
+                              <td style={{ padding: "18px 20px" }}>
+                                <span style={{ display: "block", color: "#2c1b0d", fontWeight: "600" }}>{h.items}</span>
+                                <span style={{ fontSize: "11px", color: "#888", background: "#f8f9fa", padding: "2px 6px", borderRadius: "4px", marginTop: "4px", display: "inline-block" }}>{h.customization}</span>
+                              </td>
+                              <td style={{ padding: "18px 20px", color: "#555", fontWeight: "500" }}>📍 {h.office}</td>
+                              <td style={{ padding: "18px 20px", color: "#777" }}>📅 {h.date}</td>
+                              <td style={{ padding: "18px 20px", fontWeight: "800", color: "#2c1b0d", fontSize: "15px" }}>{h.total}</td>
+                              <td style={{ padding: "18px 20px", textAlign: "center" }}>
+                                <span style={{ fontSize: "11px", background: h.status === "Delivered" ? "#e8f5e9" : "#ffebee", color: h.status === "Delivered" ? "#2e7d32" : "#c62828", padding: "6px 12px", borderRadius: "20px", fontWeight: "bold", display: "inline-block", border: h.status === "Delivered" ? "1px solid #a5d6a7" : "1px solid #ffcdd2" }}>
+                                  {h.status === "Delivered" ? "✓" : "×"} {h.status}
                                 </span>
                               </td>
-                              <td style={{ padding: "16px", textAlign: "right" }}>
-                                <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                              <td style={{ padding: "18px 20px", textAlign: "right" }}>
+                                <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                                   <button
                                     type="button"
                                     onClick={() => setActiveInvoice(h)}
-                                    style={{ background: "transparent", border: "1px solid rgba(0,0,0,0.1)", padding: "4px 8px", borderRadius: "4px", fontSize: "10.5px", cursor: "pointer" }}
+                                    style={{ background: "#f8f9fa", border: "1px solid #ddd", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", color: "#2c1b0d", fontWeight: "600", transition: "background 0.2s" }}
+                                    onMouseOver={e => e.currentTarget.style.background = '#e9ecef'}
+                                    onMouseOut={e => e.currentTarget.style.background = '#f8f9fa'}
                                   >
-                                    Print
+                                    Invoice
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setToastMsg(`🔄 Re-opened order ${h.id}...`);
+                                      setToastMsg(`🔄 Re-opened order ${h.id} as active brewing request!`);
                                       setTimeout(() => setToastMsg(""), 3000);
                                     }}
-                                    style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "4px", fontSize: "10.5px", cursor: "pointer" }}
+                                    style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "bold", transition: "background 0.2s" }}
+                                    onMouseOver={e => e.currentTarget.style.background = '#4a301a'}
+                                    onMouseOut={e => e.currentTarget.style.background = '#2c1b0d'}
                                   >
                                     Re-open
                                   </button>
@@ -3222,31 +3185,7 @@ export default function AdminDashboard() {
                           <input name="comboItems" type="text" placeholder="e.g. Ginger Chai + Biscuits" required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
                         </div>
 
-                        {/* Add-ons Selector */}
-                        <div className="form-group" style={{ marginBottom: "16px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555", display: "block", marginBottom: "6px" }}>Select Bundle Add-ons</label>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                            {addonsList.map((ad, idx) => {
-                              const checked = selectedComboAddons.includes(ad.name);
-                              return (
-                                <label key={idx} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: "pointer" }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => {
-                                      if (checked) {
-                                        setSelectedComboAddons(prev => prev.filter(n => n !== ad.name));
-                                      } else {
-                                        setSelectedComboAddons(prev => [...prev, ad.name]);
-                                      }
-                                    }}
-                                  />
-                                  <span>{ad.name} (+₹{ad.price})</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
+
 
                         <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}>
                           CREATE & REGISTER COMBO
@@ -3267,90 +3206,7 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* SUBTAB 5: ADD-ONS CATALOG */}
-                {menuSubTab === "addons" && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-                    <div>
-                      <h3 className="section-title">Add-ons Catalog Setup</h3>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                        {addonsList.map((ad, i) => (
-                          <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "18px", display: "flex", gap: "16px", alignItems: "center" }}>
-                            <img src={ad.image || "/chai-ingredients.png"} alt={ad.name} style={{ width: "50px", height: "50px", borderRadius: "8px", objectFit: "cover" }} />
-                            <div style={{ flex: 1 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <strong style={{ fontSize: "13.5px" }}>{ad.name}</strong>
-                                <strong style={{ fontSize: "13.5px", color: "#2c1b0d" }}>₹{ad.price}</strong>
-                              </div>
-                              <p style={{ fontSize: "11px", color: "#777", margin: "4px 0 8px" }}>{ad.desc}</p>
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAddonsList(prev => prev.map((item, idx) => idx === i ? { ...item, active: !item.active } : item));
-                                }}
-                                style={{ border: "none", padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", cursor: "pointer", background: ad.active ? "rgba(39, 174, 96, 0.1)" : "#f0f0f0", color: ad.active ? "#27ae60" : "#777" }}
-                              >
-                                {ad.active ? "🟢 Available" : "🔴 Paused"}
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Add new addon Form */}
-                    <div>
-                      <h3 className="section-title">Create Custom Add-on</h3>
-                      <form
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          if (!newAddonName || !newAddonPrice) return;
-                          const newAdd = {
-                            name: newAddonName,
-                            price: parseFloat(newAddonPrice) || 0,
-                            desc: newAddonDesc || "Fresh add-on suggestion.",
-                            image: newAddonImg || "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg",
-                            active: true
-                          };
-                          try {
-                            await addAddon(newAdd);
-                            setNewAddonName("");
-                            setNewAddonPrice("");
-                            setNewAddonDesc("");
-                            setNewAddonImg("");
-                            setToastMsg(`🌱 Added add-on "${newAddonName}" successfully!`);
-                            setTimeout(() => setToastMsg(""), 3000);
-                            getAddons().then(setAddonsList);
-                          } catch (err) {
-                            setToastMsg(`❌ Error: ${err.message}`);
-                            setTimeout(() => setToastMsg(""), 3000);
-                          }
-                        }}
-                        style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}
-                      >
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Add-on Name</label>
-                          <input type="text" value={newAddonName} onChange={(e) => setNewAddonName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Add-on Price (INR)</label>
-                          <input type="number" value={newAddonPrice} onChange={(e) => setNewAddonPrice(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Image Link URL</label>
-                          <input type="text" value={newAddonImg} onChange={(e) => setNewAddonImg(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "16px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Short Description</label>
-                          <textarea rows="2" value={newAddonDesc} onChange={(e) => setNewAddonDesc(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px", resize: "none" }} />
-                        </div>
-                        <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}>
-                          PUBLISH ADD-ON
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -3437,13 +3293,25 @@ export default function AdminDashboard() {
 
                   {/* Left Column: Products List */}
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                       <h3 className="section-title" style={{ margin: 0 }}>Active Shop Products ({productsList.length})</h3>
-                      {selectedProducts.length > 0 && (
-                        <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
-                          Delete Selected ({selectedProducts.length})
-                        </button>
-                      )}
+                      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                        {productsList.length > 0 && (
+                          <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
+                            <input 
+                              type="checkbox"
+                              checked={selectedProducts.length === productsList.length && productsList.length > 0}
+                              onChange={(e) => setSelectedProducts(e.target.checked ? productsList.map(p => p.id) : [])}
+                            />
+                            Select All
+                          </label>
+                        )}
+                        {selectedProducts.length > 0 && (
+                          <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
+                            Delete Selected ({selectedProducts.length})
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                       {productsList.map((p) => (
@@ -3725,11 +3593,23 @@ export default function AdminDashboard() {
 
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                   <h3 className="section-title" style={{ margin: 0 }}>Store Products Catalog ({productsList.length})</h3>
-                  {selectedProducts.length > 0 && (
-                    <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
-                      Delete Selected ({selectedProducts.length})
-                    </button>
-                  )}
+                  <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                    {productsList.length > 0 && (
+                      <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
+                        <input 
+                          type="checkbox"
+                          checked={selectedProducts.length === productsList.length && productsList.length > 0}
+                          onChange={(e) => setSelectedProducts(e.target.checked ? productsList.map(p => p.id) : [])}
+                        />
+                        Select All
+                      </label>
+                    )}
+                    {selectedProducts.length > 0 && (
+                      <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
+                        Delete Selected ({selectedProducts.length})
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "24px", paddingBottom: "40px" }}>
                   {productsList.map((p) => (
@@ -3785,195 +3665,6 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {activeTab === "addons" && (
-              <div className="tab-fade-in" style={{ padding: "30px", maxWidth: "1200px", margin: "0 auto" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
-                  <div>
-                    <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#2c1b0d", margin: "0 0 8px" }}>Add-on Products</h1>
-                    <p style={{ color: "#777", margin: 0, fontSize: "15px" }}>Manage cookies, toasts, and extra products to be shown at checkout.</p>
-                  </div>
-                </div>
-
-                {/* Add New Addon */}
-                <div className="dashboard-card" style={{ padding: "30px", marginBottom: "40px" }}>
-                  <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#2c1b0d", marginBottom: "20px" }}>Add New Add-on</h2>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "20px" }}>
-                    <div className="form-group">
-                      <label>Add-on Name</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Almond Cookies"
-                        value={newAddonName}
-                        onChange={(e) => setNewAddonName(e.target.value)}
-                        className="admin-input"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Price (e.g. ₹89)</label>
-                      <input
-                        type="text"
-                        placeholder="₹89"
-                        value={newAddonPrice}
-                        onChange={(e) => setNewAddonPrice(e.target.value)}
-                        className="admin-input"
-                      />
-                    </div>
-                    <div className="form-group" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                      <label>Image (Upload or URL)</label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files[0];
-                          if (file) {
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setNewAddonImg(reader.result);
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                        className="admin-input"
-                        style={{ padding: "6px" }}
-                      />
-                      <div style={{ textAlign: "center", fontSize: "11px", color: "#888", fontWeight: "bold" }}>— OR PASTE URL —</div>
-                      <input
-                        type="text"
-                        placeholder="https://..."
-                        value={newAddonImg.startsWith("data:image") ? "" : newAddonImg}
-                        onChange={(e) => setNewAddonImg(e.target.value)}
-                        className="admin-input"
-                      />
-                      {newAddonImg && newAddonImg.startsWith("data:image") && (
-                        <div style={{ fontSize: "11px", color: "#27ae60", fontWeight: "bold", marginTop: "-4px" }}>✓ Image file loaded ready to upload</div>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    className="btn-primary"
-                    style={{ marginTop: "20px", width: "100%", padding: "12px" }}
-                    onClick={async () => {
-                      if (!newAddonName || !newAddonPrice) return alert("Fill required fields");
-                      try {
-                        await addAddon({ 
-                          name: newAddonName, 
-                          price: parseFloat(newAddonPrice) || 0, 
-                          image: newAddonImg || "/chai-ingredients.png",
-                          desc: newAddonDesc || "Fresh add-on suggestion.",
-                          active: true
-                        });
-                        alert("Add-on created successfully!");
-                        setNewAddonName(""); setNewAddonPrice(""); setNewAddonImg("");
-                        // Refresh
-                        getAddons().then(setAddonsList);
-                      } catch (e) {
-                        console.error(e);
-                        alert("Error adding addon: " + e.message);
-                      }
-                    }}
-                  >
-                    + Create Add-on
-                  </button>
-                </div>
-
-                {/* Existing Addons Grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "20px" }}>
-                  {addonsList && addonsList.length > 0 ? addonsList.map((addon) => (
-                    <div key={addon.id} className="dashboard-card" style={{ padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                      <div style={{ height: "140px", background: "#f5f5f7" }}>
-                        <img src={addon.image} alt={addon.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      </div>
-                      <div style={{ padding: "20px", display: "flex", flexDirection: "column", flexGrow: 1 }}>
-                        <h3 style={{ fontSize: "16px", fontWeight: 800, margin: "0 0 8px" }}>{addon.name}</h3>
-                        <p style={{ color: "#8a583c", fontWeight: 700, margin: "0 0 16px" }}>{addon.price}</p>
-
-                        <div style={{ display: "flex", gap: "10px", marginTop: "auto" }}>
-                          <button
-                            style={{ flex: 1, background: "#2c1b0d", color: "#fff", border: "none", padding: "8px", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}
-                            onClick={() => {
-                              setEditingAddon(addon);
-                              setEditAddonName(addon.name);
-                              setEditAddonPrice(addon.price);
-                              setEditAddonImg(addon.image || "");
-                            }}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            style={{ flex: 1, background: "#fcfaf7", border: "1px solid #e74c3c", color: "#e74c3c", padding: "8px", borderRadius: "8px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}
-                            onClick={async () => {
-                              if (confirm("Are you sure you want to delete this addon?")) {
-                                await deleteAddon(addon.id);
-                                getAddons().then(setAddonsList);
-                              }
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )) : (
-                    <div style={{ padding: "40px", textAlign: "center", color: "#777", background: "#fff", borderRadius: "16px" }}>
-                      No add-on products found.
-                    </div>
-                  )}
-                </div>
-
-                {editingAddon && (
-                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
-                    <div style={{ background: "#fff", padding: "32px", borderRadius: "20px", width: "450px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", position: "relative" }}>
-                      <h3 style={{ margin: "0 0 20px", color: "#2c1b0d" }}>Edit Add-on</h3>
-                      <form onSubmit={handleUpdateAddonSubmit}>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Add-on Name</label>
-                          <input type="text" value={editAddonName} onChange={(e) => setEditAddonName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Price</label>
-                          <input type="text" value={editAddonPrice} onChange={(e) => setEditAddonPrice(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "20px", display: "flex", gap: "10px", flexDirection: "column" }}>
-                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Image</label>
-                              <input type="file" accept="image/*" onChange={(e) => {
-                                const file = e.target.files[0];
-                                if (file) {
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => {
-                                    setEditAddonImg(reader.result);
-                                  };
-                                  reader.readAsDataURL(file);
-                                }
-                              }} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowImageLibrary(true);
-                                window.libraryTarget = "edit_addon";
-                              }}
-                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
-                            >
-                              📂 Image Library
-                            </button>
-                          </div>
-                          <div>
-                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
-                            <input type="text" value={editAddonImg} onChange={(e) => setEditAddonImg(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-                          <button type="button" onClick={() => setEditingAddon(null)} style={{ background: "#ccc", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", color: "#333" }}>Cancel</button>
-                          <button type="submit" style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", fontWeight: "bold" }}>Save Changes</button>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Feedback Tab */}
             {activeTab === "feedback" && (
@@ -4193,200 +3884,7 @@ export default function AdminDashboard() {
               );
             })()}
 
-            {activeTab === "subs" && (() => {
-              const activeSubs = subscriptions;
 
-              return (
-                <div className="tab-body-wrapper">
-                  <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-
-                    {/* Left Panel: Active Subscriptions */}
-                    <div>
-                      <h3 className="section-title">Corporate Subscriptions Ledger</h3>
-                      <p style={{ fontSize: "12px", color: "#666", marginTop: "-12px", marginBottom: "20px" }}>Active recurring beverage plans mapped to office locations.</p>
-
-                      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                        {activeSubs.map((sub, i) => {
-                          const getValidDate = (dateStr) => {
-                            if (!dateStr) return null;
-                            const parts = dateStr.split("/");
-                            if (parts.length === 3) return new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
-                            return new Date(dateStr);
-                          };
-                          const expiryDateObj = getValidDate(sub.endDate || sub.expiryDate);
-                          const diffDays = expiryDateObj ? Math.ceil((expiryDateObj - new Date()) / (1000 * 60 * 60 * 24)) : null;
-
-                          return (
-                          <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", borderTop: sub.status === "Active" ? "4px solid #27ae60" : sub.status === "Paused" ? "4px solid #f39c12" : "4px solid #e74c3c", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "16px" }}>
-                            
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px", borderBottom: "1px dashed rgba(0,0,0,0.1)", paddingBottom: "12px" }}>
-                              <div>
-                                <h4 style={{ fontSize: "16px", fontWeight: "800", color: "#2c1b0d", margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
-                                  👤 {sub.customer}
-                                  {sub.status !== "Active" && (
-                                    <span style={{ fontSize: "10px", background: sub.status === "Paused" ? "#f39c12" : "#e74c3c", color: "#fff", padding: "3px 8px", borderRadius: "12px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                                      {sub.status}
-                                    </span>
-                                  )}
-                                </h4>
-                                <span style={{ fontSize: "11px", color: "#8a583c", fontWeight: "600", background: "rgba(138,88,60,0.1)", padding: "2px 8px", borderRadius: "12px" }}>ID: {sub.id}</span>
-                              </div>
-                              
-                              <div style={{ textAlign: "right" }}>
-                                <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500", marginBottom: "2px" }}>
-                                  <span style={{color:"#888"}}>Start:</span> <strong style={{color:"#2c1b0d"}}>{sub.startDate}</strong>
-                                </div>
-                                <div style={{ fontSize: "11.5px", color: "#555", fontWeight: "500" }}>
-                                  <span style={{color:"#888"}}>End:</span> <strong style={{color:"#2c1b0d"}}>{sub.endDate || sub.expiryDate || "Ongoing"}</strong>
-                                </div>
-                                <div style={{ fontSize: "10px", marginTop: "4px" }}>
-                                  <strong style={{
-                                    color: diffDays === null ? "#27ae60" :
-                                      (diffDays < 0) ? "#e74c3c" :
-                                        (diffDays <= 3) ? "#f39c12" : "#27ae60"
-                                  }}>
-                                    {diffDays === null ? "No Expiry Limit" :
-                                      (diffDays < 0) ? `Expired` :
-                                        `${diffDays} days left`}
-                                  </strong>
-                                </div>
-                              </div>
-                            </div>
-
-                            {diffDays !== null ? (
-                              (() => {
-                                if (diffDays < 0) {
-                                  return (
-                                    <div style={{ background: "#fce8e6", color: "#e74c3c", padding: "8px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "bold", marginBottom: "12px", border: "1px solid rgba(231, 76, 60, 0.2)" }}>
-                                      🚨 Plan Expired! Stop the service immediately.
-                                    </div>
-                                  );
-                                } else if (diffDays <= 3) {
-                                  return (
-                                    <div style={{ background: "#fef5e7", color: "#f39c12", padding: "8px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "bold", marginBottom: "12px", border: "1px solid rgba(243, 156, 18, 0.2)" }}>
-                                      ⚠️ Expiry Warning: Expiring in {diffDays} days! Stop service soon.
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })()
-                            ) : null}
-
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "16px" }}>
-                              <div style={{ background: "#fcfaf7", padding: "12px", borderRadius: "12px" }}>
-                                <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px", textTransform: "uppercase", fontWeight: "bold" }}>📦 Delivery Address</span>
-                                <span style={{ fontSize: "13px", color: "#2c1b0d", fontWeight: "500", lineHeight: "1.4", display: "block" }}>{sub.office || sub.address || "General Office Area"}</span>
-                              </div>
-                              <div style={{ background: "#fcfaf7", padding: "12px", borderRadius: "12px" }}>
-                                <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "4px", textTransform: "uppercase", fontWeight: "bold" }}>☕ Plan Items</span>
-                                <span style={{ fontSize: "13px", color: "#2c1b0d", fontWeight: "bold", lineHeight: "1.4", display: "block" }}>{sub.items}</span>
-                                <span style={{ fontSize: "12px", color: "#8a583c", fontWeight: "bold", display: "block", marginTop: "4px" }}>💰 {sub.price || "₹1,200/month"}</span>
-                              </div>
-                            </div>
-
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px", borderTop: "1px solid rgba(0,0,0,0.03)" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <span style={{ background: "#e8f6ef", color: "#27ae60", padding: "6px 10px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold" }}>
-                                  ⏰ {sub.timeSlot}
-                                </span>
-                                <span style={{ fontSize: "12px", color: "#666", fontWeight: "500" }}>({sub.schedule})</span>
-                              </div>
-                              
-                              <div style={{ display: "flex", gap: "10px" }}>
-                                <button
-                                  type="button"
-                                  onClick={() => toggleSubscriptionStatus(sub)}
-                                  style={{ background: "#fff", color: "#2c1b0d", border: "1px solid #ddd", padding: "8px 14px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "600", transition: "all 0.2s" }}
-                                  onMouseOver={(e) => e.target.style.background = "#f5f5f5"}
-                                  onMouseOut={(e) => e.target.style.background = "#fff"}
-                                >
-                                  {sub.status === "Active" ? "Pause Plan" : "Resume Plan"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => forceDispatchSubscription(sub)}
-                                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "bold", transition: "all 0.2s", boxShadow: "0 2px 6px rgba(44,27,13,0.3)" }}
-                                  onMouseOver={(e) => e.target.style.background = "#4a2d16"}
-                                  onMouseOut={(e) => e.target.style.background = "#2c1b0d"}
-                                >
-                                  Force Dispatch
-                                </button>
-                              </div>
-                            </div>
-                            
-                            <div suppressHydrationWarning style={{ marginTop: "16px", padding: "12px", background: "#fcfaf7", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.05)" }}>
-                              <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "8px", textTransform: "uppercase", fontWeight: "bold" }}>📅 Delivery Tracker</span>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                                {generateDateRange(sub.startDate, sub.endDate || sub.expiryDate).map((dateStr, idx) => {
-                                  const isDelivered = (sub.deliveredDates || []).includes(dateStr);
-                                  return (
-                                    <button
-                                      key={idx}
-                                      type="button"
-                                      suppressHydrationWarning
-                                      onClick={() => toggleDeliveryDate(sub, dateStr)}
-                                      style={{
-                                        background: isDelivered ? "#27ae60" : "#fff",
-                                        color: isDelivered ? "#fff" : "#555",
-                                        border: isDelivered ? "1px solid #27ae60" : "1px solid #ddd",
-                                        padding: "4px 8px",
-                                        borderRadius: "6px",
-                                        fontSize: "10px",
-                                        fontWeight: "600",
-                                        cursor: "pointer",
-                                        transition: "all 0.2s"
-                                      }}
-                                    >
-                                      {isDelivered ? `✓ ${dateStr.substring(0, 6)}` : dateStr.substring(0, 6)}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Right Panel: Today's Subscription Orders checklist */}
-                    <div>
-                      <h3 className="section-title">Today's Subscription Schedule</h3>
-                      <p style={{ fontSize: "12px", color: "#666", marginTop: "-12px", marginBottom: "20px" }}>Live queue of active subscription deliveries for today.</p>
-
-                      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                        {activeSubs.filter(sub => sub.status === "Active").map((sub, i) => (
-                          <div key={i} style={{ background: "#ffffff", padding: "16px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div>
-                              <strong style={{ fontSize: "13px", display: "block" }}>{sub.customer}</strong>
-                              <span style={{ fontSize: "11.5px", color: "#555", display: "block" }}>🏢 Room: {sub.office ? (sub.office.includes(",") ? sub.office.split(",")[1].trim() : sub.office) : "General Office Area"}</span>
-                              <span style={{ fontSize: "12px", color: "#8a583c", fontWeight: "bold" }}>{sub.items}</span>
-                              <span style={{ display: "block", fontSize: "11px", color: "#888" }}>Deliver at: {sub.timeSlot}</span>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.target.disabled = true;
-                                e.target.innerText = "✓ Dispatched";
-                                e.target.style.background = "rgba(39, 174, 96, 0.12)";
-                                e.target.style.color = "#27ae60";
-                                setToastMsg(`Marked subscription order for ${sub.customer} as delivered.`);
-                                setTimeout(() => setToastMsg(""), 3000);
-                              }}
-                              style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
-                            >
-                              Dispatch
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
-              );
-            })()}
 
 
 
@@ -4850,9 +4348,162 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* STATS MODALS */}
+      {activeStatsModal === "offline" && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000 }}>
+          <div style={{ background: "#fff", padding: "32px", borderRadius: "24px", width: "900px", maxWidth: "90vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.3)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f2eee9", paddingBottom: "12px" }}>
+              <h3 style={{ margin: 0, color: "#2c1b0d", fontSize: "20px" }}>🏪 Offline Orders List</h3>
+              <button
+                onClick={() => setActiveStatsModal(null)}
+                style={{ background: "transparent", border: "none", fontSize: "24px", cursor: "pointer", color: "#e74c3c", fontWeight: "bold" }}
+              >
+                &times;
+              </button>
+            </div>
+            
+            <div style={{ flex: 1, overflowY: "auto", paddingRight: "8px" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "15px" }}>
+                <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
+                  <tr style={{ color: "#555" }}>
+                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Order ID</th>
+                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Customer</th>
+                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Items</th>
+                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Date</th>
+                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Total</th>
+                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {validOrders.filter(o => o.isOffline === true).map((o, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                      <td style={{ padding: "16px", fontWeight: "bold", color: "#8a583c" }}>{o.id}</td>
+                      <td style={{ padding: "16px", fontWeight: "bold" }}>{o.customer || "Walk-in"}</td>
+                      <td style={{ padding: "16px" }}>
+                        <span style={{ display: "block" }}>{o.item || "Chai Selection"}</span>
+                        <span style={{ fontSize: "12px", color: "#888" }}>{o.customization || "Standard"}</span>
+                      </td>
+                      <td style={{ padding: "16px", color: "#777" }}>{o.date || new Date(o.createdAt).toLocaleDateString()}</td>
+                      <td style={{ padding: "16px", fontWeight: "bold", color: "#2c1b0d", fontSize: "16px" }}>{o.total || o.price}</td>
+                      <td style={{ padding: "16px" }}>
+                        <span style={{ fontSize: "12px", background: o.status === "Delivered" || o.status === "Completed" ? "rgba(39, 174, 96, 0.1)" : "rgba(241, 196, 15, 0.1)", color: o.status === "Delivered" || o.status === "Completed" ? "#27ae60" : "#f39c12", padding: "6px 12px", borderRadius: "8px", fontWeight: "bold" }}>
+                          {o.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {validOrders.filter(o => o.isOffline === true).length === 0 && (
+                    <tr><td colSpan="6" style={{ textAlign: "center", padding: "60px", color: "#888", fontSize: "16px" }}>No offline orders found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            
+            <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "12px" }}>
+              <button
+                onClick={() => setActiveStatsModal(null)}
+                style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeStatsModal === "pending" && (() => {
+        const pendingOrders = validOrders.filter(o => o.paymentStatus === "Pending");
+        const groupedByCustomer = pendingOrders.reduce((acc, o) => {
+          const custName = o.customer || "Walk-in";
+          if (!acc[custName]) {
+            acc[custName] = { totalAmount: 0, statuses: [], count: 0, orders: [] };
+          }
+          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price);
+          acc[custName].totalAmount += (isNaN(val) ? 0 : val);
+          if (!acc[custName].statuses.includes(o.status)) acc[custName].statuses.push(o.status);
+          acc[custName].count += 1;
+          acc[custName].orders.push(o.id);
+          return acc;
+        }, {});
+        const groupedArr = Object.keys(groupedByCustomer).map(k => ({ customer: k, ...groupedByCustomer[k] }));
+
+        return (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000 }}>
+            <div style={{ background: "#fff", padding: "32px", borderRadius: "24px", width: "1200px", maxWidth: "95vw", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.3)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f2eee9", paddingBottom: "12px", flexShrink: 0 }}>
+                <h3 style={{ margin: 0, color: "#2c1b0d", fontSize: "20px" }}>⏳ Pending Amounts by Customer</h3>
+                <button
+                  onClick={() => setActiveStatsModal(null)}
+                  style={{ background: "transparent", border: "none", fontSize: "24px", cursor: "pointer", color: "#e74c3c", fontWeight: "bold" }}
+                >
+                  &times;
+                </button>
+              </div>
+              
+              <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", paddingRight: "12px", minHeight: 0, maxHeight: "calc(90vh - 160px)" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "15px" }}>
+                  <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
+                    <tr style={{ color: "#555" }}>
+                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Customer</th>
+                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}># of Orders</th>
+                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Total Pending Amount</th>
+                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Order Statuses</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedArr.map((g, i) => (
+                      <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                        <td style={{ padding: "16px", fontWeight: "bold", fontSize: "16px" }}>{g.customer}</td>
+                        <td style={{ padding: "16px", color: "#555" }}>{g.count} order(s)</td>
+                        <td style={{ padding: "16px", fontWeight: "bold", color: "#e74c3c", fontSize: "16px" }}>₹{g.totalAmount.toLocaleString()}</td>
+                        <td style={{ padding: "16px" }}>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            {g.statuses.map(s => (
+                              <span key={s} style={{ fontSize: "12px", background: "rgba(241, 196, 15, 0.1)", color: "#f39c12", padding: "6px 12px", borderRadius: "8px", fontWeight: "bold" }}>{s}</span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {groupedArr.length === 0 && (
+                      <tr><td colSpan="4" style={{ textAlign: "center", padding: "60px", color: "#888", fontSize: "16px" }}>No pending amounts found.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              
+              <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "12px" }}>
+                <button
+                  onClick={() => setActiveStatsModal(null)}
+                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Styled JSX */}
       <style dangerouslySetInnerHTML={{
         __html: `
+        /* Custom Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #c1c1c1;
+          border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #a8a8a8;
+        }
+
         /* Authentication Screen */
         .login-gate-container {
           display: flex;

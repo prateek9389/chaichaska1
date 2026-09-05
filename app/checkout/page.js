@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { getProductById, getAddons, getCoupons, createOrder, getUserAddresses, addUserAddress, updateUserCoins, addSubscription } from "@/lib/firestore";
+import { getProductById, getCoupons, createOrder, getUserAddresses, addUserAddress, updateUserCoins, addSubscription } from "@/lib/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
@@ -25,12 +25,19 @@ function CheckoutPortal() {
   }, [cartItems, cartLoaded, checkoutStep, router]);
 
   useEffect(() => {
-    // Load Cashfree script dynamically
-    if (!document.getElementById("cashfree-script")) {
+    // Load Paytm script dynamically
+    const mid = process.env.NEXT_PUBLIC_PAYTM_MID;
+    const isProd = process.env.NEXT_PUBLIC_PAYTM_ENVIRONMENT === "PRODUCTION";
+    const paytmUrl = isProd 
+      ? `https://securegw.paytm.in/merchantpgpui/checkoutjs/merchants/${mid}.js`
+      : `https://securegw-stage.paytm.in/merchantpgpui/checkoutjs/merchants/${mid}.js`;
+
+    if (!document.getElementById("paytm-script") && mid && mid !== "YOUR_PAYTM_MERCHANT_ID_HERE") {
       const script = document.createElement("script");
-      script.id = "cashfree-script";
-      script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+      script.id = "paytm-script";
+      script.src = paytmUrl;
       script.async = true;
+      script.crossOrigin = "anonymous";
       document.body.appendChild(script);
     }
   }, []);
@@ -40,8 +47,7 @@ function CheckoutPortal() {
 
 
   const [dbCoupons, setDbCoupons] = useState([]);
-  const [dbAddons, setDbAddons] = useState([]);
-  const [selectedCheckoutAddons, setSelectedCheckoutAddons] = useState([]);
+
   const [loading, setLoading] = useState(true);
 
   // Additional States
@@ -49,15 +55,7 @@ function CheckoutPortal() {
   const [selectedAddressId, setSelectedAddressId] = useState(null);
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [deliveryTime, setDeliveryTime] = useState("Morning");
-  const [purchaseType, setPurchaseType] = useState(searchParams.get("type") === "subscription" ? "subscription" : "one-time");
-
-  // Auth guard: redirect to login if not logged in AND trying to buy a subscription
-  useEffect(() => {
-    if (!authLoading && !user && purchaseType === "subscription") {
-      router.push("/login?redirect=/checkout?type=subscription");
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, authLoading, purchaseType]);
+  
   const [slotMorning, setSlotMorning] = useState(false);
   const [slotEvening, setSlotEvening] = useState(false);
   const [customTime, setCustomTime] = useState("");
@@ -75,8 +73,7 @@ function CheckoutPortal() {
       try {
         const c = await getCoupons();
         setDbCoupons(c);
-        const a = await getAddons();
-        setDbAddons(a);
+
       } catch (e) {
         console.error(e);
       } finally {
@@ -119,10 +116,8 @@ function CheckoutPortal() {
       setFullname(profile?.name || user.displayName || "");
       setPhone(profile?.phone || "");
       setOfficeNo(profile?.floor || "");
-      setPaymentMethod("wallet");
-    } else {
-      setPaymentMethod("upi");
     }
+    setPaymentMethod("upi");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, profile]);
 
@@ -159,13 +154,7 @@ function CheckoutPortal() {
     }
   };
 
-  const toggleCheckoutAddon = (addon) => {
-    setSelectedCheckoutAddons((prev) =>
-      prev.find((a) => a.id === addon.id)
-        ? prev.filter((a) => a.id !== addon.id)
-        : [...prev, addon]
-    );
-  };
+
 
   const handleSaveAddress = async (e) => {
     e.preventDefault();
@@ -198,18 +187,12 @@ function CheckoutPortal() {
 
   // Cost calculations
   const cartSub = getCartTotal();
-  const addonsTotal = selectedCheckoutAddons.reduce((acc, a) => acc + (parseInt(a.priceVal) || 0), 0);
-  let subtotal = cartSub + addonsTotal;
+  let subtotal = cartSub;
   let finalPayable = 0;
   let deliveryCharge = 0;
   
-  if (purchaseType === "subscription") {
-    const discounted = Math.round(subtotal * 0.9);
-    finalPayable = Math.max(0, discounted - appliedDiscount);
-  } else {
-    deliveryCharge = 0; // Removed delivery charge as per request
-    finalPayable = Math.max(0, subtotal - appliedDiscount);
-  }
+  deliveryCharge = 0; // Removed delivery charge as per request
+  finalPayable = Math.max(0, subtotal - appliedDiscount);
 
   const handlePlaceOrder = async () => {
     if (checkoutStep === "shipping") {
@@ -230,13 +213,6 @@ function CheckoutPortal() {
     }
 
     if (checkoutStep === "payment" || checkoutStep === "upi_payment") {
-      if (purchaseType === "subscription" || paymentMethod === "wallet") {
-         if ((profile?.coins || 0) < finalPayable) {
-            setShowWalletModal(true);
-            return;
-         }
-      }
-
       setCheckoutStep("processing");
       
       let finalAddress = `${officeNo}, ${floor}, ${building}, ${landmark}`;
@@ -245,10 +221,6 @@ function CheckoutPortal() {
          if(sel) finalAddress = `${sel.officeNumber}, ${sel.officeName}, Floor ${sel.floor}, ${sel.address}`;
       }
 
-      const combinedAddons = [
-         ...cartItems.map(i => i.addons).filter(Boolean),
-         ...selectedCheckoutAddons.map(a => a.name)
-      ].join(", ");
 
       const orderData = {
         userId: user?.uid || "guest",
@@ -256,102 +228,80 @@ function CheckoutPortal() {
         phone: phone || profile?.phone || "",
         pincode: pincode || "N/A",
         office: finalAddress,
-        item: purchaseType === "subscription" ? `Subscription: ${cartItems.map(i => i.name).join(", ")}` : cartItems.map(i => `${i.name} x${i.quantity}`).join(" + "),
+        item: cartItems.map(i => `${i.name} x${i.quantity}`).join(" + "),
         sugar: cartItems.map(i => i.sugar).join(", ") || "Normal Sugar",
         milk: "Whole Milk",
         img: cartItems[0]?.image || "/chai-ingredients.png",
-        priority: purchaseType === "subscription" ? "Subscription" : "Normal",
+        priority: "Normal",
         total: `₹${finalPayable}`,
-        addons: combinedAddons,
+
         coupon: couponCode || "None",
         deliveryTime: deliveryTime,
-        purchaseType: purchaseType,
-        paymentMethod: paymentMethod || "wallet"
+        paymentMethod: paymentMethod || "upi"
       };
       
       try {
-        if (purchaseType === "subscription") {
-           const startDate = new Date();
-           const endDate = new Date(startDate);
-           endDate.setDate(endDate.getDate() + 30);
-           
-           const timeSlotStr = slotMorning ? "09:00" : slotEvening ? "16:00" : customTime || "09:00";
-           
-           const subData = {
-              userId: user?.uid || "guest",
-              customer: fullname || profile?.name || "Guest User",
-              phone: phone || profile?.phone || "",
-              office: finalAddress,
-              item: cartItems[0]?.name || "Tea",
-              items: `${cartItems.map(i => `${i.name} (${i.sugar}) x${i.quantity}`).join(", ")} ${combinedAddons ? " + " + combinedAddons : ""}`,
-              sugar: cartItems.map(i => i.sugar).join(", ") || "Normal Sugar",
-              milk: "Whole Milk",
-              total: finalPayable,
-              cost: finalPayable,
-              price: finalPayable,
-              timeSlot: timeSlotStr,
-              frequency: "MONTHLY",
-              startDate: startDate.toLocaleDateString('en-GB'),
-              endDateIso: endDate.toISOString(),
-              endDate: endDate.toLocaleDateString('en-GB'),
-              status: "Active",
-              img: cartItems[0]?.image || "/chai-ingredients.png",
-              image: cartItems[0]?.image || "/chai-ingredients.png",
-           };
-           let subId = null;
-           try {
-             subId = await addSubscription(subData);
-             orderData.subscriptionId = subId;
-           } catch(e) { console.error("Error creating subscription", e) }
-        }
 
-        if (paymentMethod === "upi") {
-          if (!window.Cashfree) {
-             alert("Payment Gateway failed to load. Please refresh.");
-             setCheckoutStep("payment");
-             return;
-          }
-          const cashfree = window.Cashfree({ mode: "production" }); // Change to sandbox for testing
-          
-          try {
-            const res = await fetch("/api/cashfree/create-order", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                amount: finalPayable,
-                customer_id: user?.uid || `guest_${Date.now()}`,
-                customer_phone: phone || profile?.phone || "9999999999",
-                customer_name: fullname || profile?.name || "Guest",
-                order_meta: orderData,
-                type: "checkout",
-                firebase_uid: user?.uid || null
-              })
-            });
-            const data = await res.json();
-            if (data.payment_session_id) {
-               // Cashfree redirects automatically because we didn't specify returnUrl in checkout, 
-               // but it will use the return_url we passed to the API.
-               cashfree.checkout({
-                 paymentSessionId: data.payment_session_id,
-                 redirectTarget: "_self"
-               });
-            } else {
-               alert("Failed to initialize payment");
-               setCheckoutStep("payment");
+          if (paymentMethod === "upi") {
+            try {
+              // Create pending order first to get the unique Order ID
+              const pendingOrderId = await createOrder({ ...orderData, status: "Pending" });
+              
+              const res = await fetch("/api/paytm/initiate-transaction", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  amount: finalPayable,
+                  customerId: user?.uid || `guest_${Date.now()}`,
+                  customerPhone: phone || profile?.phone || "9999999999",
+                  customerEmail: profile?.email || "customer@example.com",
+                  orderId: pendingOrderId
+                })
+              });
+              const data = await res.json();
+              
+              if (data.txnToken) {
+                 if (window.Paytm && window.Paytm.CheckoutJS) {
+                    window.Paytm.CheckoutJS.init({
+                        "root": "",
+                        "flow": "DEFAULT",
+                        "data": {
+                            "orderId": data.orderId,
+                            "token": data.txnToken,
+                            "tokenType": "TXN_TOKEN",
+                            "amount": finalPayable
+                        },
+                        "handler": {
+                            "notifyMerchant": function(eventName, data) {
+                                console.log("notifyMerchant called", eventName, data);
+                            }
+                        }
+                    }).then(function() {
+                        window.Paytm.CheckoutJS.invoke();
+                    }).catch(function(error) {
+                        console.error("Paytm init error", error);
+                        alert("Payment window failed to load.");
+                        setCheckoutStep("payment");
+                    });
+                 } else {
+                    alert("Paytm SDK is still loading or blocked. Please refresh.");
+                    setCheckoutStep("payment");
+                 }
+              } else {
+                 alert("Failed to initialize payment: " + (data.error || "Unknown Error"));
+                 setCheckoutStep("payment");
+              }
+            } catch(err) {
+              console.error(err);
+              alert("Payment initialization failed");
+              setCheckoutStep("payment");
             }
-          } catch(err) {
-            console.error(err);
-            alert("Payment initialization failed");
-            setCheckoutStep("payment");
+            return;
           }
-          return;
-        }
 
         const id = await createOrder(orderData);
         
-        if (purchaseType === "subscription" || paymentMethod === "wallet") {
-          await updateUserCoins(user.uid, -finalPayable, `Order ${id}`);
-        }
+
         setOrderRef(id);
         setReceiptData({
           cartItems: [...cartItems],
@@ -491,87 +441,24 @@ function CheckoutPortal() {
               {/* STEP 2: PAYMENT METHOD */}
               {checkoutStep === "payment" && (
                 <div className="checkout-card">
-                  {searchParams.get("type") !== "subscription" && (
-                    <div style={{ marginBottom: "28px" }}>
-                      <h3 className="card-title" style={{ marginBottom: "16px" }}>Purchase Type</h3>
-                      <div style={{ display: "flex", gap: "12px" }}>
-                        <div
-                          onClick={() => setPurchaseType("one-time")}
-                          style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "one-time" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "one-time" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
-                        >
-                          <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>One-Time Purchase</h4>
-                          <p style={{ fontSize: "12px", color: "#666" }}>Standard delivery</p>
-                        </div>
-                        <div
-                          onClick={() => setPurchaseType("subscription")}
-                          style={{ flex: 1, padding: "16px", borderRadius: "12px", border: purchaseType === "subscription" ? "2px solid #8a583c" : "1.5px solid #eee", background: purchaseType === "subscription" ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer", textAlign: "center" }}
-                        >
-                          <h4 style={{ fontSize: "14px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>Subscribe &amp; Save</h4>
-                          <p style={{ fontSize: "12px", color: "#5c7a4d", fontWeight: 700 }}>Earn Loyalty Coins</p>
-                        </div>
-                        </div>
-                    </div>
-                  )}
-
-                  {purchaseType === "subscription" && (
-                    <div style={{ marginBottom: "28px" }}>
-                      <h3 className="card-title" style={{ marginBottom: "16px" }}>Select Delivery Slots</h3>
-                      <div style={{ display: "flex", gap: "12px" }}>
-                        <div
-                          onClick={() => setSlotMorning(!slotMorning)}
-                          style={{ flex: 1, padding: "12px", borderRadius: "12px", border: slotMorning ? "2px solid #5c7a4d" : "1.5px solid #eee", background: slotMorning ? "rgba(92,122,77,0.05)" : "#fff", cursor: "pointer" }}
-                        >
-                          <h4 style={{ fontSize: "13px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>🌅 Morning</h4>
-                          <p style={{ fontSize: "11px", color: "#666" }}>8AM - 11AM</p>
-                        </div>
-                        <div
-                          onClick={() => setSlotEvening(!slotEvening)}
-                          style={{ flex: 1, padding: "12px", borderRadius: "12px", border: slotEvening ? "2px solid #8a583c" : "1.5px solid #eee", background: slotEvening ? "rgba(138,88,60,0.05)" : "#fff", cursor: "pointer" }}
-                        >
-                          <h4 style={{ fontSize: "13px", fontWeight: 700, color: "#2c1b0d", marginBottom: "4px" }}>🌇 Evening</h4>
-                          <p style={{ fontSize: "11px", color: "#666" }}>4PM - 7PM</p>
-                        </div>
-                      </div>
-                      <div style={{ marginTop: "12px" }}>
-                         <input type="text" placeholder="Or custom time (e.g. 2:00 PM)" value={customTime} onChange={(e) => setCustomTime(e.target.value)} style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ddd" }} />
-                      </div>
-                    </div>
-                  )}
+                  {/* Subscription UI removed */}
 
                   <h3 className="card-title" style={{ marginBottom: "20px" }}>Choose Payment Method</h3>
                   
                   <div className="payment-options-grid">
-                    {!user && (
-                      <label className={`pay-choice-box ${paymentMethod === "upi" ? "selected" : ""}`}>
-                        <input
-                          type="radio"
-                          name="pay"
-                          value="upi"
-                          checked={paymentMethod === "upi"}
-                          onChange={() => setPaymentMethod("upi")}
-                        />
-                        <div>
-                          <strong>UPI Instant Pay</strong>
-                          <span className="pay-desc">Pay via Google Pay, PhonePe, or Paytm</span>
-                        </div>
-                      </label>
-                    )}
-
-                    {user && (
-                      <label className={`pay-choice-box ${paymentMethod === "wallet" ? "selected" : ""}`}>
-                        <input
-                          type="radio"
-                          name="pay"
-                          value="wallet"
-                          checked={paymentMethod === "wallet"}
-                          onChange={() => setPaymentMethod("wallet")}
-                        />
-                        <div>
-                          <strong>Loyalty Coin Wallet</strong>
-                          <span className="pay-desc">Redeem from active balance ({(profile?.coins || 0)} Coins)</span>
-                        </div>
-                      </label>
-                    )}
+                    <label className={`pay-choice-box ${paymentMethod === "upi" ? "selected" : ""}`}>
+                      <input
+                        type="radio"
+                        name="pay"
+                        value="upi"
+                        checked={paymentMethod === "upi"}
+                        onChange={() => setPaymentMethod("upi")}
+                      />
+                      <div>
+                        <strong>UPI Instant Pay</strong>
+                        <span className="pay-desc">Pay securely via GPay, PhonePe, Paytm, etc.</span>
+                      </div>
+                    </label>
                   </div>
 
                   <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
@@ -622,33 +509,7 @@ function CheckoutPortal() {
 
 
 
-              {/* CHECKOUT ADD-ONS */}
-              {dbAddons.length > 0 && purchaseType === "subscription" && (
-                <div className="checkout-card compact">
-                  <h4 style={{ fontSize: "14px", fontWeight: 800, marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Frequently Added Together
-                  </h4>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {dbAddons.slice(0, 3).map((addon) => {
-                      const isSelected = selectedCheckoutAddons.find(a => a.id === addon.id);
-                      return (
-                        <div key={addon.id} onClick={() => toggleCheckoutAddon(addon)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px", borderRadius: "10px", border: isSelected ? "1.5px solid #8a583c" : "1.5px solid #f0f0f0", background: isSelected ? "rgba(138, 88, 60, 0.05)" : "#fbf9f6", cursor: "pointer", transition: "all 0.2s" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                            <img src={addon.image} alt={addon.name} style={{ width: "40px", height: "40px", borderRadius: "8px", objectFit: "cover" }} />
-                            <div>
-                              <strong style={{ display: "block", fontSize: "13px" }}>{addon.name}</strong>
-                              <span style={{ fontSize: "11px", color: "#666" }}>₹{addon.priceVal}</span>
-                            </div>
-                          </div>
-                          <div style={{ width: "20px", height: "20px", borderRadius: "50%", border: isSelected ? "none" : "2px solid #ccc", background: isSelected ? "#8a583c" : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            {isSelected && <span style={{ color: "#fff", fontSize: "12px" }}>✓</span>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+
 
               {/* PRICING BREAKDOWN CARD */}
               <div className="checkout-card pricing-breakdown">
@@ -656,30 +517,11 @@ function CheckoutPortal() {
                 
                 <div className="breakdown-list">
                   {cartItems.map((item, idx) => (
-                    <div key={idx} style={{ marginBottom: item.addonsList?.length > 0 ? "14px" : "8px" }}>
-                      <div className="breakdown-row" style={{ paddingBottom: item.addonsList?.length > 0 ? "4px" : "0" }}>
+                    <div key={idx} style={{ marginBottom: "8px" }}>
+                      <div className="breakdown-row" style={{ paddingBottom: "0" }}>
                         <span>{item.name} (x{item.quantity})</span>
                         <span>{item.basePrice ? `₹${item.basePrice * item.quantity}` : `₹${parseInt(String(item.price).replace(/[^0-9]/g, "")) * item.quantity}`}</span>
                       </div>
-                      {item.addonsList && item.addonsList.length > 0 && item.addonsList.map((a, i) => (
-                        <div key={i} className="breakdown-row" style={{ paddingBottom: "2px", color: "#8a583c", fontSize: "12.5px" }}>
-                          <span>+ {a.name}</span>
-                          <span>₹{a.priceVal * item.quantity}</span>
-                        </div>
-                      ))}
-                      {item.addonsList && item.addonsList.length > 0 && (
-                        <div className="breakdown-row" style={{ paddingBottom: "2px", paddingTop: "4px", borderTop: "1px dashed #eee", marginTop: "4px", fontWeight: "700", fontSize: "13px", color: "#2c1b0d" }}>
-                          <span>Item Total</span>
-                          <span>₹{parseInt(String(item.price).replace(/[^0-9]/g, "")) * item.quantity}</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {selectedCheckoutAddons.length > 0 && selectedCheckoutAddons.map((a, i) => (
-                    <div key={`chk-addon-${i}`} className="breakdown-row" style={{ paddingBottom: "8px", color: "#8a583c", fontSize: "13.5px", fontWeight: "600" }}>
-                      <span>+ {a.name} (Checkout Addon)</span>
-                      <span>₹{a.priceVal}</span>
                     </div>
                   ))}
 
@@ -724,26 +566,15 @@ function CheckoutPortal() {
                   <span>Items:</span>
                   <strong>
                     {receiptData?.cartItems?.map((item, idx) => (
-                      <div key={idx} style={{ marginBottom: item.addonsList?.length > 0 ? "8px" : "4px" }}>
+                      <div key={idx} style={{ marginBottom: "4px" }}>
                         <div>{item.quantity}x {item.name}</div>
-                        {item.addonsList && item.addonsList.length > 0 ? (
-                          item.addonsList.map((a, i) => (
-                            <div key={i} style={{ fontSize: "11px", color: "#666", fontWeight: "normal" }}>
-                              + {a.name} (₹{a.priceVal})
-                            </div>
-                          ))
-                        ) : item.addons ? (
-                          <div style={{ fontSize: "11px", color: "#666", fontWeight: "normal" }}>
-                            + {item.addons}
-                          </div>
-                        ) : null}
                       </div>
                     ))}
                   </strong>
                 </div>
                 <div className="receipt-row" style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px dashed rgba(0,0,0,0.08)" }}>
                   <span>Payment Method:</span>
-                  <strong style={{ color: "#8a583c" }}>{receiptData?.paymentMethod === 'wallet' ? 'Loyalty Coin Wallet' : 'Online Payment'}</strong>
+                  <strong style={{ color: "#8a583c" }}>{receiptData?.paymentMethod === 'upi' ? 'Online Payment' : 'Cash'}</strong>
                 </div>
                 <div className="receipt-row">
                   <span>Total Paid Amount:</span>
@@ -802,19 +633,7 @@ function CheckoutPortal() {
         </div>
       )}
 
-      {showWalletModal && (
-        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", padding: "30px", borderRadius: "16px", width: "90%", maxWidth: "400px", textAlign: "center" }}>
-            <div style={{ width: "60px", height: "60px", background: "rgba(255,0,0,0.1)", color: "red", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", margin: "0 auto 16px" }}>!</div>
-            <h3 style={{ fontSize: "20px", fontWeight: 800, marginBottom: "8px", color: "#2c1b0d" }}>Insufficient Balance</h3>
-            <p style={{ fontSize: "14px", color: "#666", marginBottom: "24px" }}>Your Royal Loyalty Coin Wallet does not have enough balance to process this order. Please recharge to continue.</p>
-            <div style={{ display: "flex", gap: "12px" }}>
-              <button onClick={() => setShowWalletModal(false)} style={{ flex: 1, padding: "12px", border: "1px solid #ccc", borderRadius: "8px", background: "#fff", cursor: "pointer", fontWeight: 600 }}>Cancel</button>
-              <Link href="/wallet" style={{ flex: 1, padding: "12px", border: "none", borderRadius: "8px", background: "#8a583c", color: "#fff", fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "inline-block" }}>Recharge Now</Link>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       <Footer />
 

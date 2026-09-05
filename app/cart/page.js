@@ -58,17 +58,7 @@ export default function CartPage() {
                     <div style={{ flexGrow: 1 }}>
                       <h3 style={{ fontSize: "18px", fontWeight: 700, margin: "0 0 4px" }}>{item.name}</h3>
                       <p style={{ fontSize: "14px", color: "#666", margin: "0 0 8px" }}>Sugar: {item.sugar}</p>
-                      {item.addonsList && item.addonsList.length > 0 ? (
-                        <div style={{ marginBottom: "8px" }}>
-                          {item.addonsList.map((a, i) => (
-                            <p key={i} style={{ fontSize: "12px", color: "#8a583c", margin: "0 0 4px" }}>
-                              + {a.name} (₹{a.priceVal})
-                            </p>
-                          ))}
-                        </div>
-                      ) : item.addons ? (
-                        <p style={{ fontSize: "12px", color: "#8a583c", margin: "0 0 8px" }}>+ {item.addons}</p>
-                      ) : null}
+
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                         <div style={{ display: "flex", alignItems: "center", border: "1px solid #ddd", borderRadius: "30px", padding: "4px 8px" }}>
                           <button onClick={() => updateQuantity(idx, item.quantity - 1)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "18px", width: "24px", color: "#666" }}>-</button>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { db, auth } from "@/lib/firebase";
 import { collection, onSnapshot, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
-import { onOrdersSnapshot, getSubscriptions, updateSubscription, updateOrder, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings } from "@/lib/firestore";
+import { onOrdersSnapshot, updateOrder, updateStockItem, addStockItem, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings, onProductsSnapshot, createOrder } from "@/lib/firestore";
 import { loginWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 
@@ -72,7 +72,7 @@ export default function AdminDashboard() {
   const activeTab = activeTabState;
   const [timeFilter, setTimeFilter] = useState("Weekly");
   const [queueFilter, setQueueFilter] = useState("All");
-  const [queueTab, setQueueTab] = useState("one-time");
+  
   const [selectedQueueOrder, setSelectedQueueOrder] = useState(null);
   const [isQueueSidebarOpen, setIsQueueSidebarOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -82,7 +82,17 @@ export default function AdminDashboard() {
 
   // Active Orders Queue with detailed fields (including office number, product image, details, priority, createdAt, allocatedTime)
   const [orders, setOrders] = useState([]);
-  const [subscriptions, setSubscriptions] = useState([]);
+  const [productsList, setProductsList] = useState([]);
+  const [isOfflineItemModalOpen, setIsOfflineItemModalOpen] = useState(false);
+  const [offlineOrderForm, setOfflineOrderForm] = useState({
+    customerName: "",
+    address: "",
+    phone: "",
+    walkIn: false,
+    items: [],
+    paymentStatus: "Pending"
+  });
+  
 
   // Today's Prep Tally
   const todayTally = {
@@ -154,9 +164,16 @@ export default function AdminDashboard() {
   const [newStockLevel, setNewStockLevel] = useState("In Stock");
 
   // Inline stock edit state
+  const [loggingUsageIdx, setLoggingUsageIdx] = useState(null);
+  const [usageAmount, setUsageAmount] = useState("");
+  const [restockingIdx, setRestockingIdx] = useState(null);
+  const [restockAmount, setRestockAmount] = useState("");
   const [editingStockIdx, setEditingStockIdx] = useState(null);
-  const [editStockQty, setEditStockQty] = useState("");
-  const [editStockLevel, setEditStockLevel] = useState("In Stock");
+  const [editStockMinLimit, setEditStockMinLimit] = useState(10);
+  const [isAddInventoryModalOpen, setIsAddInventoryModalOpen] = useState(false);
+  const [newInventoryItem, setNewInventoryItem] = useState({ category: "Tea", name: "", unit: "kg", qty: 0, minLimit: 10 });
+  const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("All");
+  const [inventorySelectedDate, setInventorySelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Customer Management Table
   const customerManagement = [
@@ -178,10 +195,21 @@ export default function AdminDashboard() {
   const completedOrdersCount = filteredOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
   const pendingOrdersCount = filteredOrders.filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing").length;
 
+  const pendingAmountVal = orders.filter(o => o.paymentStatus === "Pending").reduce((acc, o) => {
+    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+    return acc + (isNaN(val) ? 0 : val);
+  }, 0);
+
+  const offlineOrdersCount = filteredOrders.filter(o => o.isOffline === true).length;
+  const onlineOrdersCount = totalOrdersCount - offlineOrdersCount;
+
   const statsSummary = {
     totalOrders: `${totalOrdersCount} orders`,
     deliveryShipment: `${completedOrdersCount} Delivery`,
     pendingShipment: `${pendingOrdersCount} orders`,
+    pendingAmount: `₹${pendingAmountVal.toLocaleString()}`,
+    offlineOrders: offlineOrdersCount.toLocaleString(),
+    onlineOrders: onlineOrdersCount.toLocaleString(),
   };
 
   const itemCounts = {};
@@ -281,17 +309,7 @@ export default function AdminDashboard() {
     { name: "Kesar Winter Booster", items: "Saffron Royal Chai + Saffron Biscuits", price: 299, active: true, desc: "Luxury Saffron tea served with premium custom saffron-dipped biscuits." }
   ]);
 
-  const [addonsList, setAddonsList] = useState([
-    { name: "Almond Cookies", price: 50, image: "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg", desc: "Crisp biscuits baked with almond flakes.", active: true },
-    { name: "Almond Slivers Add-on", price: 30, image: "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg", desc: "Toasted sliced almonds to sprinkle.", active: true },
-    { name: "Fresh Mint Leaves", price: 10, image: "/chai-ingredients.png", desc: "Hand-picked cooling mint leaves.", active: true }
-  ]);
 
-  const [newAddonName, setNewAddonName] = useState("");
-  const [newAddonPrice, setNewAddonPrice] = useState("");
-  const [newAddonImg, setNewAddonImg] = useState("");
-  const [newAddonDesc, setNewAddonDesc] = useState("");
-  const [selectedComboAddons, setSelectedComboAddons] = useState([]);
 
   const [newMenuItemName, setNewMenuItemName] = useState("");
   const [newMenuItemPrice, setNewMenuItemPrice] = useState("");
@@ -308,11 +326,7 @@ export default function AdminDashboard() {
   const [historyDateFilter, setHistoryDateFilter] = useState("all");
   const [activeInvoice, setActiveInvoice] = useState(null);
 
-  // Subscriptions Due
-  const upcomingSubscriptions = [
-    { customer: "Rohan V.", floor: "Floor 4", time: "09:00 AM", items: "1x Masala Chai (Daily)" },
-    { customer: "Meera J.", floor: "Floor 5", time: "11:30 AM", items: "1x Ginger Chai (Weekly)" },
-  ];
+
 
   // Feedback list
   const [feedbackList, setFeedbackList] = useState([
@@ -333,8 +347,11 @@ export default function AdminDashboard() {
     ...orders
       .filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing")
       .map(o => ({ id: o.id, text: `Order ${o.id} - ${o.item}`, time: o.date })),
+    ...stocks
+      .filter(s => (parseFloat(s.qty) || 0) <= (s.minLimit || 10))
+      .map(s => ({ id: `low-stock-${s.id}`, text: `Low Stock: ${s.name} (${s.qty} ${s.unit} left)`, time: "Now" })),
     ...restockRequests
-      .map((r, i) => ({ id: r.id || `restock-${i}`, text: `Stock Alert: ${r.item} (${r.qty})`, time: r.date || "New" })),
+      .map((r, i) => ({ id: r.id || `restock-${i}`, text: `Restock Req: ${r.item} (${r.qty})`, time: r.date || "New" })),
     ...leaveRequests
       .filter(l => l.status === "Pending")
       .map((l, i) => ({ id: l.id || `leave-${i}`, text: `Leave: ${l.start} to ${l.end}`, time: "New" }))
@@ -391,12 +408,7 @@ export default function AdminDashboard() {
       prevOrderIds = data.map(o => o.id);
       setOrders(data);
     });
-    const unsubSubs = onSnapshot(collection(db, "subscriptions"), (snap) => {
-      const items = [];
-      snap.forEach((d) => items.push({ ...d.data(), id: d.id }));
-      items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      setSubscriptions(items);
-    });
+
     const unsubStock = onSnapshot(collection(db, "stock"), (snap) => {
       const items = [];
       snap.forEach((d) => items.push({ ...d.data(), id: d.id }));
@@ -408,12 +420,14 @@ export default function AdminDashboard() {
     const unsubLeave = onLeaveRequestsSnapshot((data) => {
       setLeaveRequests(data);
     });
+    const unsubProducts = onProductsSnapshot((data) => setProductsList(data));
+
     return () => {
       unsubOrders();
-      unsubSubs();
       unsubStock();
       unsubRestock();
       unsubLeave();
+      unsubProducts();
       unsubAuth();
     };
   }, [router]);
@@ -1016,18 +1030,19 @@ export default function AdminDashboard() {
               <button onClick={() => setActiveTab("dashboard")} className={`menu-icon-btn ${activeTab === "dashboard" ? "active" : ""}`}>
                 <span className="btn-emoji">📊</span> Dashboard
               </button>
+              <button onClick={() => setActiveTab("offline")} className={`menu-icon-btn ${activeTab === "offline" ? "active" : ""}`}>
+                <span className="btn-emoji">🏪</span> Offline Orders
+              </button>
               <button onClick={() => setActiveTab("queue")} className={`menu-icon-btn ${activeTab === "queue" ? "active" : ""}`}>
                 <span className="btn-emoji">📥</span> Order Queue
               </button>
               <button onClick={() => setActiveTab("stock")} className={`menu-icon-btn ${activeTab === "stock" ? "active" : ""}`}>
-                <span className="btn-emoji">📦</span> Stock & Alerts
+                <span className="btn-emoji">📦</span> Inventory
               </button>
               <button onClick={() => setActiveTab("history")} className={`menu-icon-btn ${activeTab === "history" ? "active" : ""}`}>
                 <span className="btn-emoji">📜</span> Order History
               </button>
-              <button onClick={() => setActiveTab("subs")} className={`menu-icon-btn ${activeTab === "subs" ? "active" : ""}`}>
-                <span className="btn-emoji">📅</span> Subscriptions Due
-              </button>
+
               <button onClick={() => setActiveTab("leave")} className={`menu-icon-btn ${activeTab === "leave" ? "active" : ""}`}>
                 <span className="btn-emoji">🚪</span> Leave & Shift
               </button>
@@ -1150,217 +1165,158 @@ export default function AdminDashboard() {
 
             {/* TAB CONTENT */}
             {activeTab === "dashboard" && (
-              <div>
-
-                {/* SUBHEADER */}
-                <div className="sales-order-subheader">
-                  <div>
-                    <h2>Sales and Order</h2>
-                    <p>Your Sales and Orders Summary Activates</p>
-                  </div>
-
-                  <div className="subheader-controls">
-                    <button
-                      className="btn-export-data"
-                      onClick={() => {
-                        const csvContent = "data:text/csv;charset=utf-8," +
-                          "Order ID,Customer,Status,Total,Item,Date\n" +
-                          filteredOrders.map(o => `${o.id},${o.customer || "N/A"},${o.status || "N/A"},${o.total || "0"},"${o.item || "N/A"}","${o.date || "N/A"}"`).join("\n");
-                        const encodedUri = encodeURI(csvContent);
-                        const link = document.createElement("a");
-                        link.setAttribute("href", encodedUri);
-                        link.setAttribute("download", `chaimaker_orders_${timeFilter.toLowerCase()}.csv`);
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                      }}
-                    >
-                      📤 Export Data
-                    </button>
-
-                    <div className="filter-pill-group">
-                      {["Daily", "Weekly", "Monthly"].map((pill) => (
-                        <button
-                          key={pill}
-                          onClick={() => setTimeFilter(pill)}
-                          className={`filter-pill-btn ${timeFilter === pill ? "active" : ""}`}
-                        >
-                          {pill}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* STATS ROW */}
-                <div className="stats-cards-row-new">
-
-
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle yellow-bg">🛍️</span>
-                      <span>Total Orders</span>
-                    </div>
-                    <h3>{statsSummary.totalOrders}</h3>
-                    <span className="stats-percent-tag red">-3% <span style={{ color: "#777" }}>vs month</span></span>
-                  </div>
-
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle green-bg">🚚</span>
-                      <span>Delivery Shipment</span>
-                    </div>
-                    <h3>{statsSummary.deliveryShipment}</h3>
-                    <span className="stats-percent-tag green">+12% <span style={{ color: "#777" }}>vs month</span></span>
-                  </div>
-
-                  <div className="stats-card-item">
-                    <div className="stats-card-title-row">
-                      <span className="stats-icon-circle red-bg">📦</span>
-                      <span>Pending Shipment</span>
-                    </div>
-                    <h3>{statsSummary.pendingShipment}</h3>
-                    <span className="stats-percent-tag red">-5% <span style={{ color: "#777" }}>vs month</span></span>
-                  </div>
-
-
-                </div>
-
-                {/* MIDDLE ROW */}
-                <div className="dashboard-double-row-grid">
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Sales Performance</h3>
-                      <span className="payout-status-badge">Monthly ∨</span>
-                    </div>
-                    <div className="performance-tally-pills">
-                      <span className="tally-pill red">🥇 {topItem1}</span>
-                      <span className="tally-pill yellow">🥈 {topItem2}</span>
-                      <span className="tally-pill green">🥉 {topItem3}</span>
-                    </div>
-
-                    <div className="bar-chart-performance-visual">
-                      <div className="y-axis-labels">
-                        <span>250</span><span>200</span><span>150</span><span>100</span><span>50</span><span>0</span>
+              <div style={{ padding: "24px", background: "#f8f9fa", minHeight: "100vh", fontFamily: "sans-serif" }}>
+                {/* TOP ROW: SUMMARY CARDS */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+                  {[
+                    { label: "Total Orders", value: statsSummary.totalOrders, icon: "🧾", color: "#e8f5e9", text: "#2e7d32" },
+                    { label: "Pending Amount", value: statsSummary.pendingAmount, icon: "⏳", color: "#fff3e0", text: "#ef6c00" },
+                    { label: "Offline Orders", value: statsSummary.offlineOrders, icon: "🏪", color: "#fff3e0", text: "#ef6c00" },
+                    { label: "Online Orders", value: statsSummary.onlineOrders, icon: "🌐", color: "#e3f2fd", text: "#1565c0" },
+                    { label: "Shipping Orders", value: statsSummary.deliveryShipment, icon: "🚚", color: "#e3f2fd", text: "#1565c0" },
+                    { label: "Pending Orders", value: statsSummary.pendingShipment, icon: "🕒", color: "#ffebee", text: "#c62828" }
+                  ].map((card, i) => (
+                    <div key={i} style={{ background: "#ffffff", borderRadius: "12px", padding: "16px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", gap: "12px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div style={{ background: card.color, width: "40px", height: "40px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>{card.icon}</div>
+                        <span style={{ fontSize: "14px", fontWeight: "600", color: "#555" }}>{card.label}</span>
                       </div>
-                      <div className="bars-track-new">
-                        {[
-                          { m: "Jan", h: 40 }, { m: "Feb", h: 60 }, { m: "Mar", h: 45 }, { m: "Apr", h: 70 },
-                          { m: "May", h: 55 }, { m: "Jun", h: 80 }, { m: "Jul", h: 65 }, { m: "Aug", h: 90, highlighted: true },
-                          { m: "Sep", h: 75 }, { m: "Oct", h: 60 }, { m: "Nov", h: 50 }, { m: "Dec", h: 30 }
-                        ].map((bar, i) => (
-                          <div key={i} className="bar-column-new">
-                            <div className="bar-rect-track">
-                              <div
-                                className={`bar-rect-fill ${bar.highlighted ? "highlighted" : ""}`}
-                                style={{ height: `${bar.h}%` }}
-                              >
-                                {bar.highlighted && (
-                                  <div className="chart-tooltip-bubble">
+                      <div style={{ fontSize: "24px", fontWeight: "bold", color: "#222" }}>{card.value}</div>
+                    </div>
+                  ))}
+                </div>
 
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <span className="bar-month-lbl">{bar.m}</span>
-                          </div>
+                {/* MIDDLE ROW: SPLIT COLUMNS */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
+                  
+                  {/* LEFT: High Demanding Products */}
+                  <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>High Demanding Products</h3>
+                      <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                    </div>
+                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid #eaeaea", color: "#888", fontSize: "13px" }}>
+                          <th style={{ paddingBottom: "10px" }}>Product</th>
+                          <th style={{ paddingBottom: "10px" }}>Sales</th>
+                          <th style={{ paddingBottom: "10px" }}>Trend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedItems.slice(0, 5).map((item, i) => {
+                          const name = item[0];
+                          const qty = item[1];
+                          const icon = name.toLowerCase().includes("chai") || name.toLowerCase().includes("tea") ? "☕" : name.toLowerCase().includes("coffee") ? "🍵" : "🥤";
+                          const category = name.toLowerCase().includes("chai") || name.toLowerCase().includes("tea") ? "Chai" : name.toLowerCase().includes("coffee") ? "Coffee" : "Beverage";
+                          return (
+                            <tr key={i} style={{ borderBottom: i !== 4 ? "1px solid #f5f5f5" : "none" }}>
+                              <td style={{ padding: "12px 0", display: "flex", alignItems: "center", gap: "10px" }}>
+                                <div style={{ background: "#f8f9fa", width: "36px", height: "36px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>{icon}</div>
+                                <div>
+                                  <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>{name.split(" x")[0]}</div>
+                                  <div style={{ fontSize: "12px", color: "#888" }}>{category}</div>
+                                </div>
+                              </td>
+                              <td style={{ padding: "12px 0", fontSize: "14px", color: "#333", fontWeight: "500" }}>{qty} sold</td>
+                              <td style={{ padding: "12px 0" }}>
+                                 <div style={{ display: "flex", gap: "3px", alignItems: "flex-end", height: "20px" }}>
+                                   <div style={{ width: "4px", height: "40%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "60%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "100%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "80%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                   <div style={{ width: "4px", height: "50%", background: "#e0e0e0", borderRadius: "2px" }}></div>
+                                 </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {sortedItems.length === 0 && (
+                          <tr><td colSpan="3" style={{ padding: "20px", textAlign: "center", color: "#999" }}>No products sold yet.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* RIGHT: Pending Orders */}
+                  <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>Pending Orders</h3>
+                      <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                    </div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid #eaeaea", color: "#888" }}>
+                            <th style={{ paddingBottom: "10px" }}>Order ID</th>
+                            <th style={{ paddingBottom: "10px" }}>Customer Name</th>
+                            <th style={{ paddingBottom: "10px" }}>Amount</th>
+                            <th style={{ paddingBottom: "10px" }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {orders.slice(0, 6).map((o, i) => (
+                            <tr key={o.id} style={{ borderBottom: i !== 5 ? "1px solid #f5f5f5" : "none" }}>
+                              <td style={{ padding: "12px 0", fontWeight: "600", color: "#333" }}>{o.id}</td>
+                              <td style={{ padding: "12px 0", color: "#555" }}>{o.customer}</td>
+                              <td style={{ padding: "12px 0", color: "#333", fontWeight: "500" }}>{o.total}</td>
+                              <td style={{ padding: "12px 0" }}>
+                                <span style={{
+                                  padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold",
+                                  background: o.status === "Pending" || o.status === "Received" ? "#fff3e0" : o.status === "Preparing" ? "#e8f5e9" : "#e3f2fd",
+                                  color: o.status === "Pending" || o.status === "Received" ? "#ef6c00" : o.status === "Preparing" ? "#2e7d32" : "#1565c0"
+                                }}>
+                                  {o.status || "Received"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* BOTTOM ROW: INVENTORY ALERTS */}
+                <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                    <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>Inventory Alerts</h3>
+                    <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                  </div>
+                  <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                      <thead style={{ position: "sticky", top: 0, zIndex: 1, background: "#f8f9fa" }}>
+                        <tr style={{ color: "#555" }}>
+                          <th style={{ padding: "12px", borderRadius: "6px 0 0 6px" }}>Product Name</th>
+                          <th style={{ padding: "12px" }}>Current Stock</th>
+                          <th style={{ padding: "12px" }}>Alert Status</th>
+                          <th style={{ padding: "12px", borderRadius: "0 6px 6px 0", textAlign: "right" }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stocks.map((s, i) => (
+                          <tr key={i} style={{ borderBottom: i !== stocks.length - 1 ? "1px solid #f5f5f5" : "none" }}>
+                            <td style={{ padding: "12px", display: "flex", alignItems: "center", gap: "10px", color: "#333", fontWeight: "500" }}>
+                               <div style={{ background: "#f8f9fa", width: "28px", height: "28px", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>📦</div>
+                               {s.name}
+                            </td>
+                            <td style={{ padding: "12px", color: "#555" }}>{s.qty}</td>
+                            <td style={{ padding: "12px" }}>
+                              <span style={{ color: s.level === "Out of Stock" || s.level === "Low Stock" ? "#c62828" : "#2e7d32", fontWeight: "600" }}>
+                                {s.level}
+                              </span>
+                            </td>
+                            <td style={{ padding: "12px", textAlign: "right" }}>
+                              <button style={{ padding: "6px 12px", border: "1px solid #eaeaea", background: "#ffffff", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "600", color: "#555" }}>
+                                Reorder
+                              </button>
+                            </td>
+                          </tr>
                         ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Recent Orders</h3>
-                    </div>
-                    <div className="table-wrapper-new">
-                      <table className="recent-orders-table">
-                        <thead>
-                          <tr>
-                            <th>ID</th>
-                            <th>Customer Name</th>
-                            <th>Date</th>
-                            <th>Status</th>
-
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {orders.slice(0, 4).map((o) => (
-                            <tr key={o.id}>
-                              <td><strong>{o.id}</strong></td>
-                              <td>{o.customer}</td>
-                              <td>{o.date}</td>
-                              <td>
-                                <span className={`table-status-pill ${o.status.toLowerCase()}`}>
-                                  {o.status}
-                                </span>
-                              </td>
-
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-
-                {/* BOTTOM ROW */}
-                <div className="dashboard-double-row-grid" style={{ marginTop: "28px" }}>
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Inventory Status Check</h3>
-                    </div>
-                    <div className="inventory-cards-grid-new">
-                      {stocks.map((s, i) => (
-                        <div key={i} className="inventory-progress-card-item">
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <strong>{s.name.split(" ")[0]}</strong>
-                            <span className="inventory-indicator-bullet">●</span>
-                          </div>
-                          <span style={{ fontSize: "12px", color: "#666", display: "block", marginTop: "4px" }}>
-                            {s.qty}
-                          </span>
-                          <div className="inventory-progress-bar-wrap">
-                            <div className="inventory-progress-bar-fill" style={{ width: "75%" }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="dashboard-large-card">
-                    <div className="card-header-new">
-                      <h3>Customer Management</h3>
-                    </div>
-                    <div className="table-wrapper-new">
-                      <table className="recent-orders-table">
-                        <thead>
-                          <tr>
-                            <th>Name</th>
-                            <th>Total Orders</th>
-                            <th>Total Value</th>
-                            <th>Loyalty Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {customerManagement.map((c, i) => (
-                            <tr key={i}>
-                              <td><strong>{c.name}</strong></td>
-                              <td>{c.orders}</td>
-                              <td>{c.value}</td>
-                              <td>
-                                <span className={`loyalty-pill ${c.loyalty.toLowerCase()}`}>
-                                  {c.loyalty}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
               </div>
             )}
 
@@ -1369,107 +1325,49 @@ export default function AdminDashboard() {
               <div className="tab-body-wrapper">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                   <h3 className="section-title" style={{ margin: 0 }}>Order Queue (List View)</h3>
-                  <div className="admin-tabs" style={{ background: 'transparent', padding: 0, display: "flex", gap: "10px" }}>
-                    <button
-                      className={`admin-tab ${queueTab === "one-time" ? "active" : ""}`}
-                      onClick={() => setQueueTab("one-time")}
-                      style={{
-                        background: queueTab === "one-time" ? "#8e44ad" : "#f5f5f5",
-                        color: queueTab === "one-time" ? "#fff" : "#555",
-                        border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer"
-                      }}
-                    >
-                      One-Time Orders
-                    </button>
-                    <button
-                      className={`admin-tab ${queueTab === "subscription" ? "active" : ""}`}
-                      onClick={() => setQueueTab("subscription")}
-                      style={{
-                        background: queueTab === "subscription" ? "#8e44ad" : "#f5f5f5",
-                        color: queueTab === "subscription" ? "#fff" : "#555",
-                        border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer"
-                      }}
-                    >
-                      Subscription Orders
-                    </button>
-                  </div>
                 </div>
 
                 <div className="queue-list-container">
-                  {queueTab === "one-time" ? (
-                    orders.filter(o => o.priority !== "Subscription").length === 0 ? (
-                      <div className="empty-column-msg">No active one-time orders found.</div>
-                    ) : (
-                      orders
-                        .filter(o => o.priority !== "Subscription")
-                        .sort((a, b) => b.createdAt - a.createdAt)
-                        .map((o) => (
-                          <div
-                            key={o.id}
-                            className="queue-list-item"
-                            onClick={() => {
-                              setSelectedQueueOrder(o);
-                              setDeliveryTimeInput(o.allocatedTime || "");
-                              setIsQueueSidebarOpen(true);
-                            }}
-                          >
-                            <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" />
-                            <div className="queue-list-info">
-                              <h4>{o.id} - {o.customer}</h4>
-                              <p>{o.item}</p>
-                              <span className="time-elapsed">
-                                {Math.floor((Date.now() - o.createdAt) / 60000)}m ago
-                              </span>
-                            </div>
-                            <div className="queue-list-status">
-                              <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
-                                {o.status || "Received"}
-                              </span>
-                            </div>
-                          </div>
-                        ))
-                    )
+                  {orders.filter(o => o.priority !== "Subscription").length === 0 ? (
+                    <div className="empty-column-msg">No active one-time orders found.</div>
                   ) : (
-                    subscriptions.length === 0 ? (
-                      <div className="empty-column-msg">No subscriptions found.</div>
-                    ) : (
-                      subscriptions
-                        .sort((a, b) => {
-                          if (a.status === "Active" && b.status !== "Active") return -1;
-                          if (a.status !== "Active" && b.status === "Active") return 1;
-                          return b.createdAt - a.createdAt;
-                        })
-                        .map((sub) => (
-                          <div
-                            key={sub.id}
-                            className="queue-list-item"
-                            style={{
-                              borderLeft: sub.status === "Active" ? "4px solid #8e44ad" : "4px solid #e74c3c",
-                              opacity: sub.status === "Active" ? 1 : 0.6
-                            }}
-                          >
-                            <img src={sub.image || sub.img || "/assets/images/tea_icon.png"} alt={sub.id} className="queue-list-img" />
-                            <div className="queue-list-info">
-                              <h4>{sub.id} - {sub.customer || "Customer"}</h4>
-                              <p>{sub.items || sub.item}</p>
-                              <span className="time-elapsed">
-                                Time Slot: {sub.timeSlot || "N/A"} | {sub.frequency || "Daily"}
-                              </span>
-                            </div>
-                            <div className="queue-list-status">
-                              {sub.status === "Active" ? (
-                                <span className="table-status-pill received" style={{ background: "#f3e5f5", color: "#8e44ad" }}>
-                                  Daily Delivery
-                                </span>
-                              ) : (
-                                <span className="table-status-pill cancelled" style={{ background: "#fce8e6", color: "#e74c3c" }}>
-                                  Paused
-                                </span>
-                              )}
-                            </div>
+                    orders
+                      .filter(o => o.priority !== "Subscription")
+                      .sort((a, b) => b.createdAt - a.createdAt)
+                      .map((o) => (
+                        <div
+                          key={o.id}
+                          className="queue-list-item"
+                          onClick={() => {
+                            setSelectedQueueOrder(o);
+                            setDeliveryTimeInput(o.allocatedTime || "");
+                            setIsQueueSidebarOpen(true);
+                          }}
+                        >
+                          <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" style={{ objectFit: 'cover' }} />
+                          <div className="queue-list-info">
+                            <h4 style={{ fontSize: '14px', marginBottom: '4px' }}>
+                              <span style={{ color: '#8a583c', fontWeight: '800' }}>{o.orderId || (o.id && o.id.length > 8 ? o.id.substring(0,8) : o.id)}</span> - {o.customer || "Guest"}
+                            </h4>
+                            <p style={{ fontWeight: 'bold', color: '#2c1b0d', fontSize: '13px', marginBottom: '2px' }}>{o.item}</p>
+                            <p style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>📍 {o.office || o.address || (o.walkIn ? "Counter Pickup" : "No Address Provided")}</p>
+                            <span className="time-elapsed" style={{ fontSize: '10px', fontWeight: 'bold', color: '#e74c3c' }}>
+                              {(() => {
+                                const diffMs = Date.now() - o.createdAt;
+                                const diffMins = Math.floor(diffMs / 60000);
+                                if (diffMins < 60) return `${diffMins}m ago`;
+                                if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+                                return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', year: 'numeric' });
+                              })()}
+                            </span>
                           </div>
-                        ))
-                    )
+                          <div className="queue-list-status">
+                            <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
+                              {o.status || "Received"}
+                            </span>
+                          </div>
+                        </div>
+                      ))
                   )}
                 </div>
 
@@ -1493,8 +1391,7 @@ export default function AdminDashboard() {
                       <div className="sidebar-detail-group">
                         <label>Items</label>
                         <p><strong>{selectedQueueOrder.item}</strong></p>
-                        <label>Add-ons</label>
-                        <p>{selectedQueueOrder.addons || "None"}</p>
+
                         <label>Preferences</label>
                         <p>{selectedQueueOrder.sugar} | {selectedQueueOrder.milk}</p>
                         <label>Total</label>
@@ -1627,131 +1524,343 @@ export default function AdminDashboard() {
             )}
 
             {/* OTHER OPERATIONAL TABS */}
-            {activeTab === "stock" && (() => {
-              const totalValuation = stocks.reduce((acc, curr) => {
-                const numericVal = parseFloat(curr.qty.split(" ")[0]) || 0;
-                return acc + (numericVal * (curr.unitPrice || 0));
-              }, 0);
+             {activeTab === "stock" && (() => {
+              const categories = ["All", "Tea", "Milk", "Coffee", "Shake", "Water", "Maggi", "Snacks", "Toast", "Biscuit", "Namkeen", "Disposable", "Cold Drink"];
+              const filteredInventory = stocks.filter(s => inventoryCategoryFilter === "All" || s.category === inventoryCategoryFilter);
 
               return (
-                <div className="tab-body-wrapper">
-                  {/* Toast Message Overlay */}
+                <div className="tab-body-wrapper" style={{ position: "relative" }}>
                   {toastMsg && (
                     <div style={{ position: "fixed", top: "24px", right: "24px", background: "#2c1b0d", color: "#fdf5e9", padding: "16px 24px", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.15)", zIndex: 9999, fontWeight: "bold", borderLeft: "4px solid #e74c3c", display: "flex", gap: "10px", alignItems: "center" }}>
                       <span>🚨</span> {toastMsg}
                     </div>
                   )}
 
-                  <div style={{ maxWidth: "600px", margin: "0 auto", width: "100%" }}>
-
-                    {/* Raise Restock Alert Form */}
-                    <h3 className="section-title">Raise Restock Request</h3>
-                    <form onSubmit={handleRaiseAlert} style={{ background: "#ffffff", padding: "30px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.08)", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", marginBottom: "32px" }}>
-                      <div className="form-group" style={{ marginBottom: "20px" }}>
-                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Ingredient Name</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Assam Loose Tea Leaves"
-                          value={selectedItem}
-                          onChange={(e) => setSelectedItem(e.target.value)}
-                          required
-                          style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", transition: "all 0.2s ease" }}
-                          onFocus={(e) => e.target.style.borderColor = "#8a583c"}
-                          onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
-                        />
+                  <div style={{ maxWidth: "1000px", margin: "0 auto", width: "100%" }}>
+                    
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                        {categories.map(cat => (
+                          <button
+                            key={cat}
+                            onClick={() => setInventoryCategoryFilter(cat)}
+                            style={{
+                              padding: "6px 12px",
+                              borderRadius: "20px",
+                              fontSize: "11px",
+                              fontWeight: "bold",
+                              border: "none",
+                              cursor: "pointer",
+                              background: inventoryCategoryFilter === cat ? "#2c1b0d" : "#f0f0f0",
+                              color: inventoryCategoryFilter === cat ? "#fff" : "#555",
+                              transition: "all 0.2s"
+                            }}
+                          >
+                            {cat}
+                          </button>
+                        ))}
                       </div>
-
-                      <div className="form-group" style={{ marginBottom: "20px" }}>
-                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Requested Quantity</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. 20 Kg, 50 Litres"
-                          value={requestQty}
-                          onChange={(e) => setRequestQty(e.target.value)}
-                          required
-                          style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", transition: "all 0.2s ease" }}
-                          onFocus={(e) => e.target.style.borderColor = "#8a583c"}
-                          onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
-                        />
-                      </div>
-
-                      <div className="form-group" style={{ marginBottom: "24px" }}>
-                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "10px", display: "block" }}>Urgency Level</label>
-                        <div style={{ display: "flex", gap: "12px" }}>
-                          {["Low", "Medium", "High"].map((level) => (
-                            <button
-                              key={level}
-                              type="button"
-                              onClick={() => setUrgency(level)}
-                              style={{
-                                flex: 1,
-                                padding: "10px",
-                                border: "2px solid",
-                                borderColor: urgency === level ? "#2c1b0d" : "rgba(44,27,13,0.08)",
-                                background: urgency === level ? "#2c1b0d" : "#ffffff",
-                                color: urgency === level ? "#ffffff" : "#555",
-                                borderRadius: "10px",
-                                fontSize: "12px",
-                                fontWeight: "800",
-                                cursor: "pointer",
-                                transition: "all 0.2s ease",
-                                boxShadow: urgency === level ? "0 4px 12px rgba(44,27,13,0.15)" : "none"
-                              }}
-                            >
-                              {level === "High" ? "🚨 High" : level}
-                            </button>
-                          ))}
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f8f9fa", padding: "6px 12px", borderRadius: "8px", border: "1px solid #eaeaea" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>📅 Select Date:</span>
+                          <input 
+                            type="date" 
+                            max={new Date().toISOString().split('T')[0]}
+                            value={inventorySelectedDate}
+                            onChange={(e) => setInventorySelectedDate(e.target.value)}
+                            style={{ border: "none", background: "transparent", fontSize: "12px", fontWeight: "bold", color: "#2c1b0d", outline: "none", cursor: "pointer" }}
+                          />
                         </div>
+                        <button
+                          onClick={() => setIsAddInventoryModalOpen(true)}
+                          style={{
+                            background: "#27ae60",
+                            color: "#fff",
+                            border: "none",
+                            padding: "8px 16px",
+                            borderRadius: "8px",
+                            fontSize: "12px",
+                            fontWeight: "bold",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px"
+                          }}
+                        >
+                          <span className="btn-emoji">➕</span> Upload New Inventory
+                        </button>
                       </div>
-
-                      <div className="form-group" style={{ marginBottom: "24px" }}>
-                        <label style={{ fontSize: "11px", fontWeight: "bold", textTransform: "uppercase", color: "#8a583c", marginBottom: "8px", display: "block" }}>Urgent Notes (optional)</label>
-                        <textarea
-                          placeholder="Why is this restock urgent?"
-                          value={requestNotes}
-                          onChange={(e) => setRequestNotes(e.target.value)}
-                          rows="2"
-                          style={{ width: "100%", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(138,88,60,0.2)", fontSize: "14px", background: "#fdfbf9", color: "#2c1b0d", outline: "none", resize: "none", transition: "all 0.2s ease" }}
-                          onFocus={(e) => e.target.style.borderColor = "#8a583c"}
-                          onBlur={(e) => e.target.style.borderColor = "rgba(138,88,60,0.2)"}
-                        />
-                      </div>
-
-                      <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "14px", borderRadius: "12px", fontWeight: "800", fontSize: "13px", cursor: "pointer", letterSpacing: "1px", textTransform: "uppercase", boxShadow: "0 6px 16px rgba(44,27,13,0.2)", transition: "transform 0.1s ease" }}
-                        onMouseDown={(e) => e.target.style.transform = "scale(0.98)"}
-                        onMouseUp={(e) => e.target.style.transform = "scale(1)"}
-                        onMouseLeave={(e) => e.target.style.transform = "scale(1)"}>
-                        SEND ALERT TO ADMIN
-                      </button>
-                    </form>
-
-                    {/* Logs of Raised Requests */}
-                    <h4 style={{ fontSize: "13px", color: "#2c1b0d", marginBottom: "12px", fontWeight: "800" }}>📋 Restock Requests Log</h4>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                      {restockRequests.map((r, i) => (
-                        <div key={i} style={{ background: "#ffffff", padding: "12px 16px", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.03)", fontSize: "12px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                            <strong>{r.item}</strong>
-                            <span style={{ fontSize: "10px", background: r.urgency === "High" ? "rgba(231,76,60,0.1)" : "rgba(0,0,0,0.05)", color: r.urgency === "High" ? "#e74c3c" : "#555", padding: "2px 6px", borderRadius: "4px", fontWeight: "bold" }}>
-                              {r.urgency} Urgency
-                            </span>
-                          </div>
-                          <span style={{ display: "block", color: "#666" }}>Qty Requested: {r.qty}</span>
-                          <span style={{ display: "block", color: "#888", fontStyle: "italic", fontSize: "11px", marginTop: "2px" }}>Notes: {r.notes}</span>
-
-                          <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", borderTop: "1px solid rgba(0,0,0,0.02)", paddingTop: "6px", fontSize: "10px" }}>
-                            <span style={{ color: "#27ae60" }}>● {r.status}</span>
-                            <span style={{ color: "#999" }}>{r.date}</span>
-                          </div>
-
-                          {r.adminMessage && (
-                            <div style={{ marginTop: "6px", padding: "6px", background: "#f8f9fa", borderRadius: "4px", fontSize: "10px", color: "#444", borderLeft: "2px solid #3498db" }}>
-                              <strong>Admin Reply:</strong> {r.adminMessage}
-                            </div>
-                          )}
-                        </div>
-                      ))}
                     </div>
+
+                    <div style={{ background: "#ffffff", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", overflow: "hidden", marginBottom: "30px" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12px" }}>
+                        <thead>
+                          <tr style={{ background: "#fbf9f6", color: "#555", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+                            <th style={{ padding: "12px 16px" }}>Category</th>
+                            <th style={{ padding: "12px 16px" }}>Item Name</th>
+                            <th style={{ padding: "12px 16px" }}>Quantity Left</th>
+                            <th style={{ padding: "12px 16px" }}>Min Threshold</th>
+                            <th style={{ padding: "12px 16px", textAlign: "center" }}>Status</th>
+                            <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredInventory.map((item, idx) => {
+                            const qty = parseFloat(item.qty) || 0;
+                            const limit = item.minLimit || 10;
+                            const isLow = qty <= limit;
+                            return (
+                              <tr key={item.id || idx} style={{ borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold", color: "#666" }}>{item.category}</td>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold", color: "#2c1b0d" }}>{item.name}</td>
+                                <td style={{ padding: "12px 16px", fontWeight: "bold" }}>
+                                  <span>{qty} <span style={{ fontSize: "10px", color: "#888" }}>{item.unit}</span></span>
+                                </td>
+                                <td style={{ padding: "12px 16px" }}>
+                                  {editingStockIdx === item.id ? (
+                                    <input
+                                      type="number"
+                                      value={editStockMinLimit}
+                                      onChange={(e) => setEditStockMinLimit(e.target.value)}
+                                      style={{ width: "60px", padding: "4px", fontSize: "11px" }}
+                                    />
+                                  ) : (
+                                    <span>{limit} <span style={{ fontSize: "10px", color: "#888" }}>{item.unit}</span></span>
+                                  )}
+                                </td>
+                                <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                                  <span style={{ background: isLow ? "#fce8e6" : "#e8f6ef", color: isLow ? "#e74c3c" : "#27ae60", padding: "4px 8px", borderRadius: "8px", fontSize: "10px", fontWeight: "bold" }}>
+                                    {isLow ? "Low Stock Alert" : "Healthy"}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                                  {loggingUsageIdx === item.id ? (
+                                    <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", alignItems: "center" }}>
+                                      <input
+                                        type="number"
+                                        placeholder={`Amount (${item.unit})`}
+                                        value={usageAmount}
+                                        onChange={(e) => setUsageAmount(e.target.value)}
+                                        style={{ width: "80px", padding: "4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #ccc" }}
+                                      />
+                                      <button
+                                        onClick={async () => {
+                                          const amount = parseFloat(usageAmount);
+                                          if (!amount || amount <= 0) return alert("Enter valid usage amount");
+                                          if (amount > qty) return alert("Amount exceeds current stock");
+                                          
+                                          const newQty = qty - amount;
+                                          const dailyUsage = item.dailyUsage || [];
+                                          dailyUsage.push({ date: inventorySelectedDate, used: amount });
+
+                                          await updateStockItem(item.id, { qty: newQty, dailyUsage });
+                                          setLoggingUsageIdx(null);
+                                          setUsageAmount("");
+                                          setToastMsg(`Logged usage for ${item.name} on ${inventorySelectedDate}!`);
+                                          setTimeout(() => setToastMsg(""), 3000);
+                                        }}
+                                        style={{ background: "#27ae60", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        onClick={() => setLoggingUsageIdx(null)}
+                                        style={{ background: "#95a5a6", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : restockingIdx === item.id ? (
+                                    <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", alignItems: "center" }}>
+                                      <input
+                                        type="number"
+                                        placeholder={`Add (${item.unit})`}
+                                        value={restockAmount}
+                                        onChange={(e) => setRestockAmount(e.target.value)}
+                                        style={{ width: "80px", padding: "4px", fontSize: "11px", borderRadius: "4px", border: "1px solid #ccc" }}
+                                      />
+                                      <button
+                                        onClick={async () => {
+                                          const amount = parseFloat(restockAmount);
+                                          if (!amount || amount <= 0) return alert("Enter valid upload amount");
+                                          
+                                          const newQty = qty + amount;
+                                          const uploadHistory = item.uploadHistory || [];
+                                          uploadHistory.push({ date: inventorySelectedDate, added: amount });
+
+                                          await updateStockItem(item.id, { qty: newQty, uploadHistory });
+                                          setRestockingIdx(null);
+                                          setRestockAmount("");
+                                          setToastMsg(`Restocked ${amount} ${item.unit} for ${item.name} on ${inventorySelectedDate}!`);
+                                          setTimeout(() => setToastMsg(""), 3000);
+                                        }}
+                                        style={{ background: "#1565c0", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Save
+                                      </button>
+                                      <button
+                                        onClick={() => setRestockingIdx(null)}
+                                        style={{ background: "#95a5a6", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                                      <button
+                                        onClick={() => {
+                                          setEditingStockIdx(item.id);
+                                          setEditStockMinLimit(limit);
+                                        }}
+                                        style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 12px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Edit Limit
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setRestockingIdx(item.id);
+                                          setRestockAmount("");
+                                        }}
+                                        style={{ background: "#e3f2fd", color: "#1565c0", border: "1px solid #1565c0", padding: "4px 12px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        + Restock
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setLoggingUsageIdx(item.id);
+                                          setUsageAmount("");
+                                        }}
+                                        style={{ background: "#e8f6ef", color: "#27ae60", border: "1px solid #27ae60", padding: "4px 12px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Log Usage
+                                      </button>
+                                    </div>
+                                  )}
+                                  {editingStockIdx === item.id && (
+                                    <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginTop: "6px" }}>
+                                      <button
+                                        onClick={async () => {
+                                          await updateStockItem(item.id, { minLimit: parseFloat(editStockMinLimit) || 10 });
+                                          setEditingStockIdx(null);
+                                          setToastMsg(`Updated limits for ${item.name}!`);
+                                          setTimeout(() => setToastMsg(""), 3000);
+                                        }}
+                                        style={{ background: "#27ae60", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Save Limit
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingStockIdx(null)}
+                                        style={{ background: "#95a5a6", color: "#fff", border: "none", padding: "4px 10px", borderRadius: "4px", fontSize: "10px", cursor: "pointer", fontWeight: "bold" }}
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {filteredInventory.length === 0 && (
+                            <tr>
+                              <td colSpan="5" style={{ padding: "20px", textAlign: "center", color: "#888", fontStyle: "italic" }}>
+                                No inventory items found for this category.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                    {/* Add Inventory Modal */}
+                    {isAddInventoryModalOpen && (
+                      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
+                        <div style={{ background: "#fff", padding: "30px", borderRadius: "16px", width: "400px", maxWidth: "90%" }}>
+                          <h3 style={{ marginTop: 0, marginBottom: "20px", color: "#2c1b0d" }}>Upload New Inventory</h3>
+                          
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Category</label>
+                            <select 
+                              value={newInventoryItem.category}
+                              onChange={(e) => setNewInventoryItem({...newInventoryItem, category: e.target.value})}
+                              style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                            >
+                              {categories.filter(c => c !== "All").map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </div>
+                          
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Item Name</label>
+                            <input 
+                              type="text" 
+                              value={newInventoryItem.name}
+                              onChange={(e) => setNewInventoryItem({...newInventoryItem, name: e.target.value})}
+                              placeholder="e.g. Tea Leaves"
+                              style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                            />
+                          </div>
+
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Unit (e.g. kg, Litre, Pcs)</label>
+                            <input 
+                              type="text" 
+                              value={newInventoryItem.unit}
+                              onChange={(e) => setNewInventoryItem({...newInventoryItem, unit: e.target.value})}
+                              placeholder="e.g. kg"
+                              style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                            />
+                          </div>
+
+                          <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Initial Qty</label>
+                              <input 
+                                type="number" 
+                                value={newInventoryItem.qty}
+                                onChange={(e) => setNewInventoryItem({...newInventoryItem, qty: e.target.value})}
+                                style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                              />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Min Alert Limit</label>
+                              <input 
+                                type="number" 
+                                value={newInventoryItem.minLimit}
+                                onChange={(e) => setNewInventoryItem({...newInventoryItem, minLimit: e.target.value})}
+                                style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                              />
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
+                            <button 
+                              onClick={() => setIsAddInventoryModalOpen(false)}
+                              style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "#f0f0f0", color: "#555", cursor: "pointer", fontWeight: "bold" }}
+                            >
+                              Cancel
+                            </button>
+                            <button 
+                              onClick={async () => {
+                                if (!newInventoryItem.name) return alert("Item name is required!");
+                                await addStockItem({
+                                  ...newInventoryItem,
+                                  qty: parseFloat(newInventoryItem.qty) || 0,
+                                  minLimit: parseFloat(newInventoryItem.minLimit) || 10,
+                                  dailyUsage: [],
+                                  uploadHistory: [{ date: new Date().toISOString().split('T')[0], added: parseFloat(newInventoryItem.qty) || 0 }]
+                                });
+                                setIsAddInventoryModalOpen(false);
+                                setNewInventoryItem({ category: "Tea", name: "", unit: "kg", qty: 0, minLimit: 10 });
+                                setToastMsg("Inventory added!");
+                                setTimeout(() => setToastMsg(""), 3000);
+                              }}
+                              style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "#2c1b0d", color: "#fff", cursor: "pointer", fontWeight: "bold" }}
+                            >
+                              Add Item
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                   </div>
                 </div>
@@ -2284,7 +2393,7 @@ export default function AdminDashboard() {
             })()}
 
             {activeTab === "subs" && (() => {
-              const activeSubs = subscriptions;
+              const activeSubs = [];
 
               return (
                 <div className="tab-body-wrapper">
@@ -2619,17 +2728,29 @@ export default function AdminDashboard() {
 
                     {/* Change Password Form */}
                     <form
-                      onSubmit={handleUpdatePassword}
-                      style={{ background: "#ffffff", padding: "28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginTop: "24px" }}
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (newPassword !== confirmPassword) {
+                          setPasswordMessage("Error: Passwords do not match!");
+                          return;
+                        }
+                        try {
+                          await updatePassword(auth.currentUser, newPassword);
+                          setPasswordMessage("Password updated successfully!");
+                          setNewPassword("");
+                          setConfirmPassword("");
+                        } catch (err) {
+                          setPasswordMessage("Error: " + err.message);
+                        }
+                      }}
+                      style={{ background: "#ffffff", padding: "24px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginTop: "24px" }}
                     >
-                      <h4 style={{ fontSize: "16px", margin: "0 0 16px", fontWeight: "bold" }}>Change Password</h4>
+                      <h4 style={{ fontSize: "14px", margin: "0 0 16px", color: "#2c1b0d" }}>Change Access Password</h4>
                       <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Current Password</label>
+                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Current Password (Optional if recently logged in)</label>
                         <input
                           type="password"
-                          value={currentPassword}
-                          onChange={(e) => setCurrentPassword(e.target.value)}
-                          required
+                          placeholder="Current password"
                           style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
                         />
                       </div>
@@ -2684,7 +2805,7 @@ export default function AdminDashboard() {
                         type="button"
                         onClick={async () => {
                           await updateProfileSettings({ shopName });
-                          setToastMsg("🌱 Kitchen Station configuration updated!");
+                          setToastMsg("✅ Kitchen Station configuration updated!");
                           setTimeout(() => setToastMsg(""), 3000);
                         }}
                         style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", cursor: "pointer" }}
@@ -2715,7 +2836,281 @@ export default function AdminDashboard() {
               </div>
             )}
 
+            {activeTab === "offline" && (
+              <div className="tab-body-wrapper">
+                <h3 className="section-title">Offline & Walk-in Orders</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "24px" }}>
+                  {/* Left Column: Form */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                    <div style={{ background: "#fff", padding: "24px", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)" }}>
+                      <h4 style={{ margin: "0 0 16px 0", fontSize: "16px" }}>Customer Details</h4>
+                    <div style={{ marginBottom: "12px" }}>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}>Customer Name</label>
+                      <input 
+                        type="text"
+                        value={offlineOrderForm.customerName}
+                        onChange={e => setOfflineOrderForm({ ...offlineOrderForm, customerName: e.target.value })}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }}
+                        placeholder="John Doe"
+                      />
+                    </div>
+                    <div style={{ marginBottom: "16px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer", fontWeight: "bold" }}>
+                        <input 
+                          type="checkbox"
+                          checked={offlineOrderForm.walkIn}
+                          onChange={e => setOfflineOrderForm({ ...offlineOrderForm, walkIn: e.target.checked, address: e.target.checked ? "Walk-in" : "", phone: e.target.checked ? "Walk-in" : "" })}
+                        />
+                        Walk-in Customer (In-store)
+                      </label>
+                    </div>
+                    {!offlineOrderForm.walkIn && (
+                      <>
+                        <div style={{ marginBottom: "12px" }}>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}>Mobile No.</label>
+                          <input 
+                            type="text"
+                            value={offlineOrderForm.phone}
+                            onChange={e => setOfflineOrderForm({ ...offlineOrderForm, phone: e.target.value })}
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }}
+                            placeholder="+91 90000 00000"
+                          />
+                        </div>
+                        <div style={{ marginBottom: "12px" }}>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}>Address</label>
+                          <textarea 
+                            value={offlineOrderForm.address}
+                            onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", minHeight: "80px" }}
+                            placeholder="Street, City, Area"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  <div style={{ background: "#fff", padding: "24px", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", display: "flex", flexDirection: "column" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                      <h4 style={{ margin: 0, fontSize: "16px" }}>Order Items</h4>
+                      <button 
+                        onClick={() => setIsOfflineItemModalOpen(true)}
+                        style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" }}
+                      >
+                        + Select Items
+                      </button>
+                    </div>
+
+                    <div style={{ flexGrow: 1, overflowY: "auto", border: "1px solid #eee", borderRadius: "8px", padding: "12px", marginBottom: "16px" }}>
+                      {offlineOrderForm.items.length === 0 ? (
+                        <p style={{ textAlign: "center", color: "#888", fontSize: "13px", marginTop: "20px" }}>No items selected yet.</p>
+                      ) : (
+                        offlineOrderForm.items.map((item, idx) => (
+                          <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #eee", paddingBottom: "10px", marginBottom: "10px" }}>
+                            <div>
+                              <strong style={{ display: "block", fontSize: "14px" }}>{item.name}</strong>
+                              <span style={{ color: "#666", fontSize: "12px" }}>₹{item.priceNum} x {item.qty}</span>
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <strong style={{ fontSize: "14px" }}>₹{item.priceNum * item.qty}</strong>
+                              <button 
+                                onClick={() => setOfflineOrderForm({ ...offlineOrderForm, items: offlineOrderForm.items.filter((_, i) => i !== idx) })}
+                                style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "4px", cursor: "pointer", fontSize: "10px" }}
+                              >✕</button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", fontSize: "16px", fontWeight: "bold" }}>
+                      <span>Total:</span>
+                      <span>₹{offlineOrderForm.items.reduce((acc, item) => acc + (item.priceNum * item.qty), 0)}</span>
+                    </div>
+
+                    <div style={{ marginBottom: "16px" }}>
+                      <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "6px" }}>Payment Status</label>
+                      <select
+                        value={offlineOrderForm.paymentStatus}
+                        onChange={e => setOfflineOrderForm({ ...offlineOrderForm, paymentStatus: e.target.value })}
+                        style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ccc" }}
+                      >
+                        <option value="Pending">Pending (Not Paid)</option>
+                        <option value="Cash">Cash</option>
+                        <option value="UPI">UPI</option>
+                      </select>
+                    </div>
+
+                    <button 
+                      onClick={async () => {
+                        if (!offlineOrderForm.customerName || offlineOrderForm.items.length === 0) {
+                          setToastMsg("❌ Please add customer name and items!");
+                          setTimeout(() => setToastMsg(""), 3000);
+                          return;
+                        }
+                        const total = offlineOrderForm.items.reduce((acc, item) => acc + (item.priceNum * item.qty), 0);
+                        const orderData = {
+                          customer: offlineOrderForm.customerName,
+                          phone: offlineOrderForm.phone,
+                          address: offlineOrderForm.address,
+                          walkIn: offlineOrderForm.walkIn,
+                          isOffline: true,
+                          paymentStatus: offlineOrderForm.paymentStatus,
+                          paymentMethod: offlineOrderForm.paymentStatus,
+                          status: "Received",
+                          total: `₹${total}`,
+                          priceNum: total,
+                          createdAt: Date.now(),
+                          date: new Date().toLocaleDateString('en-GB'),
+                          item: offlineOrderForm.items.map(i => `${i.name} x${i.qty}`).join(", "),
+                          img: offlineOrderForm.items[0]?.image || "/chai-ingredients.png"
+                        };
+                        try {
+                          await createOrder(orderData);
+                          setToastMsg("✅ Offline Order Created successfully!");
+                          setOfflineOrderForm({ customerName: "", address: "", phone: "", walkIn: false, items: [], paymentStatus: "Pending" });
+                          setTimeout(() => setToastMsg(""), 3000);
+                        } catch (e) {
+                          setToastMsg("❌ Error: " + e.message);
+                          setTimeout(() => setToastMsg(""), 3000);
+                        }
+                      }}
+                      style={{ background: "#27ae60", color: "#fff", border: "none", padding: "14px", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", width: "100%", fontSize: "14px" }}
+                    >
+                      CREATE ORDER
+                    </button>
+                  </div>
+                  </div>
+
+                  {/* Right Column: Recent Offline Orders List */}
+                  <div style={{ background: "#fff", padding: "24px", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", display: "flex", flexDirection: "column", maxHeight: "800px" }}>
+                    <h4 style={{ margin: "0 0 16px 0", fontSize: "16px" }}>Recent Offline Orders</h4>
+                    <div style={{ flexGrow: 1, overflowY: "auto", paddingRight: "8px" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12.5px" }}>
+                        <thead style={{ position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
+                          <tr style={{ color: "#777", borderBottom: "2px solid #f2eee9" }}>
+                            <th style={{ padding: "10px 8px" }}>ID</th>
+                            <th style={{ padding: "10px 8px" }}>Customer</th>
+                            <th style={{ padding: "10px 8px" }}>Items</th>
+                            <th style={{ padding: "10px 8px" }}>Total</th>
+                            <th style={{ padding: "10px 8px" }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {orders.filter(o => o.isOffline === true).slice(0, 50).map((o, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid #f9f9f9" }}>
+                              <td style={{ padding: "12px 8px", fontWeight: "bold", color: "#8a583c" }}>{o.id}</td>
+                              <td style={{ padding: "12px 8px", fontWeight: "bold" }}>{o.customer || "Walk-in"}</td>
+                              <td style={{ padding: "12px 8px" }}>
+                                <span style={{ display: "block" }}>{o.item}</span>
+                              </td>
+                              <td style={{ padding: "12px 8px", fontWeight: "bold", color: "#2c1b0d" }}>{o.total || o.price}</td>
+                              <td style={{ padding: "12px 8px" }}>
+                                <span style={{ fontSize: "10px", background: o.status === "Delivered" || o.status === "Completed" ? "rgba(39, 174, 96, 0.1)" : "rgba(241, 196, 15, 0.1)", color: o.status === "Delivered" || o.status === "Completed" ? "#27ae60" : "#f39c12", padding: "4px 6px", borderRadius: "4px", fontWeight: "bold" }}>
+                                  {o.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          {orders.filter(o => o.isOffline === true).length === 0 && (
+                            <tr><td colSpan="5" style={{ textAlign: "center", padding: "30px", color: "#999" }}>No offline orders yet.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
+
+          {/* ITEM SELECTION MODAL */}
+          {isOfflineItemModalOpen && (
+            <div className="alert-modal-backdrop" style={{ zIndex: 99999 }}>
+              <div className="alert-modal-card" style={{ width: "90%", maxWidth: "600px", padding: "24px" }}>
+                <h3 style={{ margin: "0 0 16px", fontSize: "18px" }}>Select Products to Add</h3>
+                <div style={{ maxHeight: "400px", overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", paddingRight: "10px" }}>
+                  {productsList.length === 0 ? <p>Loading products...</p> : productsList.map(prod => (
+                    <div key={prod.id} style={{ display: "flex", gap: "12px", border: "1px solid #eee", padding: "10px", borderRadius: "8px", alignItems: "center" }}>
+                      <img src={prod.image || "/chai-ingredients.png"} alt={prod.name} style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "8px" }} />
+                      <div style={{ flexGrow: 1 }}>
+                        <strong style={{ display: "block", fontSize: "13px" }}>{prod.name}</strong>
+                        <span style={{ fontSize: "12px", color: "#666" }}>₹{prod.priceNum}</span>
+                      </div>
+                      {(() => {
+                        const existing = offlineOrderForm.items.find(i => i.id === prod.id);
+                        if (existing) {
+                          return (
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#f8f9fa", borderRadius: "6px", padding: "4px", border: "1px solid #eaeaea" }}>
+                              <button 
+                                onClick={() => {
+                                  if (existing.qty > 1) {
+                                    setOfflineOrderForm({
+                                      ...offlineOrderForm, 
+                                      items: offlineOrderForm.items.map(i => i.id === prod.id ? { ...i, qty: i.qty - 1 } : i)
+                                    });
+                                  } else {
+                                    setOfflineOrderForm({
+                                      ...offlineOrderForm, 
+                                      items: offlineOrderForm.items.filter(i => i.id !== prod.id)
+                                    });
+                                  }
+                                }}
+                                style={{ background: "#e74c3c", color: "#fff", border: "none", width: "24px", height: "24px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center" }}
+                              >
+                                -
+                              </button>
+                              <span style={{ fontSize: "13px", fontWeight: "bold", width: "16px", textAlign: "center", color: "#333" }}>{existing.qty}</span>
+                              <button 
+                                onClick={() => {
+                                  setOfflineOrderForm({
+                                    ...offlineOrderForm, 
+                                    items: offlineOrderForm.items.map(i => i.id === prod.id ? { ...i, qty: i.qty + 1 } : i)
+                                  });
+                                }}
+                                style={{ background: "#27ae60", color: "#fff", border: "none", width: "24px", height: "24px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center" }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <button 
+                              onClick={() => {
+                                setOfflineOrderForm({
+                                  ...offlineOrderForm, 
+                                  items: [...offlineOrderForm.items, { id: prod.id, name: prod.name, priceNum: prod.priceNum, image: prod.image || prod.imagePath || prod.img || "/chai-ingredients.png", qty: 1 }]
+                                });
+                              }}
+                              style={{ background: "#3498db", color: "#fff", border: "none", padding: "6px 16px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
+                            >
+                              Add
+                            </button>
+                          );
+                        }
+                      })()}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #eee", paddingTop: "16px" }}>
+                  <div style={{ fontSize: "13px", color: "#2c1b0d", flexGrow: 1, paddingRight: "20px", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+                    {offlineOrderForm.items.length > 0 ? (
+                      <span><strong>Added Items: </strong> {offlineOrderForm.items.map(i => `${i.qty}x ${i.name}`).join(", ")}</span>
+                    ) : (
+                      <span style={{ color: "#999" }}>No items added yet. Click 'Add' to select products.</span>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => setIsOfflineItemModalOpen(false)}
+                    style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", whiteSpace: "nowrap" }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* FIXED RIGHT SIDEBAR (PENDING ORDERS WITH PRODUCT IMAGE & ALL DETAILS) */}
           <aside

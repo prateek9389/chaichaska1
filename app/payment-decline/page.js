@@ -9,7 +9,7 @@ import Footer from "@/components/Footer";
 function PaymentDeclineContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("order_id");
-  const type = searchParams.get("type"); // "checkout" or "wallet"
+  const type = searchParams.get("type");
 
   return (
     <div className="decline-layout">
@@ -30,15 +30,9 @@ function PaymentDeclineContent() {
         )}
 
         <div style={{ marginTop: "32px", display: "flex", gap: "16px", justifyContent: "center" }}>
-          {type === "wallet" ? (
-            <Link href="/wallet" className="btn-retry" style={{ display: "inline-block", padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "8px", fontWeight: "bold" }}>
-              Try Again
-            </Link>
-          ) : (
-            <Link href="/checkout" className="btn-retry" style={{ display: "inline-block", padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "8px", fontWeight: "bold" }}>
-              Retry Payment
-            </Link>
-          )}
+          <Link href="/checkout" className="btn-retry" style={{ display: "inline-block", padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "8px", fontWeight: "bold" }}>
+            Retry Payment
+          </Link>
           <Link href="/" style={{ display: "inline-block", padding: "14px 32px", background: "#fbf9f6", color: "#2c1b0d", border: "1px solid #ddd", textDecoration: "none", borderRadius: "8px", fontWeight: "bold" }}>
             Return Home
           </Link>
