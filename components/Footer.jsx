@@ -56,9 +56,7 @@ export default function Footer() {
             Quick Links
           </h4>
           <p style={{ fontSize: 13.5, opacity: 0.85, lineHeight: 2 }}>
-            <Link href="/" style={{ color: "inherit", textDecoration: "none" }}>Home</Link>
-            <br />
-            <Link href="/shop" style={{ color: "inherit", textDecoration: "none" }}>Shop</Link>
+            <Link href="/shop" style={{ color: "inherit", textDecoration: "none" }}>Home</Link>
             <br />
             <Link href="/orders" style={{ color: "inherit", textDecoration: "none" }}>My Orders</Link>
           </p>

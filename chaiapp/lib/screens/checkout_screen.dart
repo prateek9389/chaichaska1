@@ -165,9 +165,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final addon = _addons.firstWhere((a) => a['name'] == addonName);
       final dynamic p = addon['price'];
       double addonPrice = 0.0;
-      if (p is int) addonPrice = p.toDouble();
-      else if (p is double) addonPrice = p;
-      else if (p is String) addonPrice = double.tryParse(p.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+      if (p is int) {
+        addonPrice = p.toDouble();
+      } else if (p is double) {
+        addonPrice = p;
+      } else if (p is String) {
+        addonPrice = double.tryParse(p.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+      }
       addonsTotal += addonPrice;
     }
 
@@ -250,7 +254,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               'phone': selectedAddr['officeNumber'] ?? "0000000000",
               'office': formattedAddress,
               'item': widget.cartItems.first.name,
-              'items': '$itemsListForSub ${addonsParam.isNotEmpty ? " + " + addonsParam : ""}',
+              'items': '$itemsListForSub ${addonsParam.isNotEmpty ? " + $addonsParam" : ""}',
               'sugar': widget.cartItems.map((e) => e.sugar).toSet().join(', '),
               'milk': "Whole Milk",
               'total': orderCost,
@@ -345,6 +349,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         }
       } else {
         // Insufficient Balance -> Redirect to WalletScreen to Recharge
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (context) => WalletScreen(
@@ -473,9 +478,13 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         final addon = _addons.firstWhere((a) => a['name'] == addonName);
                         final dynamic p = addon['price'];
                         double addonPrice = 0.0;
-                        if (p is int) addonPrice = p.toDouble();
-                        else if (p is double) addonPrice = p;
-                        else if (p is String) addonPrice = double.tryParse(p.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                        if (p is int) {
+                          addonPrice = p.toDouble();
+                        } else if (p is double) {
+                          addonPrice = p;
+                        } else if (p is String) {
+                          addonPrice = double.tryParse(p.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0.0;
+                        }
                         
                         String imgUrl = (addon['image'] ?? addon['imagePath'] ?? '').toString();
                         

@@ -35,6 +35,7 @@ class _SubscriptionDetailScreenState extends State<SubscriptionDetailScreen> {
       setState(() {
         _data['status'] = newStatus;
       });
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Subscription $newStatus')));
     } catch (e) {
       debugPrint('Error toggling subscription: $e');
@@ -265,7 +266,7 @@ class _EditSubscriptionSheetState extends State<EditSubscriptionSheet> {
   bool _isLoadingAddons = true;
 
   Map<String, dynamic>? _selectedProduct;
-  List<String> _selectedAddons = [];
+  final List<String> _selectedAddons = [];
   
   bool _slotMorningSelected = false;
   bool _slotEveningSelected = false;
@@ -331,7 +332,7 @@ class _EditSubscriptionSheetState extends State<EditSubscriptionSheet> {
 
     final String addonsParam = _selectedAddons.join(' + ');
     final String pName = _selectedProduct?['name'] ?? 'Unknown';
-    final itemsStr = '$pName x1 ${addonsParam.isNotEmpty ? " + " + addonsParam : ""}';
+    final itemsStr = '$pName x1 ${addonsParam.isNotEmpty ? " + $addonsParam" : ""}';
 
     final newData = {
       ...widget.currentData,
@@ -472,8 +473,11 @@ class _EditSubscriptionSheetState extends State<EditSubscriptionSheet> {
                 backgroundColor: Colors.white,
                 onSelected: (val) {
                   setState(() {
-                    if (val) _selectedAddons.add(a['name']);
-                    else _selectedAddons.remove(a['name']);
+                    if (val) {
+                      _selectedAddons.add(a['name']);
+                    } else {
+                      _selectedAddons.remove(a['name']);
+                    }
                   });
                 },
               );

@@ -129,30 +129,8 @@ export default function ProductDetailPage({ params }) {
 
   const { addToCart } = useCart();
 
-  // Actions
-  const handlePurchase = () => {
-    const isWaterOrDrinks = product?.category && (
-      product.category.toLowerCase().includes("water") || 
-      product.category.toLowerCase().includes("drink")
-    );
-    if (isWaterOrDrinks) {
-      setSugarLevel("none");
-      handleFinishCheckout("none");
-    } else {
-      setIsAddonModalOpen(true);
-    }
-  };
-  const handleAddToCartClick = () => {
-    const isWaterOrDrinks = product?.category === "Water" || product?.category === "Drinks";
-    if (isWaterOrDrinks) {
-      setSugarLevel("none");
-      handleFinishCheckout("none");
-    } else {
-      setIsAddonModalOpen(true);
-    }
-  };
-
-  const handleFinishCheckout = (overrideSugar) => {
+  const handleAction = (isBuyNow) => {
+    
     const basePrice = parseInt(String(product.price).replace(/[^0-9]/g, "")) || 0;
     
     const itemToAdd = {
@@ -162,12 +140,15 @@ export default function ProductDetailPage({ params }) {
       basePrice: basePrice,
       image: product.image || product.gallery?.[0]?.url,
       quantity: quantity,
-      sugar: overrideSugar || sugarLevel,
+      sugar: "Regular",
     };
 
     addToCart(itemToAdd);
-    router.push(`/checkout`);
-    setIsAddonModalOpen(false);
+    if (isBuyNow) {
+      router.push('/cart');
+    } else {
+      alert("Added to cart!");
+    }
   };
 
   const [openFaq, setOpenFaq] = useState(null);
@@ -301,10 +282,10 @@ export default function ProductDetailPage({ params }) {
                 <button onClick={() => setQuantity((q) => q + 1)} className="qty-btn">+</button>
               </div>
 
-              <button onClick={handlePurchase} className="nordic-btn-add" style={{ flexGrow: 1 }}>
+              <button onClick={() => handleAction(false)} className="nordic-btn-add" style={{ flexGrow: 1 }}>
                 ADD TO CART
               </button>
-              <button onClick={handlePurchase} className="nordic-btn-buy" style={{ flexGrow: 1 }}>
+              <button onClick={() => handleAction(true)} className="nordic-btn-buy" style={{ flexGrow: 1 }}>
                 BUY NOW
               </button>
             </div>
@@ -413,51 +394,6 @@ export default function ProductDetailPage({ params }) {
 
       <Footer />
       </div>
-
-      {/* Add-ons & Sugar Selection Popup Modal */}
-      {isAddonModalOpen && (
-        <div className="modal-backdrop">
-          <div className="modal-content">
-            <button onClick={() => setIsAddonModalOpen(false)} className="modal-close-btn">
-              ✕
-            </button>
-
-            {modalStep === "sugar" && (
-              <div style={{ textAlign: "center", padding: "10px" }}>
-                <h3 style={{ fontSize: "22px", fontWeight: 800, color: "#2c1b0d", marginBottom: "8px" }}>
-                  Customize Sugar
-                </h3>
-                <p style={{ fontSize: "14px", color: "#666", marginBottom: "30px" }}>
-                  Please select your preferred sugar level for this brew:
-                </p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginBottom: "15px" }}>
-                  <button
-                    onClick={() => {
-                      setSugarLevel("none");
-                      handleFinishCheckout("none");
-                    }}
-                    className="sugar-modal-btn"
-                  >
-                    <span style={{ fontSize: "32px", display: "block", marginBottom: "10px" }}>❌</span>
-                    <span style={{ fontSize: "15px", fontWeight: 700 }}>No Sugar</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSugarLevel("with");
-                      handleFinishCheckout("with");
-                    }}
-                    className="sugar-modal-btn"
-                  >
-                    <span style={{ fontSize: "32px", display: "block", marginBottom: "10px" }}>🍬</span>
-                    <span style={{ fontSize: "15px", fontWeight: 700 }}>With Sugar</span>
-                  </button>
-                </div>
-                </div>
-              )}
-
-          </div>
-        </div>
-      )}
 
       {/* Old Product Reviews Section Removed */}
 

@@ -44,13 +44,14 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
     
     if (pickedFile != null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploading image...')));
       try {
         final request = http.MultipartRequest(
           'POST',
-          Uri.parse('https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/image/upload'), // TODO: Replace YOUR_CLOUD_NAME
+          Uri.parse('https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/image/upload'), // Cloudinary Cloud Name
         );
-        request.fields['upload_preset'] = 'YOUR_UPLOAD_PRESET'; // TODO: Replace YOUR_UPLOAD_PRESET
+        request.fields['upload_preset'] = 'YOUR_UPLOAD_PRESET'; // Cloudinary Upload Preset
         request.files.add(await http.MultipartFile.fromPath('file', pickedFile.path));
         
         final response = await request.send();
@@ -60,12 +61,15 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
            setState(() {
              _tempAvatarUrl = data['secure_url'];
            });
+           if (!mounted) return;
            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Image uploaded!')));
         } else {
+           if (!mounted) return;
            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed')));
         }
       } catch (e) {
         debugPrint(e.toString());
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload error')));
       }
     }
@@ -86,14 +90,16 @@ class _UpdateProfileScreenState extends State<UpdateProfileScreen> {
         WalletState.profileName.value = _nameController.text;
         WalletState.avatarUrl.value = _tempAvatarUrl;
 
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Profile updated successfully!'),
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.of(context).pop();
+        if (mounted) Navigator.of(context).pop();
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to update: $e'),

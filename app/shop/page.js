@@ -8,11 +8,28 @@ import Footer from "@/components/Footer";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCart } from "@/contexts/CartContext";
 import { onProductsSnapshot } from "@/lib/firestore";
 
 export default function ShopPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { cartItems, addToCart } = useCart();
+
+  const handleAddToCart = (e, product) => {
+    e.stopPropagation();
+    
+    
+    addToCart({
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      basePrice: parseInt(String(product.price).replace(/[^0-9]/g, "")) || 0,
+      image: product.image,
+      quantity: 1,
+      sugar: "Regular",
+    });
+  };
   const [products, setProducts] = useState(() => {
     if (typeof window !== 'undefined') {
       const cached = sessionStorage.getItem('chai_products_cache');
@@ -120,7 +137,7 @@ export default function ShopPage() {
         <div className="banner-overlay" />
         <div className="banner-content">
           <span className="banner-tag">AUTHENTIC CHAI COLLECTION</span>
-          <h1 className="banner-title">The Royal Tea House</h1>
+          <h1 className="banner-title">Chai Chaska</h1>
           <p className="banner-subtitle">
             Sip premium loose-leaf estate teas carefully hand-blended with fresh garden herbs and native spices.
           </p>
@@ -222,7 +239,49 @@ export default function ShopPage() {
                       
                       <div className="shop-card-footer">
                         <span className="shop-card-price">{product.price}</span>
-                        <span className="shop-card-arrow">Order Now →</span>
+                        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                          {cartItems && cartItems.some(item => item.id === product.id) ? (
+                            <button
+                              className="shop-add-to-cart-btn in-cart"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                router.push('/cart');
+                              }}
+                              style={{
+                                background: "#2c1b0d",
+                                color: "#ffffff",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                cursor: "pointer",
+                                transition: "all 0.2s"
+                              }}
+                            >
+                              Checkout
+                            </button>
+                          ) : (
+                            <button
+                              className="shop-add-to-cart-btn"
+                              onClick={(e) => handleAddToCart(e, product)}
+                              style={{
+                                background: "#8a583c",
+                                color: "#ffffff",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: "600",
+                                cursor: "pointer",
+                                transition: "all 0.2s"
+                              }}
+                            >
+                              Add to Cart
+                            </button>
+                          )}
+                          <span className="shop-card-arrow" style={{ fontSize: "13px", fontWeight: "700", color: "#2c1b0d" }}>Order Now →</span>
+                        </div>
                       </div>
                     </div>
                   </div>

@@ -48,10 +48,8 @@ function PaymentSuccessContent() {
     <div className="thank-you-layout">
       <div className="thank-you-card">
         <div className="success-badge-circle">✓</div>
-        <h2 className="success-title">Payment Successful!</h2>
-        <p className="success-message">
-          Your payment was processed successfully. Your order is confirmed and heading to the brewing counter.
-        </p>
+        <h2 className="success-title">{type === "cod" || orderDetails?.paymentMethod === "Cash on Delivery" ? "Order Placed Successfully!" : "Payment Successful!"}</h2>
+        <p className="success-message">{type === "cod" || orderDetails?.paymentMethod === "Cash on Delivery" ? "Your order has been placed with Cash on Delivery and is heading to the brewing counter. Please keep cash ready for delivery." : "Your payment was processed successfully. Your order is confirmed and heading to the brewing counter."}</p>
 
         <div className="receipt-box" style={{ marginTop: "32px", padding: "24px", background: "#fbf9f6", borderRadius: "16px", border: "1px dashed rgba(138,88,60,0.3)" }}>
           <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
@@ -62,12 +60,12 @@ function PaymentSuccessContent() {
           {orderDetails && (
             <>
               <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
-                <span style={{ color: "#666" }}>Amount Paid:</span>
+                <span style={{ color: "#666" }}>{type === "cod" || orderDetails?.paymentMethod === "Cash on Delivery" ? "Amount Payable:" : "Amount Paid:"}</span>
                 <strong style={{ color: "#2c1b0d", fontSize: "16px" }}>{orderDetails.total}</strong>
               </div>
               <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
                 <span style={{ color: "#666" }}>Payment Method:</span>
-                <strong style={{ color: "#8a583c" }}>Paytm (Online)</strong>
+                <strong style={{ color: "#8a583c" }}>{orderDetails?.paymentMethod || (type === "cod" ? "Cash on Delivery" : "Paytm (Online)")}</strong>
               </div>
               <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", borderTop: "1px dashed rgba(0,0,0,0.1)", paddingTop: "12px" }}>
                 <span style={{ color: "#666" }}>Status:</span>
@@ -82,8 +80,8 @@ function PaymentSuccessContent() {
           <Link href={`/orders/${orderId}`} className="btn-continue-checkout" style={{ padding: "14px 24px", background: "#fbf9f6", color: "#2c1b0d", border: "1px solid rgba(0,0,0,0.1)", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
             Track Order
           </Link>
-          <Link href="/" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
-            Return to Home
+          <Link href="/shop" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
+            Return to Shop
           </Link>
         </div>
       </div>

@@ -9,6 +9,7 @@ import { useCart } from "@/contexts/CartContext";
 import Image from "next/image";
 
 export default function Navbar() {
+  const [mounted, setMounted] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -23,18 +24,18 @@ export default function Navbar() {
   };
 
   useEffect(() => {
+    setMounted(true);
     const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const links = ["Home", "Shop", "Orders", "Contact"];
+  const links = ["Home", "My Orders"];
 
   const getLinkTarget = (item) => {
-    if (item === "Home") return "/";
-    if (item === "Shop") return "/shop";
-    if (item === "Orders") return "/orders";
-    return `/#${item.toLowerCase().replace(/\s+/g, "-")}`;
+    if (item === "Home" || item === "Shop") return "/shop";
+    if (item === "My Orders" || item === "Orders") return "/orders";
+    return "/shop";
   };
 
   return (
@@ -66,7 +67,7 @@ export default function Navbar() {
         className="nav-container"
       >
         <Link
-          href="/"
+          href="/shop"
           style={{
             display: "flex",
             alignItems: "center",
@@ -136,7 +137,7 @@ export default function Navbar() {
               <circle cx="20" cy="21" r="1"></circle>
               <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
             </svg>
-            {cartItems && cartItems.length > 0 && (
+            {mounted && cartItems && cartItems.length > 0 && (
               <span style={{
                 position: "absolute",
                 top: "-4px",
@@ -357,43 +358,7 @@ export default function Navbar() {
             </Link>
           )}
 
-          <Link
-            href="/shop"
-            onClick={() => setOpen(false)}
-            style={{
-              background: "#2c1b0d",
-              color: "#ffffff",
-              padding: "16px 32px",
-              borderRadius: "999px",
-              fontSize: 16,
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              textDecoration: "none",
-            }}
-          >
-            Shop Now
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              style={{ overflow: "visible" }}
-            >
-              <path className="steam-line steam-1" d="M8 6c0-1.5 1-1.5 1-3" />
-              <path className="steam-line steam-2" d="M12 6c0-1.5 1-1.5 1-3" />
-              <path className="steam-line steam-3" d="M16 6c0-1.5 1-1.5 1-3" />
-              <path d="M17 9H7c0 0 0 6 5 6s5-6 5-6z" />
-              <path d="M17 11h1.5a1.5 1.5 0 0 1 1.5 1.5v0a1.5 1.5 0 0 1-1.5 1.5H17" />
-              <path d="M5 18h14" />
-            </svg>
-          </Link>
+          
         </div>
       </div>
 

@@ -732,7 +732,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ? Image.network(
                                       product.imagePath,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Image.asset(
+                                      errorBuilder: (context, error, stackTrace) => Image.asset(
                                         'assets/images/tea_icon.png',
                                         fit: BoxFit.cover,
                                       ),
@@ -743,7 +743,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         product.imagePath.split(',').last,
                                       ),
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Image.asset(
+                                      errorBuilder: (context, error, stackTrace) => Image.asset(
                                         'assets/images/tea_icon.png',
                                         fit: BoxFit.cover,
                                       ),
@@ -751,7 +751,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   : Image.asset(
                                       product.imagePath,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Image.asset(
+                                      errorBuilder: (context, error, stackTrace) => Image.asset(
                                         'assets/images/tea_icon.png',
                                         fit: BoxFit.cover,
                                       ),

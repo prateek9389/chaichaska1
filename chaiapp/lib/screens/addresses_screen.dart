@@ -118,7 +118,7 @@ class _AddressesScreenState extends State<AddressesScreen> {
                     }
                   }
 
-                  if (mounted) {
+                  if (context.mounted) {
                     Navigator.of(context).pop();
                   }
                 }

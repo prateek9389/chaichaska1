@@ -124,7 +124,7 @@ function CheckoutPortal() {
   const handleUseLocation = () => {
     setLocLoading(true);
     setTimeout(() => {
-      setFullname(profile?.name || user?.displayName || "Royal Tea Aficionado");
+      setFullname(profile?.name || user?.displayName || "Chai Chaska Aficionado");
       setPhone(profile?.phone || "9876543210");
       setPincode("302001");
       setOfficeNo(profile?.floor || "4-C");
@@ -241,63 +241,91 @@ function CheckoutPortal() {
       };
       
       try {
+        if (paymentMethod === "cod") {
+          const codOrderData = {
+            ...orderData,
+            status: "Received",
+            paymentMethod: "Cash on Delivery",
+            paymentStatus: "COD (Pay on Delivery)"
+          };
+          const id = await createOrder(codOrderData);
+          setOrderRef(id);
+          setReceiptData({
+            cartItems: [...cartItems],
+            finalPayable,
+            paymentMethod: "Cash on Delivery"
+          });
+          clearCart();
+          try {
+            const existing = JSON.parse(localStorage.getItem("guest_orders") || "[]");
+            if (!existing.find(o => o.id === id)) {
+              existing.push({ id: id, timestamp: Date.now() });
+              localStorage.setItem("guest_orders", JSON.stringify(existing));
+            }
+          } catch (e) {
+            console.error("Could not save guest order", e);
+          }
+          router.push(`/payment-success?order_id=${id}&type=cod`);
+          return;
+        }
 
           if (paymentMethod === "upi") {
-            try {
-              // Create pending order first to get the unique Order ID
-              const pendingOrderId = await createOrder({ ...orderData, status: "Pending" });
-              
-              const res = await fetch("/api/paytm/initiate-transaction", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  amount: finalPayable,
-                  customerId: user?.uid || `guest_${Date.now()}`,
-                  customerPhone: phone || profile?.phone || "9999999999",
-                  customerEmail: profile?.email || "customer@example.com",
-                  orderId: pendingOrderId
-                })
-              });
-              const data = await res.json();
-              
-              if (data.txnToken) {
-                 if (window.Paytm && window.Paytm.CheckoutJS) {
-                    window.Paytm.CheckoutJS.init({
-                        "root": "",
-                        "flow": "DEFAULT",
-                        "data": {
-                            "orderId": data.orderId,
-                            "token": data.txnToken,
-                            "tokenType": "TXN_TOKEN",
-                            "amount": finalPayable
-                        },
-                        "handler": {
-                            "notifyMerchant": function(eventName, data) {
-                                console.log("notifyMerchant called", eventName, data);
-                            }
-                        }
-                    }).then(function() {
-                        window.Paytm.CheckoutJS.invoke();
-                    }).catch(function(error) {
-                        console.error("Paytm init error", error);
-                        alert("Payment window failed to load.");
-                        setCheckoutStep("payment");
-                    });
-                 } else {
-                    alert("Paytm SDK is still loading or blocked. Please refresh.");
-                    setCheckoutStep("payment");
-                 }
-              } else {
-                 alert("Failed to initialize payment: " + (data.error || "Unknown Error"));
-                 setCheckoutStep("payment");
-              }
-            } catch(err) {
-              console.error(err);
-              alert("Payment initialization failed");
-              setCheckoutStep("payment");
+          try {
+            const tempOrderId = `ID-${Date.now().toString().slice(-6)}`;
+            
+            const res = await fetch("/api/paytm/initiate-transaction", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                amount: finalPayable,
+                customerId: user?.uid || `guest_${Date.now()}`,
+                customerPhone: phone || profile?.phone || "9999999999",
+                customerEmail: profile?.email || "customer@example.com",
+                orderId: tempOrderId
+              })
+            });
+            const data = await res.json();
+            
+            if (data.txnToken) {
+               await createOrder({ ...orderData, orderId: tempOrderId, status: "Pending Payment" });
+
+               if (window.Paytm && window.Paytm.CheckoutJS) {
+                  window.Paytm.CheckoutJS.init({
+                      "root": "",
+                      "flow": "DEFAULT",
+                      "data": {
+                          "orderId": data.orderId,
+                          "token": data.txnToken,
+                          "tokenType": "TXN_TOKEN",
+                          "amount": finalPayable
+                      },
+                      "handler": {
+                          "notifyMerchant": function(eventName, data) {
+                              console.log("notifyMerchant called", eventName, data);
+                          }
+                      }
+                  }).then(function() {
+                      window.Paytm.CheckoutJS.invoke();
+                  }).catch(function(error) {
+                      console.error("Paytm init error", error);
+                      alert("Online payment window failed to load. Please use Cash on Delivery.");
+                      setCheckoutStep("payment");
+                  });
+               } else {
+                  alert("Online payment gateway loading. Please use Cash on Delivery or try again.");
+                  setCheckoutStep("payment");
+               }
+            } else {
+               alert("Online payment is currently unavailable. Please choose Cash on Delivery (COD) to place your order.");
+               setCheckoutStep("payment");
             }
-            return;
+          } catch(err) {
+            console.error(err);
+            alert("Online payment service unavailable. Please choose Cash on Delivery (COD) to place your order.");
+            setCheckoutStep("payment");
           }
+          return;
+        }
 
         const id = await createOrder(orderData);
         
@@ -445,7 +473,7 @@ function CheckoutPortal() {
 
                   <h3 className="card-title" style={{ marginBottom: "20px" }}>Choose Payment Method</h3>
                   
-                  <div className="payment-options-grid">
+                  <div className="payment-options-grid" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                     <label className={`pay-choice-box ${paymentMethod === "upi" ? "selected" : ""}`}>
                       <input
                         type="radio"
@@ -455,8 +483,22 @@ function CheckoutPortal() {
                         onChange={() => setPaymentMethod("upi")}
                       />
                       <div>
-                        <strong>UPI Instant Pay</strong>
-                        <span className="pay-desc">Pay securely via GPay, PhonePe, Paytm, etc.</span>
+                        <strong>?? Online Payment (Paytm / UPI)</strong>
+                        <span className="pay-desc">Pay securely via Paytm, GPay, PhonePe, Cards, etc.</span>
+                      </div>
+                    </label>
+
+                    <label className={`pay-choice-box ${paymentMethod === "cod" ? "selected" : ""}`}>
+                      <input
+                        type="radio"
+                        name="pay"
+                        value="cod"
+                        checked={paymentMethod === "cod"}
+                        onChange={() => setPaymentMethod("cod")}
+                      />
+                      <div>
+                        <strong>?? Cash on Delivery (COD)</strong>
+                        <span className="pay-desc">Pay cash when your fresh chai is delivered to your desk</span>
                       </div>
                     </label>
                   </div>
@@ -466,7 +508,7 @@ function CheckoutPortal() {
                       Back
                     </button>
                     <button onClick={handlePlaceOrder} className="btn-continue-checkout">
-                      Pay & Confirm Order (₹{finalPayable})
+                      {paymentMethod === "cod" ? `Place COD Order (?${finalPayable})` : `Pay & Confirm Order (?${finalPayable})`}
                     </button>
                   </div>
                 </div>

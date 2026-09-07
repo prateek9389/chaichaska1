@@ -9,6 +9,8 @@ import { useCart } from "@/contexts/CartContext";
 import Image from "next/image";
 
 export default function ChaiShowcase() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const router = useRouter();
   const { user } = useAuth();
   const { cartItems, addToCart, removeFromCart, updateQuantity } = useCart();
@@ -38,10 +40,7 @@ export default function ChaiShowcase() {
   };
 
   const handleAddToCart = (tea) => {
-    if (!user) {
-      router.push(`/login?redirect=/product/${tea.id}`);
-      return;
-    }
+    
     
     addToCart({
       id: tea.id,
@@ -210,7 +209,7 @@ export default function ChaiShowcase() {
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
           <h3 style={{ fontSize: "20px", fontWeight: 700, color: "#111111" }}>
-            Your Cart ({cartItems.reduce((acc, item) => acc + item.quantity, 0)})
+            Your Cart ({mounted ? cartItems.reduce((acc, item) => acc + item.quantity, 0) : 0})
           </h3>
           <button
             onClick={() => setIsCartOpen(false)}
