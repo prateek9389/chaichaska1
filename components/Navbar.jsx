@@ -41,223 +41,224 @@ export default function Navbar() {
   return (
     <>
       <header
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 50,
-        background: scrolled ? "#f5f0e8" : "rgba(245, 240, 232, 0.85)",
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
-        borderBottom: "1px solid rgba(0, 0, 0, 0.06)",
-        transition: "all 0.4s ease",
-      }}
-    >
-      <nav
+        className="navbar-header"
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          height: 90,
-          padding: "0 20px",
-          maxWidth: "1180px",
-          margin: "0 auto",
+          position: "sticky",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+          background: scrolled ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.9)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+          borderBottom: "1px solid rgba(0, 0, 0, 0.06)",
+          boxShadow: scrolled ? "0 4px 20px -2px rgba(0, 0, 0, 0.04)" : "none",
+          transition: "all 0.3s ease",
         }}
-        className="nav-container"
       >
-        <Link
-          href="/shop"
+        <nav
           style={{
             display: "flex",
             alignItems: "center",
-            textDecoration: "none",
+            justifyContent: "space-between",
+            height: 80,
+            padding: "0 24px",
+            maxWidth: "1380px",
+            margin: "0 auto",
           }}
+          className="nav-container"
         >
-          <Image src="/logo.png" alt="Chai Chaska Logo" width={75} height={75} style={{ objectFit: "contain", borderRadius: "50%" }} />
-        </Link>
-
-        <ul
-          className="nav-links"
-          style={{
-            display: "flex",
-            gap: 24,
-            listStyle: "none",
-            fontSize: 14,
-            fontWeight: 600,
-            color: "#2c1b0d",
-            padding: 0,
-            margin: 0,
-          }}
-        >
-          {links.map((l) => (
-            <li key={l}>
-              <Link
-                href={getLinkTarget(l)}
-                style={{
-                  opacity: 0.85,
-                  transition: "opacity 0.2s",
-                  textDecoration: "none",
-                  color: "inherit",
-                }}
-                onMouseEnter={(e) => (e.target.style.opacity = 1)}
-                onMouseLeave={(e) => (e.target.style.opacity = 0.85)}
-              >
-                {l}
-              </Link>
-            </li>
-          ))}
-        </ul>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-
-
-          {/* Cart Button */}
           <Link
-            href="/cart"
+            href="/shop"
             style={{
-              position: "relative",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
-              background: "#2c1b0d",
-              color: "#ffffff",
-              width: "42px",
-              height: "42px",
-              borderRadius: "50%",
               textDecoration: "none",
-              transition: "transform 0.2s ease, opacity 0.2s ease",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-            title="View Cart"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="9" cy="21" r="1"></circle>
-              <circle cx="20" cy="21" r="1"></circle>
-              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
-            </svg>
-            {mounted && cartItems && cartItems.length > 0 && (
-              <span style={{
-                position: "absolute",
-                top: "-4px",
-                right: "-4px",
-                background: "#e74c3c",
-                color: "#fff",
-                fontSize: "11px",
-                fontWeight: 800,
-                width: "18px",
-                height: "18px",
+            <Image src="/logo.png" alt="Chai Chaska Logo" width={75} height={75} style={{ objectFit: "contain", borderRadius: "50%" }} />
+          </Link>
+
+          <ul
+            className="nav-links"
+            style={{
+              display: "flex",
+              gap: 24,
+              listStyle: "none",
+              fontSize: 14,
+              fontWeight: 600,
+              color: "#2c1b0d",
+              padding: 0,
+              margin: 0,
+            }}
+          >
+            {links.map((l) => (
+              <li key={l}>
+                <Link
+                  href={getLinkTarget(l)}
+                  style={{
+                    opacity: 0.85,
+                    transition: "opacity 0.2s",
+                    textDecoration: "none",
+                    color: "inherit",
+                  }}
+                  onMouseEnter={(e) => (e.target.style.opacity = 1)}
+                  onMouseLeave={(e) => (e.target.style.opacity = 0.85)}
+                >
+                  {l}
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            {/* Cart Button */}
+            <Link
+              href="/cart"
+              style={{
+                position: "relative",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                background: "#2c1b0d",
+                color: "#ffffff",
+                width: "42px",
+                height: "42px",
                 borderRadius: "50%",
-                border: "2px solid #fff",
-              }}>
-                {cartItems.reduce((acc, i) => acc + i.quantity, 0)}
-              </span>
-            )}
-          </Link>
-
-          {/* Auth Button */}
-          {user ? (
-            <div className="user-auth-btn" style={{ position: "relative" }}>
-              <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                style={{
+                textDecoration: "none",
+                transition: "transform 0.2s ease, opacity 0.2s ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.05)")}
+              onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+              title="View Cart"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="21" r="1"></circle>
+                <circle cx="20" cy="21" r="1"></circle>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+              </svg>
+              {mounted && cartItems && cartItems.length > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: "-4px",
+                  right: "-4px",
+                  background: "#e74c3c",
+                  color: "#fff",
+                  fontSize: "11px",
+                  fontWeight: 800,
+                  width: "18px",
+                  height: "18px",
                   display: "flex",
                   alignItems: "center",
-                  gap: "8px",
+                  justifyContent: "center",
+                  borderRadius: "50%",
+                  border: "2px solid #fff",
+                }}>
+                  {cartItems.reduce((acc, i) => acc + i.quantity, 0)}
+                </span>
+              )}
+            </Link>
+
+            {/* Auth Button */}
+            {user ? (
+              <div className="user-auth-btn" style={{ position: "relative" }}>
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    background: "#f5f0e8",
+                    border: "1.5px solid rgba(44,27,13,0.15)",
+                    padding: "7px 14px 7px 8px",
+                    borderRadius: "999px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#2c1b0d",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  <span style={{
+                    width: 28, height: 28, borderRadius: "50%",
+                    background: "linear-gradient(135deg, #8a3a00, #c05a00)",
+                    color: "#fff", display: "flex", alignItems: "center",
+                    justifyContent: "center", fontSize: "12px", fontWeight: 800,
+                    flexShrink: 0,
+                  }}>
+                    {(user.displayName || user.email || "U")[0].toUpperCase()}
+                  </span>
+                </button>
+                {userMenuOpen && (
+                  <div style={{
+                    position: "absolute", top: "calc(100% + 8px)", right: 0,
+                    background: "#fff", borderRadius: "14px", padding: "8px",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                    minWidth: "160px", zIndex: 999,
+                    border: "1px solid rgba(0,0,0,0.06)",
+                  }}>
+                    <Link href="/orders" onClick={() => setUserMenuOpen(false)} style={{
+                      display: "block", padding: "10px 14px", fontSize: "13px",
+                      fontWeight: 600, color: "#2c1b0d", textDecoration: "none",
+                      borderRadius: "8px",
+                    }}>📦 My Orders</Link>
+                    <button onClick={handleSignOut} style={{
+                      display: "block", width: "100%", textAlign: "left",
+                      padding: "10px 14px", fontSize: "13px", fontWeight: 600,
+                      color: "#e74c3c", background: "none", border: "none",
+                      cursor: "pointer", borderRadius: "8px", fontFamily: "inherit",
+                    }}>🚪 Sign Out</button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Link
+                href="/login"
+                className="user-auth-btn"
+                style={{
                   background: "#f5f0e8",
                   border: "1.5px solid rgba(44,27,13,0.15)",
-                  padding: "7px 14px 7px 8px",
+                  padding: "9px 18px",
                   borderRadius: "999px",
                   fontSize: "13px",
                   fontWeight: 700,
                   color: "#2c1b0d",
-                  cursor: "pointer",
-                  fontFamily: "inherit",
+                  textDecoration: "none",
+                  transition: "background 0.2s",
                 }}
               >
-                <span style={{
-                  width: 28, height: 28, borderRadius: "50%",
-                  background: "linear-gradient(135deg, #8a3a00, #c05a00)",
-                  color: "#fff", display: "flex", alignItems: "center",
-                  justifyContent: "center", fontSize: "12px", fontWeight: 800,
-                  flexShrink: 0,
-                }}>
-                  {(user.displayName || user.email || "U")[0].toUpperCase()}
-                </span>
-              </button>
-              {userMenuOpen && (
-                <div style={{
-                  position: "absolute", top: "calc(100% + 8px)", right: 0,
-                  background: "#fff", borderRadius: "14px", padding: "8px",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-                  minWidth: "160px", zIndex: 999,
-                  border: "1px solid rgba(0,0,0,0.06)",
-                }}>
-                  <Link href="/orders" onClick={() => setUserMenuOpen(false)} style={{
-                    display: "block", padding: "10px 14px", fontSize: "13px",
-                    fontWeight: 600, color: "#2c1b0d", textDecoration: "none",
-                    borderRadius: "8px",
-                  }}>📦 My Orders</Link>
-                  <button onClick={handleSignOut} style={{
-                    display: "block", width: "100%", textAlign: "left",
-                    padding: "10px 14px", fontSize: "13px", fontWeight: 600,
-                    color: "#e74c3c", background: "none", border: "none",
-                    cursor: "pointer", borderRadius: "8px", fontFamily: "inherit",
-                  }}>🚪 Sign Out</button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <Link
-              href="/login"
-              className="user-auth-btn"
+                Sign In
+              </Link>
+            )}
+            
+            <button
+              aria-label="Menu"
+              onClick={() => setOpen(!open)}
+              className="burger"
               style={{
-                background: "#f5f0e8",
-                border: "1.5px solid rgba(44,27,13,0.15)",
-                padding: "9px 18px",
-                borderRadius: "999px",
-                fontSize: "13px",
-                fontWeight: 700,
-                color: "#2c1b0d",
-                textDecoration: "none",
-                transition: "background 0.2s",
+                display: "none",
+                width: 40,
+                height: 40,
+                alignItems: "center",
+                justifyContent: "center",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
               }}
             >
-              Sign In
-            </Link>
-          )}
-          
-          <button
-            aria-label="Menu"
-            onClick={() => setOpen(!open)}
-            className="burger"
-            style={{
-              display: "none",
-              width: 40,
-              height: 40,
-              alignItems: "center",
-              justifyContent: "center",
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            <svg width="22" height="16" viewBox="0 0 22 16">
-              <rect width="22" height="2" fill="#2c1b0d" />
-              <rect y="7" width="22" height="2" fill="#2c1b0d" />
-              <rect y="14" width="22" height="2" fill="#2c1b0d" />
-            </svg>
-          </button>
-        </div>
-      </nav>
+              <svg width="22" height="16" viewBox="0 0 22 16">
+                <rect width="22" height="2" fill="#2c1b0d" />
+                <rect y="7" width="22" height="2" fill="#2c1b0d" />
+                <rect y="14" width="22" height="2" fill="#2c1b0d" />
+              </svg>
+            </button>
+          </div>
+        </nav>
       </header>
 
       {/* Mobile Navigation Drawer Backdrop */}
       <div
+        className="mobile-menu-overlay"
         onClick={() => setOpen(false)}
         style={{
           position: "fixed",
@@ -272,6 +273,7 @@ export default function Navbar() {
 
       {/* Mobile Navigation Drawer Panel */}
       <div
+        className="mobile-menu-drawer"
         style={{
           position: "fixed",
           top: 0,
@@ -332,8 +334,6 @@ export default function Navbar() {
         </ul>
         
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: "12px" }}>
-
-
           {user ? (
             <>
               <Link href="/orders" onClick={() => setOpen(false)} style={{
@@ -357,17 +357,24 @@ export default function Navbar() {
               Sign In
             </Link>
           )}
-
-          
         </div>
       </div>
 
       <style>{`
-        @media (max-width: 860px) {
+        @media (max-width: 768px) {
+          header.navbar-header,
+          .navbar-header,
+          .mobile-menu-drawer,
+          .mobile-menu-overlay {
+            display: none !important;
+          }
+        }
+        @media (min-width: 769px) and (max-width: 860px) {
           .nav-links { display: none !important; }
           .nav-buy-btn { display: none !important; }
           .user-auth-btn { display: none !important; }
           .burger { display: flex !important; }
+          .nav-container { padding: 0 16px !important; }
         }
         @media (min-width: 861px) {
           .nav-container { padding: 0 40px !important; }

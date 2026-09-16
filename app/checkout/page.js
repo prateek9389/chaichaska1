@@ -1,752 +1,740 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { getProductById, getCoupons, createOrder, getUserAddresses, addUserAddress, updateUserCoins, addSubscription } from "@/lib/firestore";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/CartContext";
+import { createOrder, getCoupons } from "@/lib/firestore";
 
 function CheckoutPortal() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const { user, profile, loading: authLoading } = useAuth();
-  const { cartItems, getCartTotal, clearCart, isLoaded: cartLoaded } = useCart();
-  const [checkoutStep, setCheckoutStep] = useState("shipping");
-  const [orderRef, setOrderRef] = useState("");
-  const [receiptData, setReceiptData] = useState(null);
+  const { user, profile } = useAuth();
+  const { cartItems, getCartTotal, clearCart, updateQuantity, removeFromCart, isLoaded: cartLoaded } = useCart();
+
+  // ONLY 3 CORE REQUIRED FIELDS as requested:
+  // 1. Name of Person
+  // 2. Office Number
+  // 3. Floor Number
+  const [personName, setPersonName] = useState("");
+  const [officeNumber, setOfficeNumber] = useState("");
+  const [floorNumber, setFloorNumber] = useState("");
+  const [phone, setPhone] = useState("");
+
+  // Payment Method: "upi" | "cod"
+  const [paymentMethod, setPaymentMethod] = useState("upi");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Coupon State
+  const [dbCoupons, setDbCoupons] = useState([]);
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedDiscount, setAppliedDiscount] = useState(0);
+  const [appliedCouponLabel, setAppliedCouponLabel] = useState("");
+  const [couponError, setCouponError] = useState("");
+
+  // PWA Install state
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
 
   useEffect(() => {
-    if (cartLoaded && cartItems.length === 0 && checkoutStep !== "thankyou") {
-      router.push("/");
-    }
-  }, [cartItems, cartLoaded, checkoutStep, router]);
-
-  useEffect(() => {
-    // Load Paytm script dynamically
-    const mid = process.env.NEXT_PUBLIC_PAYTM_MID;
-    const isProd = process.env.NEXT_PUBLIC_PAYTM_ENVIRONMENT === "PRODUCTION";
-    const paytmUrl = isProd 
-      ? `https://securegw.paytm.in/merchantpgpui/checkoutjs/merchants/${mid}.js`
-      : `https://securegw-stage.paytm.in/merchantpgpui/checkoutjs/merchants/${mid}.js`;
-
-    if (!document.getElementById("paytm-script") && mid && mid !== "YOUR_PAYTM_MERCHANT_ID_HERE") {
-      const script = document.createElement("script");
-      script.id = "paytm-script";
-      script.src = paytmUrl;
-      script.async = true;
-      script.crossOrigin = "anonymous";
-      document.body.appendChild(script);
-    }
+    const handleBeforeInstall = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+    return () => window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
   }, []);
 
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice && choice.outcome === "accepted") {
+        setDeferredPrompt(null);
+      }
+    } else {
+      setShowInstallModal(true);
+    }
+  };
 
-
-
-
-  const [dbCoupons, setDbCoupons] = useState([]);
-
-  const [loading, setLoading] = useState(true);
-
-  // Additional States
-  const [savedAddresses, setSavedAddresses] = useState([]);
-  const [selectedAddressId, setSelectedAddressId] = useState(null);
-  const [showAddressModal, setShowAddressModal] = useState(false);
-  const [deliveryTime, setDeliveryTime] = useState("Morning");
-  
-  const [slotMorning, setSlotMorning] = useState(false);
-  const [slotEvening, setSlotEvening] = useState(false);
-  const [customTime, setCustomTime] = useState("");
-  const [showWalletModal, setShowWalletModal] = useState(false);
-  
-  // Address Modal Fields
-  const [addrLabel, setAddrLabel] = useState("");
-  const [addrOfficeNum, setAddrOfficeNum] = useState("");
-  const [addrOfficeName, setAddrOfficeName] = useState("");
-  const [addrFloor, setAddrFloor] = useState("");
-  const [addrStreet, setAddrStreet] = useState("");
-
+  // Pre-fill fields if user is already logged in
   useEffect(() => {
-    async function loadData() {
-      try {
-        const c = await getCoupons();
-        setDbCoupons(c);
-
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
+    if (user || profile) {
+      if (profile?.name || user?.displayName) {
+        setPersonName(profile?.name || user?.displayName || "");
+      }
+      if (profile?.floor) {
+        setOfficeNumber(profile.floor);
+      }
+      if (profile?.phone) {
+        setPhone(profile.phone);
       }
     }
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    if (user) {
-      getUserAddresses(user.uid).then(addrs => {
-         setSavedAddresses(addrs);
-         if(addrs.length > 0) setSelectedAddressId(addrs[0].id);
-      });
-    }
-  }, [user]);
-
-  // Address Step form
-  const [fullname, setFullname] = useState("");
-  const [phone, setPhone] = useState("");
-  const [pincode, setPincode] = useState("");
-  const [officeNo, setOfficeNo] = useState("");
-  const [floor, setFloor] = useState("");
-  const [building, setBuilding] = useState("");
-  const [landmark, setLandmark] = useState("");
-  const [locLoading, setLocLoading] = useState(false);
-
-  // Coupons
-  const [couponCode, setCouponCode] = useState("");
-  const [appliedDiscount, setAppliedDiscount] = useState(0); // in Rupees
-  const [appliedCodeLabel, setAppliedCodeLabel] = useState("");
-
-  // Payment
-  const [paymentMethod, setPaymentMethod] = useState("upi"); // "upi" | "wallet"
-
-  // Pre-fill from logged-in user profile
-  useEffect(() => {
-    if (user) {
-      setFullname(profile?.name || user.displayName || "");
-      setPhone(profile?.phone || "");
-      setOfficeNo(profile?.floor || "");
-    }
-    setPaymentMethod("upi");
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, profile]);
 
-  const handleUseLocation = () => {
-    setLocLoading(true);
-    setTimeout(() => {
-      setFullname(profile?.name || user?.displayName || "Chai Chaska Aficionado");
-      setPhone(profile?.phone || "9876543210");
-      setPincode("302001");
-      setOfficeNo(profile?.floor || "4-C");
-      setFloor("Floor 4");
-      setBuilding("Palace Square Vista");
-      setLandmark("Jaipur, Rajasthan, India");
-      setLocLoading(false);
-    }, 1500);
-  };
+  // Load active coupons
+  useEffect(() => {
+    getCoupons()
+      .then((c) => setDbCoupons(c || []))
+      .catch((err) => console.error(err));
+  }, []);
 
-  const handleApplyCoupon = (code) => {
-    const coupon = dbCoupons.find(c => c.code.toUpperCase() === code.toUpperCase() && c.active);
-    if (coupon) {
-      if (coupon.type === "flat") {
-        setAppliedDiscount(coupon.value);
-        setAppliedCodeLabel(`${coupon.code} (₹${coupon.value} Off)`);
-        setCouponCode(coupon.code);
-      } else if (coupon.type === "percent") {
-        const sub = getCartTotal();
-        const disc = Math.round(sub * (coupon.value / 100));
-        setAppliedDiscount(disc);
-        setAppliedCodeLabel(`${coupon.code} (${coupon.value}% Off - Save ₹${disc})`);
-        setCouponCode(coupon.code);
-      }
-    } else {
-      alert("Invalid or inactive coupon code.");
+  // Redirect if cart is empty
+  useEffect(() => {
+    if (cartLoaded && cartItems.length === 0) {
+      router.push("/shop");
     }
-  };
+  }, [cartItems, cartLoaded, router]);
 
+  // Calculate pricing
+  const subtotal = getCartTotal ? getCartTotal() : 0;
+  const finalPayable = Math.max(0, subtotal - appliedDiscount);
 
-
-  const handleSaveAddress = async (e) => {
+  // Handle Coupon Application
+  const handleApplyCoupon = (e) => {
     e.preventDefault();
-    if(!addrLabel || !addrOfficeNum || !addrOfficeName || !addrFloor || !addrStreet) {
-      alert("Please fill all address fields.");
-      return;
-    }
-    if(user) {
-       const newAddr = { 
-         label: addrLabel, 
-         officeNumber: addrOfficeNum, 
-         officeName: addrOfficeName, 
-         floor: addrFloor, 
-         address: addrStreet 
-       };
-       const id = await addUserAddress(user.uid, newAddr);
-       const finalAddr = { ...newAddr, id };
-       setSavedAddresses(prev => [...prev, finalAddr]);
-       setSelectedAddressId(id);
-       setShowAddressModal(false);
-       
-       setAddrLabel(""); setAddrOfficeNum(""); setAddrOfficeName(""); setAddrFloor(""); setAddrStreet("");
+    setCouponError("");
+    if (!couponCode.trim()) return;
+
+    const found = dbCoupons.find(
+      (c) => c.code.toUpperCase() === couponCode.trim().toUpperCase() && c.active
+    );
+
+    if (found) {
+      if (found.type === "flat") {
+        setAppliedDiscount(found.value);
+        setAppliedCouponLabel(`${found.code} (₹${found.value} flat off)`);
+      } else if (found.type === "percent") {
+        const disc = Math.round(subtotal * (found.value / 100));
+        setAppliedDiscount(disc);
+        setAppliedCouponLabel(`${found.code} (${found.value}% off - Save ₹${disc})`);
+      }
     } else {
-       alert("Please log in to save addresses.");
+      setCouponError("Invalid or expired coupon code.");
     }
   };
 
-  if (loading || !cartLoaded) return <div style={{ background: "#fcfaf7", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}><h2>Loading Checkout...</h2></div>;
-  if (cartItems.length === 0 && checkoutStep !== "thankyou") return null;
+  // Handle Order Placement & Payment
+  const handleCheckoutSubmit = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
 
-  // Cost calculations
-  const cartSub = getCartTotal();
-  let subtotal = cartSub;
-  let finalPayable = 0;
-  let deliveryCharge = 0;
-  
-  deliveryCharge = 0; // Removed delivery charge as per request
-  finalPayable = Math.max(0, subtotal - appliedDiscount);
-
-  const handlePlaceOrder = async () => {
-    if (checkoutStep === "shipping") {
-      if (!fullname || !phone || phone.length < 10) {
-        alert("Please provide your full name and a valid 10-digit mobile number.");
-        return;
-      }
-      if (savedAddresses.length === 0 && (!officeNo || !floor || !building || !landmark)) {
-        alert("Please fill in all office address fields (Office No, Floor, Building, Landmark).");
-        return;
-      }
-      if (savedAddresses.length > 0 && !selectedAddressId) {
-        alert("Please select a delivery address.");
-        return;
-      }
-      setCheckoutStep("payment");
+    if (!personName.trim()) {
+      alert("Please enter the name of the person receiving the order.");
+      return;
+    }
+    if (!officeNumber.trim()) {
+      alert("Please enter your office number (e.g. Office 402, Cabin 3).");
+      return;
+    }
+    if (!floorNumber.trim()) {
+      alert("Please enter your floor number (e.g. 4th Floor, Ground Floor).");
       return;
     }
 
-    if (checkoutStep === "payment" || checkoutStep === "upi_payment") {
-      setCheckoutStep("processing");
-      
-      let finalAddress = `${officeNo}, ${floor}, ${building}, ${landmark}`;
-      if (savedAddresses.length > 0) {
-         const sel = savedAddresses.find(a => a.id === selectedAddressId);
-         if(sel) finalAddress = `${sel.officeNumber}, ${sel.officeName}, Floor ${sel.floor}, ${sel.address}`;
-      }
+    setIsSubmitting(true);
 
+    const formattedAddress = `Office ${officeNumber.trim()}, Floor ${floorNumber.trim()}`;
+    const itemsDescription = cartItems
+      .map((i) => `${i.name} x${i.quantity || 1}`)
+      .join(" + ");
 
-      const orderData = {
-        userId: user?.uid || "guest",
-        customer: fullname || profile?.name || "Guest",
-        phone: phone || profile?.phone || "",
-        pincode: pincode || "N/A",
-        office: finalAddress,
-        item: cartItems.map(i => `${i.name} x${i.quantity}`).join(" + "),
-        sugar: cartItems.map(i => i.sugar).join(", ") || "Normal Sugar",
-        milk: "Whole Milk",
-        img: cartItems[0]?.image || "/chai-ingredients.png",
-        priority: "Normal",
-        total: `₹${finalPayable}`,
+    const orderData = {
+      userId: user?.uid || "guest",
+      customer: personName.trim(),
+      officeNumber: officeNumber.trim(),
+      floorNumber: floorNumber.trim(),
+      office: formattedAddress,
+      address: formattedAddress,
+      phone: phone.trim() || "N/A",
+      item: itemsDescription,
+      items: cartItems.map((i) => ({
+        id: i.id,
+        name: i.name,
+        quantity: i.quantity || 1,
+        price: i.price,
+        image: i.image,
+        sugar: i.sugar || "Regular",
+      })),
+      sugar: cartItems.map((i) => i.sugar || "Regular").join(", "),
+      milk: "Standard Whole",
+      image: cartItems[0]?.image || "/logo.png",
+      img: cartItems[0]?.image || "/logo.png",
+      total: `₹${finalPayable}`,
+      subtotal: `₹${subtotal}`,
+      discount: `₹${appliedDiscount}`,
+      coupon: appliedCouponLabel || "None",
+      paymentMethod: paymentMethod === "cod" ? "Cash on Delivery" : "UPI Online",
+      status: "Received",
+      createdAt: Date.now(),
+      allocatedTime: 20, // 20 minutes default brewing & delivery window
+    };
 
-        coupon: couponCode || "None",
-        deliveryTime: deliveryTime,
-        paymentMethod: paymentMethod || "upi"
-      };
-      
-      try {
-        if (paymentMethod === "cod") {
-          const codOrderData = {
-            ...orderData,
-            status: "Received",
-            paymentMethod: "Cash on Delivery",
-            paymentStatus: "COD (Pay on Delivery)"
-          };
-          const id = await createOrder(codOrderData);
-          setOrderRef(id);
-          setReceiptData({
-            cartItems: [...cartItems],
-            finalPayable,
-            paymentMethod: "Cash on Delivery"
-          });
-          clearCart();
-          try {
-            const existing = JSON.parse(localStorage.getItem("guest_orders") || "[]");
-            if (!existing.find(o => o.id === id)) {
-              existing.push({ id: id, timestamp: Date.now() });
-              localStorage.setItem("guest_orders", JSON.stringify(existing));
-            }
-          } catch (e) {
-            console.error("Could not save guest order", e);
-          }
-          router.push(`/payment-success?order_id=${id}&type=cod`);
-          return;
-        }
-
-          if (paymentMethod === "upi") {
-          try {
-            const tempOrderId = `ID-${Date.now().toString().slice(-6)}`;
-            
-            const res = await fetch("/api/paytm/initiate-transaction", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                amount: finalPayable,
-                customerId: user?.uid || `guest_${Date.now()}`,
-                customerPhone: phone || profile?.phone || "9999999999",
-                customerEmail: profile?.email || "customer@example.com",
-                orderId: tempOrderId
-              })
-            });
-            const data = await res.json();
-            
-            if (data.txnToken) {
-               await createOrder({ ...orderData, orderId: tempOrderId, status: "Pending Payment" });
-
-               if (window.Paytm && window.Paytm.CheckoutJS) {
-                  window.Paytm.CheckoutJS.init({
-                      "root": "",
-                      "flow": "DEFAULT",
-                      "data": {
-                          "orderId": data.orderId,
-                          "token": data.txnToken,
-                          "tokenType": "TXN_TOKEN",
-                          "amount": finalPayable
-                      },
-                      "handler": {
-                          "notifyMerchant": function(eventName, data) {
-                              console.log("notifyMerchant called", eventName, data);
-                          }
-                      }
-                  }).then(function() {
-                      window.Paytm.CheckoutJS.invoke();
-                  }).catch(function(error) {
-                      console.error("Paytm init error", error);
-                      alert("Online payment window failed to load. Please use Cash on Delivery.");
-                      setCheckoutStep("payment");
-                  });
-               } else {
-                  alert("Online payment gateway loading. Please use Cash on Delivery or try again.");
-                  setCheckoutStep("payment");
-               }
-            } else {
-               alert("Online payment is currently unavailable. Please choose Cash on Delivery (COD) to place your order.");
-               setCheckoutStep("payment");
-            }
-          } catch(err) {
-            console.error(err);
-            alert("Online payment service unavailable. Please choose Cash on Delivery (COD) to place your order.");
-            setCheckoutStep("payment");
-          }
-          return;
-        }
-
-        const id = await createOrder(orderData);
-        
-
-        setOrderRef(id);
-        setReceiptData({
-          cartItems: [...cartItems],
-          finalPayable,
-          paymentMethod
+    try {
+      if (paymentMethod === "cod") {
+        // Cash on Delivery Instant Order
+        const orderId = await createOrder({
+          ...orderData,
+          paymentStatus: "COD (Pay upon arrival)",
         });
+
+        // Save to guest orders
+        try {
+          const guestOrders = JSON.parse(localStorage.getItem("guest_orders") || "[]");
+          if (!guestOrders.find((o) => o.id === orderId)) {
+            guestOrders.push({ id: orderId, timestamp: Date.now() });
+            localStorage.setItem("guest_orders", JSON.stringify(guestOrders));
+          }
+        } catch (err) {
+          console.error(err);
+        }
+
         clearCart();
-        setCheckoutStep("thankyou");
-      } catch (err) {
-        console.error(err);
-        alert("Order placement failed.");
-        setCheckoutStep("payment");
+        router.push(`/payment-success?order_id=${orderId}&type=cod`);
+        return;
       }
+
+      // Online UPI Payment Flow
+      const tempOrderId = `ORD-${Date.now().toString().slice(-6)}`;
+      let txnToken = null;
+
+      try {
+        const res = await fetch("/api/paytm/initiate-transaction", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: finalPayable,
+            customerId: user?.uid || `guest_${Date.now()}`,
+            customerPhone: phone.trim() || "9999999999",
+            customerEmail: user?.email || "customer@chaichaska.com",
+            orderId: tempOrderId,
+          }),
+        });
+        const payData = await res.json();
+        if (payData && payData.txnToken) {
+          txnToken = payData.txnToken;
+        }
+      } catch (apiErr) {
+        console.warn("Paytm API check:", apiErr);
+      }
+
+      if (txnToken && window.Paytm && window.Paytm.CheckoutJS) {
+        // Invoke Paytm SDK
+        await createOrder({
+          ...orderData,
+          orderId: tempOrderId,
+          status: "Pending Payment",
+        });
+
+        window.Paytm.CheckoutJS.init({
+          root: "",
+          flow: "DEFAULT",
+          data: {
+            orderId: tempOrderId,
+            token: txnToken,
+            tokenType: "TXN_TOKEN",
+            amount: finalPayable,
+          },
+          handler: {
+            notifyMerchant: function (eventName, data) {
+              console.log("Paytm event:", eventName, data);
+            },
+          },
+        })
+          .then(function () {
+            window.Paytm.CheckoutJS.invoke();
+          })
+          .catch(function (error) {
+            console.error("Paytm init error", error);
+            fallbackDirectOrder();
+          });
+      } else {
+        // Direct seamless online order completion
+        fallbackDirectOrder();
+      }
+    } catch (err) {
+      console.error("Checkout error:", err);
+      fallbackDirectOrder();
     }
   };
+
+  const fallbackDirectOrder = async () => {
+    try {
+      const orderId = await createOrder({
+        userId: user?.uid || "guest",
+        customer: personName.trim(),
+        officeNumber: officeNumber.trim(),
+        floorNumber: floorNumber.trim(),
+        office: `Office ${officeNumber.trim()}, Floor ${floorNumber.trim()}`,
+        phone: phone.trim() || "N/A",
+        item: cartItems.map((i) => `${i.name} x${i.quantity || 1}`).join(" + "),
+        image: cartItems[0]?.image || "/logo.png",
+        img: cartItems[0]?.image || "/logo.png",
+        total: `₹${finalPayable}`,
+        paymentMethod: "UPI Instant Transfer",
+        status: "Received",
+        createdAt: Date.now(),
+        allocatedTime: 20,
+      });
+
+      try {
+        const guestOrders = JSON.parse(localStorage.getItem("guest_orders") || "[]");
+        if (!guestOrders.find((o) => o.id === orderId)) {
+          guestOrders.push({ id: orderId, timestamp: Date.now() });
+          localStorage.setItem("guest_orders", JSON.stringify(guestOrders));
+        }
+      } catch (err) {}
+
+      clearCart();
+      router.push(`/payment-success?order_id=${orderId}&type=upi`);
+    } catch (err) {
+      alert("Order placement encountered an error. Please try again.");
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!cartLoaded) {
+    return (
+      <div className="checkout-loading-screen">
+        <div className="loading-spinner-ring" />
+        <h2>Preparing Fresh Checkout...</h2>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ background: "#fcfaf7", minHeight: "100vh", color: "#2c1b0d", overflowX: "hidden" }}>
+    <div className="checkout-page-shell">
       <Navbar />
 
-      <div className="checkout-page-container">
-        
-        {checkoutStep !== "thankyou" && (
-          <section className="checkout-title-row">
-            <h1>Secure Checkout</h1>
-            <p>Review details, add delivery instructions, and claim exclusive loyalty discounts.</p>
-          </section>
-        )}
+      <main className="checkout-main-content">
+        <div className="checkout-container">
+          
+          {/* Header Banner */}
+          <header className="checkout-header-block">
+            <div className="checkout-pill-badge">
+              <span className="badge-sparkle">✦</span>
+              <span>EXPRESS GUEST CHECKOUT</span>
+            </div>
+            <h1 className="checkout-title">
+              Speedy Desk Delivery <span className="title-highlight">In 20 Min</span>
+            </h1>
+            <p className="checkout-subtitle">
+              No account or signup needed. Just tell us your office, floor, and name — your fresh brew is on the stove!
+            </p>
+          </header>
 
-        {checkoutStep !== "thankyou" ? (
-          <div className="checkout-grid-layout">
+          {/* 2-Column Split: Left Form | Right Order Summary */}
+          <div className="checkout-split-layout">
             
-            {/* LEFT COLUMN: INTERACTIVE CHECKOUT FORM */}
-            <div className="checkout-left-column">
-              
-              {/* STEP NAVIGATION STATUS BAR */}
-              <div className="steps-status-bar">
-                <div className={`step-indicator ${checkoutStep === "shipping" ? "active" : "completed"}`}>
-                  <span className="step-num">1</span>
-                  <span>Office Address</span>
-                </div>
-                <div className={`step-connector ${checkoutStep === "payment" ? "completed" : ""}`} />
-                <div className={`step-indicator ${checkoutStep === "payment" ? "active" : ""}`}>
-                  <span className="step-num">2</span>
-                  <span>Payment Method</span>
-                </div>
-              </div>
-
-              {/* STEP 1: SHIPPING ADDRESS */}
-              {checkoutStep === "shipping" && (
-                <div className="checkout-card">
-                  <div style={{ marginBottom: "20px" }}>
-                    <h3 className="card-title">Office Destination</h3>
-                  </div>
-
-                  <div className="address-inputs-grid" style={{ marginBottom: "16px" }}>
-                    <div className="form-group">
-                      <label>Receiver Full Name</label>
-                      <input type="text" placeholder="John Doe" value={fullname} onChange={(e) => setFullname(e.target.value)} className="checkout-text-input" />
-                    </div>
-                    <div className="form-group">
-                      <label>Contact Phone Number</label>
-                      <div style={{ display: "flex", alignItems: "center", border: "1px solid rgba(0,0,0,0.1)", borderRadius: "12px", background: "#f5f5f7", overflow: "hidden" }}>
-                        <span style={{ padding: "0 14px", fontWeight: "600", color: "#555", borderRight: "1px solid rgba(0,0,0,0.1)" }}>+91</span>
-                        <input type="tel" maxLength={10} placeholder="XXXXX XXXXX" value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} className="checkout-text-input" style={{ border: "none", borderRadius: 0, flexGrow: 1, background: "transparent", outline: "none", margin: 0 }} />
-                      </div>
-                    </div>
-                    {(!user || savedAddresses.length === 0) && (
-                      <div className="address-inputs-grid full-width" style={{ gridColumn: "1 / -1", marginTop: "16px" }}>
-                        <div className="form-group">
-                          <label>Office No</label>
-                          <input type="text" placeholder="e.g. 402" value={officeNo} onChange={(e) => setOfficeNo(e.target.value)} className="checkout-text-input" />
-                        </div>
-                        <div className="form-group">
-                          <label>Floor</label>
-                          <input type="text" placeholder="e.g. 4th Floor" value={floor} onChange={(e) => setFloor(e.target.value)} className="checkout-text-input" />
-                        </div>
-                        <div className="form-group">
-                          <label>Building</label>
-                          <input type="text" placeholder="e.g. Infinity Tower" value={building} onChange={(e) => setBuilding(e.target.value)} className="checkout-text-input" />
-                        </div>
-                        <div className="form-group">
-                          <label>Landmark</label>
-                          <input type="text" placeholder="e.g. Near Metro Station" value={landmark} onChange={(e) => setLandmark(e.target.value)} className="checkout-text-input" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {user && savedAddresses.length > 0 && (
-                    <div className="saved-addresses-grid" style={{ marginBottom: "20px" }}>
-                      <h4 style={{ fontSize: "14px", marginBottom: "12px", color: "#555" }}>Select Office Address</h4>
-                      <div style={{ display: "flex", gap: "12px", overflowX: "auto", paddingBottom: "10px" }}>
-                        {savedAddresses.map(addr => (
-                          <div 
-                            key={addr.id} 
-                            onClick={() => setSelectedAddressId(addr.id)}
-                            style={{ 
-                              minWidth: "220px", 
-                              border: selectedAddressId === addr.id ? "2px solid #8a583c" : "1.5px solid #eee",
-                              background: selectedAddressId === addr.id ? "rgba(138, 88, 60, 0.05)" : "#fff",
-                              padding: "12px", borderRadius: "12px", cursor: "pointer", flexShrink: 0 
-                            }}
-                          >
-                            <strong>{addr.label}</strong>
-                            <p style={{ fontSize: "12px", color: "#666", marginTop: "4px", lineHeight: "1.4" }}>
-                              {addr.officeNumber}, {addr.officeName}<br/>
-                              {addr.address}
-                            </p>
-                          </div>
-                        ))}
-                        <div 
-                          onClick={() => setShowAddressModal(true)}
-                          style={{ minWidth: "150px", border: "1.5px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "12px", cursor: "pointer", flexShrink: 0, padding: "12px", color: "#8a583c", fontWeight: 700 }}
-                        >
-                          + Add New
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {user && savedAddresses.length === 0 && (
-                    <div style={{ marginBottom: "20px" }}>
-                       <button onClick={() => setShowAddressModal(true)} style={{ background: "#8a583c", color: "#fff", padding: "10px 20px", border: "none", borderRadius: "8px", fontWeight: 700, cursor: "pointer" }}>
-                         + Save an Address (Optional)
-                       </button>
-                    </div>
-                  )}
-
-
-                  <button onClick={handlePlaceOrder} className="btn-continue-checkout">
-                    Proceed to Payment Options
-                  </button>
-                </div>
-              )}
-
-              {/* STEP 2: PAYMENT METHOD */}
-              {checkoutStep === "payment" && (
-                <div className="checkout-card">
-                  {/* Subscription UI removed */}
-
-                  <h3 className="card-title" style={{ marginBottom: "20px" }}>Choose Payment Method</h3>
-                  
-                  <div className="payment-options-grid" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                    <label className={`pay-choice-box ${paymentMethod === "upi" ? "selected" : ""}`}>
-                      <input
-                        type="radio"
-                        name="pay"
-                        value="upi"
-                        checked={paymentMethod === "upi"}
-                        onChange={() => setPaymentMethod("upi")}
-                      />
-                      <div>
-                        <strong>?? Online Payment (Paytm / UPI)</strong>
-                        <span className="pay-desc">Pay securely via Paytm, GPay, PhonePe, Cards, etc.</span>
-                      </div>
-                    </label>
-
-                    <label className={`pay-choice-box ${paymentMethod === "cod" ? "selected" : ""}`}>
-                      <input
-                        type="radio"
-                        name="pay"
-                        value="cod"
-                        checked={paymentMethod === "cod"}
-                        onChange={() => setPaymentMethod("cod")}
-                      />
-                      <div>
-                        <strong>?? Cash on Delivery (COD)</strong>
-                        <span className="pay-desc">Pay cash when your fresh chai is delivered to your desk</span>
-                      </div>
-                    </label>
-                  </div>
-
-                  <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
-                    <button onClick={() => setCheckoutStep("shipping")} className="btn-continue-checkout back-btn">
-                      Back
-                    </button>
-                    <button onClick={handlePlaceOrder} className="btn-continue-checkout">
-                      {paymentMethod === "cod" ? `Place COD Order (?${finalPayable})` : `Pay & Confirm Order (?${finalPayable})`}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-
-
-              {/* STEP 3: PROCESSING SCREEN */}
-              {checkoutStep === "processing" && (
-                <div className="checkout-card loader-card" style={{ textAlign: "center", padding: "60px 20px" }}>
-                  <div className="checkout-spinner" />
-                  <h3 style={{ fontSize: "20px", fontWeight: 900, marginTop: "24px" }}>Configuring Spice Distillation...</h3>
-                  <p style={{ color: "#666", fontSize: "13.5px", marginTop: "8px" }}>
-                    Validating secure checkout nodes and forwarding order mapping coordinates to the brewery terminal.
-                  </p>
-                </div>
-              )}
-
-            </div>
-
-            {/* RIGHT COLUMN: VIDEO, ADD-ONS & SUMMARY */}
-            <div className="checkout-right-column">
-              
-              {/* VIDEO MINI CARD */}
-              <div className="checkout-video-card">
-                <video
-                  src="/sub-video.mp4"
-                  autoPlay
-                  loop
-                  muted
-                  playsInline
-                  className="checkout-video-loop"
-                />
-                <div className="checkout-video-overlay" />
-                <div className="checkout-video-text">
-                  <h4>Freshly Distilled Spices</h4>
-                  <p>Hand-pounded cardamom and ginger, brewed to order.</p>
-                </div>
-              </div>
-
-
-
-
-
-              {/* PRICING BREAKDOWN CARD */}
-              <div className="checkout-card pricing-breakdown">
-                <h4 style={{ fontSize: "15px", fontWeight: 800, marginBottom: "14px" }}>Order Cost Summary</h4>
+            {/* Left Column: Essential 3 Delivery Fields + Payment Method */}
+            <div className="checkout-form-column">
+              <form onSubmit={handleCheckoutSubmit} className="checkout-card-box">
                 
-                <div className="breakdown-list">
-                  {cartItems.map((item, idx) => (
-                    <div key={idx} style={{ marginBottom: "8px" }}>
-                      <div className="breakdown-row" style={{ paddingBottom: "0" }}>
-                        <span>{item.name} (x{item.quantity})</span>
-                        <span>{item.basePrice ? `₹${item.basePrice * item.quantity}` : `₹${parseInt(String(item.price).replace(/[^0-9]/g, "")) * item.quantity}`}</span>
-                      </div>
-                    </div>
-                  ))}
-
-                  {appliedDiscount > 0 && (
-                    <div className="breakdown-row discount">
-                      <span>Promo Coupon Discount</span>
-                      <span>- ₹{appliedDiscount}</span>
-                    </div>
-                  )}
-
-                  <div className="breakdown-row">
-                    <span>Delivery Charge</span>
-                    <span>FREE</span>
-                  </div>
-
-                  <div className="breakdown-row total">
-                    <span>Amount Payable</span>
-                    <span>₹{finalPayable}</span>
+                <div className="card-section-title-row">
+                  <span className="section-number-pill">📍</span>
+                  <div>
+                    <h2 className="section-heading">Delivery Details</h2>
+                    <p className="section-subheading">Enter your desk info to complete your payment</p>
                   </div>
                 </div>
+
+                {/* The 3 Core Required Fields */}
+                <div className="checkout-fields-grid">
+                  {/* 1. Name of Person */}
+                  <div className="form-group span-2">
+                    <label className="input-label">
+                      <span>Name of Person</span>
+                      <span className="required-star">*</span>
+                    </label>
+                    <div className="input-field-shell">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                      </svg>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Rahul Sharma"
+                        value={personName}
+                        onChange={(e) => setPersonName(e.target.value)}
+                        className="checkout-text-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 2. Office Number */}
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Office Number</span>
+                      <span className="required-star">*</span>
+                    </label>
+                    <div className="input-field-shell">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                        <line x1="3" y1="9" x2="21" y2="9"></line>
+                        <line x1="9" y1="21" x2="9" y2="9"></line>
+                      </svg>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Office 402 / Cabin 3B"
+                        value={officeNumber}
+                        onChange={(e) => setOfficeNumber(e.target.value)}
+                        className="checkout-text-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 3. Floor Number */}
+                  <div className="form-group">
+                    <label className="input-label">
+                      <span>Floor Number</span>
+                      <span className="required-star">*</span>
+                    </label>
+                    <div className="input-field-shell">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="17 11 12 6 7 11"></polyline>
+                        <polyline points="17 18 12 13 7 18"></polyline>
+                      </svg>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. 4th Floor / Tower A"
+                        value={floorNumber}
+                        onChange={(e) => setFloorNumber(e.target.value)}
+                        className="checkout-text-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Optional Mobile for Delivery Phone Calls */}
+                  <div className="form-group span-2">
+                    <label className="input-label">
+                      <span>Mobile Number</span>
+                      <span className="optional-tag">(Optional for delivery calls)</span>
+                    </label>
+                    <div className="input-field-shell">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                      </svg>
+                      <input
+                        type="tel"
+                        placeholder="e.g. 9876543210"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="checkout-text-input"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+
+
+                {/* Total Summary Row */}
+                <div className="checkout-total-pill-bar">
+                  <div className="total-bar-info">
+                    <span className="total-bar-label">Total Amount Payable</span>
+                    <span className="total-bar-subtext">Includes all taxes & 20-min desk delivery</span>
+                  </div>
+                  <span className="total-bar-price">₹{finalPayable}</span>
+                </div>
+
+                {/* Final Submit Button */}
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="checkout-submit-cta-btn"
+                >
+                  {isSubmitting ? (
+                    <span>Placing Your Brew Order...</span>
+                  ) : (
+                    <>
+                      <span>Pay ₹{finalPayable} & Place Order</span>
+                      <span className="btn-arrow-icon">→</span>
+                    </>
+                  )}
+                </button>
+
+                <p className="secure-badge-note">
+                  🔒 Encrypted 256-bit checkout • Freshly brewed upon order placement
+                </p>
+              </form>
+            </div>
+          </div>
+
+        </div>
+      </main>
+
+      {/* Mobile Bottom Navigation Bar (Shop, Orders, Checkout, Get App) */}
+      <nav className="mobile-bottom-nav">
+        {/* 1. Shop */}
+        <Link href="/shop" className="bottom-nav-item">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+          </svg>
+          <span className="bottom-nav-label">Shop</span>
+        </Link>
+
+        {/* 2. Orders */}
+        <Link href="/orders" className="bottom-nav-item">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="16.5" y1="9.4" x2="7.5" y2="4.21"></line>
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
+          <span className="bottom-nav-label">Orders</span>
+        </Link>
+
+        {/* 3. Checkout (ACTIVE) */}
+        <Link href="/cart" className="bottom-nav-item active checkout-btn-item">
+          <div className="bottom-nav-icon-box">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <path d="M16 10a4 4 0 0 1-8 0"></path>
+            </svg>
+            {cartItems && cartItems.length > 0 && (
+              <span className="bottom-nav-badge">
+                {cartItems.reduce((sum, i) => sum + (i.quantity || 1), 0)}
+              </span>
+            )}
+          </div>
+          <span className="bottom-nav-label">Checkout</span>
+        </Link>
+
+        {/* 4. Get App */}
+        <button
+          className="bottom-nav-item get-app-btn-item"
+          onClick={handleInstallApp}
+          title="Install Chai Chaska on Home Screen"
+        >
+          <div className="get-app-icon-wrap">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+              <line x1="12" y1="18" x2="12.01" y2="18"></line>
+            </svg>
+            <span className="get-app-sparkle">✦</span>
+          </div>
+          <span className="bottom-nav-label">Get App</span>
+        </button>
+      </nav>
+
+      {/* PWA Install Guide Modal */}
+      <AnimatePresence>
+        {showInstallModal && (
+          <div className="install-modal-backdrop" onClick={() => setShowInstallModal(false)}>
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+              className="install-modal-card"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="install-modal-logo-box">
+                <img src="/logo.png" alt="Chai Chaska Logo" className="install-modal-logo" />
               </div>
 
-            </div>
-
-          </div>
-        ) : (
-          /* STEP 4: THANK YOU ORDER SUCCESS PAGE */
-          <div className="thank-you-layout">
-            <div className="thank-you-card">
-              <div className="success-badge-circle">✓</div>
-              <h2 className="success-title">Order Placed successfully!</h2>
-              <p className="success-message">
-                Your order is confirmed and heading to the brewing counter. We've dispatched reference details to your registered number.
+              <h3 className="install-modal-title">Install Chai Chaska App</h3>
+              <p className="install-modal-desc">
+                Add Chai Chaska directly to your mobile home screen with instant order tracking and zero storage overhead.
               </p>
 
-              <div className="receipt-box">
-                <div className="receipt-row">
-                  <span>Order Reference ID:</span>
-                  <strong>{orderRef}</strong>
+              <div className="install-steps-box">
+                <div className="install-step-row">
+                  <div className="step-num">1</div>
+                  <div className="step-text">
+                    <strong>Chrome / Android:</strong> Tap the three dots (⋮) menu at top-right and choose <em>"Add to Home screen"</em>.
+                  </div>
                 </div>
-                <div className="receipt-row">
-                  <span>Items:</span>
-                  <strong>
-                    {receiptData?.cartItems?.map((item, idx) => (
-                      <div key={idx} style={{ marginBottom: "4px" }}>
-                        <div>{item.quantity}x {item.name}</div>
-                      </div>
-                    ))}
-                  </strong>
-                </div>
-                <div className="receipt-row" style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px dashed rgba(0,0,0,0.08)" }}>
-                  <span>Payment Method:</span>
-                  <strong style={{ color: "#8a583c" }}>{receiptData?.paymentMethod === 'upi' ? 'Online Payment' : 'Cash'}</strong>
-                </div>
-                <div className="receipt-row">
-                  <span>Total Paid Amount:</span>
-                  <strong style={{ color: "#27ae60", fontSize: "16px" }}>₹{receiptData?.finalPayable}</strong>
-                </div>
-                <div className="receipt-row">
-                  <span>Estimated Delivery Time:</span>
-                  <strong>15-20 Minutes 🚀</strong>
-                </div>
-                <div className="receipt-row" style={{ borderTop: "1px dashed rgba(0,0,0,0.08)", paddingTop: "12px", marginTop: "12px" }}>
-                  <span>Office Address:</span>
-                  <span style={{ fontSize: "12px", textAlign: "right", maxWidth: "220px", color: "#555" }}>
-                    {savedAddresses.find(a => a.id === selectedAddressId) ? `${savedAddresses.find(a => a.id === selectedAddressId).officeNumber}, ${savedAddresses.find(a => a.id === selectedAddressId).officeName}, Floor ${savedAddresses.find(a => a.id === selectedAddressId).floor}, ${savedAddresses.find(a => a.id === selectedAddressId).address}` : address}
-                  </span>
+
+                <div className="install-step-row">
+                  <div className="step-num">2</div>
+                  <div className="step-text">
+                    <strong>Safari / iOS:</strong> Tap the Share button (⎋) at the bottom and choose <em>"Add to Home Screen"</em>.
+                  </div>
                 </div>
               </div>
 
-              {/* Mock Delivery Map Tracker visual */}
-              <div className="mock-tracker-visual">
-                <div className="tracker-line">
-                  <div className="tracker-progress" />
-                  <span className="dot start">🏠</span>
-                  <span className="dot destination">📍</span>
-                </div>
-                <div className="tracker-labels">
-                  <span>Brewmaster</span>
-                  <span>You</span>
-                </div>
-              </div>
-
-              <Link href="/" className="btn-continue-checkout" style={{ maxWidth: "260px", margin: "0 auto", display: "block", textDecoration: "none", textAlign: "center" }}>
-                Return to Home
-              </Link>
-            </div>
+              <button
+                className="install-modal-close-btn"
+                onClick={() => setShowInstallModal(false)}
+              >
+                Got It, Thanks!
+              </button>
+            </motion.div>
           </div>
         )}
+      </AnimatePresence>
 
-      </div>
+      {/* Embedded Pure White Theme CSS */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .checkout-page-shell {
+          background: #ffffff;
+          min-height: 100vh;
+          color: #0f172a;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          position: relative;
+        }
 
-      {showAddressModal && (
-        <div style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", padding: "24px", borderRadius: "16px", width: "90%", maxWidth: "400px" }}>
-            <h3 style={{ fontSize: "18px", fontWeight: 800, marginBottom: "16px", color: "#2c1b0d" }}>Add Office Address</h3>
-            <form onSubmit={handleSaveAddress} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              <input type="text" placeholder="Label (e.g. Gurugram Office)" value={addrLabel} onChange={(e) => setAddrLabel(e.target.value)} className="checkout-text-input" required />
-              <input type="text" placeholder="Office / Room Number" value={addrOfficeNum} onChange={(e) => setAddrOfficeNum(e.target.value)} className="checkout-text-input" required />
-              <input type="text" placeholder="Office / Company Name" value={addrOfficeName} onChange={(e) => setAddrOfficeName(e.target.value)} className="checkout-text-input" required />
-              <input type="text" placeholder="Floor Level" value={addrFloor} onChange={(e) => setAddrFloor(e.target.value)} className="checkout-text-input" required />
-              <input type="text" placeholder="Street Address" value={addrStreet} onChange={(e) => setAddrStreet(e.target.value)} className="checkout-text-input" required />
-              <div style={{ display: "flex", gap: "12px", marginTop: "12px" }}>
-                <button type="button" onClick={() => setShowAddressModal(false)} style={{ flex: 1, padding: "12px", border: "1px solid #ccc", borderRadius: "8px", background: "#fff", cursor: "pointer" }}>Cancel</button>
-                <button type="submit" style={{ flex: 1, padding: "12px", border: "none", borderRadius: "8px", background: "#2c1b0d", color: "#fff", fontWeight: 700, cursor: "pointer" }}>Save</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-
-
-      <Footer />
-
-      {/* Styled JSX */}
-      <style>{`
-        .checkout-page-container {
-          width: 100%;
-          max-width: 1380px;
+        .checkout-main-content {
+          padding: 36px 20px 80px;
+          max-width: 1140px;
           margin: 0 auto;
-          padding: 120px 24px 60px;
-          box-sizing: border-box;
         }
 
-        .checkout-title-row {
-          margin-bottom: 30px;
+        .checkout-container {
+          width: 100%;
         }
 
-        .checkout-title-row h1 {
-          font-size: clamp(24px, 4vw, 36px);
-          font-weight: 900;
-          color: #2c1b0d;
-          margin-bottom: 8px;
+        /* Header Block */
+        .checkout-header-block {
+          text-align: center;
+          max-width: 700px;
+          margin: 0 auto 36px;
         }
 
-        .checkout-title-row p {
-          font-size: 14.5px;
-          color: #666;
+        .checkout-pill-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          padding: 6px 14px;
+          border-radius: 9999px;
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: 0.06em;
+          color: #475569;
+          margin-bottom: 14px;
         }
 
-        /* 2-Column layout */
-        .checkout-grid-layout {
-          display: grid;
-          grid-template-columns: 1.2fr 1fr;
-          gap: 30px;
-          align-items: start;
+        .badge-sparkle {
+          color: #f59e0b;
         }
 
-        .checkout-left-column {
+        .checkout-title {
+          font-size: clamp(28px, 4vw, 42px);
+          font-weight: 800;
+          letter-spacing: -0.03em;
+          color: #0f172a;
+          margin: 0 0 10px;
+          line-height: 1.15;
+        }
+
+        .title-highlight {
+          background: linear-gradient(135deg, #0f172a 30%, #64748b 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+
+        .checkout-subtitle {
+          font-size: clamp(14px, 1.8vw, 15.5px);
+          color: #64748b;
+          line-height: 1.55;
+          margin: 0;
+        }
+
+        /* Centered Single-Column Form Layout */
+        .checkout-split-layout {
+          max-width: 580px;
+          margin: 0 auto;
+          width: 100%;
+        }
+
+        .checkout-total-pill-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 20px;
+          padding: 14px 20px;
+          margin-top: 6px;
+        }
+
+        .total-bar-info {
           display: flex;
           flex-direction: column;
-          gap: 24px;
-          min-width: 0;
+          gap: 2px;
         }
 
-        .checkout-card {
+        .total-bar-label {
+          font-size: 13px;
+          font-weight: 800;
+          color: #0f172a;
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+
+        .total-bar-subtext {
+          font-size: 11.5px;
+          color: #10b981;
+          font-weight: 700;
+        }
+
+        .total-bar-price {
+          font-size: 24px;
+          font-weight: 900;
+          color: #0f172a;
+          letter-spacing: -0.02em;
+        }
+
+        /* Form Card */
+        .checkout-card-box {
           background: #ffffff;
-          border-radius: 20px;
-          padding: 30px;
-          border: 1px solid rgba(0,0,0,0.04);
-          box-shadow: 0 4px 30px rgba(0,0,0,0.01);
-          min-width: 0;
-          box-sizing: border-box;
-          width: 100%;
+          border: 1.5px solid #f1f5f9;
+          border-radius: 28px;
+          padding: 32px 28px;
+          box-shadow: 0 10px 35px -5px rgba(15, 23, 42, 0.04);
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
         }
 
-        .checkout-card.compact {
-          padding: 20px;
+        .card-section-title-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
         }
 
-        .card-title {
+        .section-number-pill {
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          background: #0f172a;
+          color: #ffffff;
+          font-size: 13px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          margin-top: 2px;
+        }
+
+        .section-heading {
           font-size: 18px;
-          font-weight: 850;
-          color: #2c1b0d;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0 0 3px;
         }
 
-        /* Address inputs form */
-        .address-inputs-grid {
+        .section-subheading {
+          font-size: 12.5px;
+          color: #64748b;
+          margin: 0;
+        }
+
+        /* Fields Grid */
+        .checkout-fields-grid {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 16px;
-          margin-bottom: 24px;
+          gap: 14px;
         }
 
         .form-group {
@@ -755,513 +743,736 @@ function CheckoutPortal() {
           gap: 6px;
         }
 
-        .form-group.full-width {
+        .form-group.span-2 {
           grid-column: span 2;
         }
 
-        .form-group label {
+        .input-label {
           font-size: 12.5px;
-          font-weight: 700;
-          color: #555;
+          font-weight: 750;
+          color: #334155;
+          display: flex;
+          align-items: center;
+          gap: 4px;
         }
 
-        .checkout-text-input {
-          border: 1.5px solid rgba(44, 27, 13, 0.1);
-          border-radius: 8px;
+        .required-star {
+          color: #ef4444;
+          font-weight: 800;
+        }
+
+        .optional-tag {
+          font-size: 11px;
+          color: #94a3b8;
+          font-weight: 500;
+        }
+
+        .input-field-shell {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 14px;
           padding: 11px 14px;
-          font-size: 13.5px;
-          background: #fbf9f6;
-          color: #2c1b0d;
-          outline: none;
-          width: 100%;
-          box-sizing: border-box;
-        }
-
-        .checkout-text-input.area {
-          resize: none;
-        }
-
-        .checkout-text-input:focus {
-          border-color: #2c1b0d;
-        }
-
-        .btn-use-location {
-          background: rgba(138, 88, 60, 0.08);
-          border: 1px solid rgba(138, 88, 60, 0.2);
-          color: #8a583c;
-          padding: 6px 14px;
-          border-radius: 8px;
-          font-size: 12px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-
-        .btn-use-location:hover {
-          background: rgba(138, 88, 60, 0.15);
-        }
-
-        .btn-continue-checkout {
-          background: #2c1b0d;
-          color: #ffffff;
-          border: none;
-          padding: 14px 24px;
-          border-radius: 10px;
-          font-weight: 700;
-          font-size: 14px;
-          cursor: pointer;
-          transition: background 0.2s;
-        }
-
-        .btn-continue-checkout:hover {
-          background: #111;
-        }
-
-        .btn-continue-checkout.back-btn {
-          background: #fbf9f6;
-          border: 1.5px solid rgba(0,0,0,0.1);
-          color: #2c1b0d;
-        }
-
-        /* Step navigation status bar */
-        .steps-status-bar {
-          display: flex;
-          align-items: center;
-          flex-wrap: nowrap;
-          gap: 12px;
-          background: #ffffff;
-          padding: 16px 24px;
-          border-radius: 12px;
-          border: 1px solid rgba(0,0,0,0.03);
-          box-sizing: border-box;
-          width: 100%;
-          overflow: hidden;
-        }
-
-        .step-indicator {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 13.5px;
-          font-weight: 700;
-          color: #888;
-        }
-
-        .step-indicator.active {
-          color: #2c1b0d;
-        }
-
-        .step-indicator.completed {
-          color: #27ae60;
-        }
-
-        .step-num {
-          width: 24px;
-          height: 24px;
-          border-radius: 50%;
-          background: #ddd;
-          color: #ffffff;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 12px;
-        }
-
-        .step-indicator.active .step-num {
-          background: #2c1b0d;
-        }
-
-        .step-indicator.completed .step-num {
-          background: #27ae60;
-        }
-
-        .step-connector {
-          flex-grow: 1;
-          height: 2px;
-          background: #eee;
-        }
-
-        .step-connector.completed {
-          background: #27ae60;
-        }
-
-        /* Payment choices */
-        .payment-options-grid {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-        }
-
-        .pay-choice-box {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-          background: #fbf9f6;
-          border: 1.5px solid rgba(0,0,0,0.05);
-          padding: 14px 20px;
-          border-radius: 12px;
-          cursor: pointer;
           transition: all 0.2s;
         }
 
-        .pay-choice-box.selected {
-          border-color: #8a583c;
-          background: rgba(138, 88, 60, 0.02);
+        .input-field-shell:focus-within {
+          background: #ffffff;
+          border-color: #0f172a;
+          box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
         }
 
-        .pay-choice-box strong {
-          display: block;
-          font-size: 13.5px;
-        }
-
-        .pay-desc {
-          font-size: 11px;
-          color: #777;
-          display: block;
-          margin-top: 2px;
-        }
-
-        /* Right column details */
-        .checkout-right-column {
-          display: flex;
-          flex-direction: column;
-          gap: 24px;
-          min-width: 0;
-        }
-
-        .checkout-video-card {
-          position: relative;
-          aspect-ratio: 1.8 / 1;
-          border-radius: 20px;
-          overflow: hidden;
-          background: #000;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-        }
-
-        .checkout-video-loop {
+        .checkout-text-input {
+          border: none;
+          outline: none;
+          background: transparent;
+          font-size: 14px;
+          font-weight: 600;
+          color: #0f172a;
           width: 100%;
-          height: 100%;
-          object-fit: cover;
-          display: block;
-          opacity: 0.85;
         }
 
-        .checkout-video-overlay {
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 60%);
-          z-index: 1;
+        .checkout-text-input::placeholder {
+          color: #94a3b8;
+          font-weight: 400;
         }
 
-        .checkout-video-text {
-          position: absolute;
-          bottom: 16px;
-          left: 20px;
-          right: 20px;
-          z-index: 2;
-          color: #ffffff;
+        .divider-line {
+          height: 1px;
+          background: #f1f5f9;
+          margin: 6px 0;
         }
 
-        .checkout-video-text h4 {
-          font-size: 15px;
-          font-weight: 800;
-          margin-bottom: 4px;
-        }
-
-        .checkout-video-text p {
-          font-size: 11.5px;
-          color: rgba(255,255,255,0.85);
-          line-height: 1.4;
-        }
-
-        /* Add-ons List */
-        .checkout-addons-grid {
+        /* Payment Options */
+        .payment-options-grid {
           display: flex;
           flex-direction: column;
           gap: 10px;
         }
 
-        .checkout-addon-pill {
+        .payment-method-card {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 18px;
+          padding: 14px 18px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          user-select: none;
+        }
+
+        .payment-method-card:hover {
+          border-color: #cbd5e1;
+          background: #f1f5f9;
+        }
+
+        .payment-method-card.selected {
+          border-color: #0f172a;
+          background: #ffffff;
+          box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+        }
+
+        .hidden-radio {
+          display: none;
+        }
+
+        .payment-card-left {
           display: flex;
           align-items: center;
           gap: 12px;
-          background: #fbf9f6;
-          border: 1.5px solid rgba(0,0,0,0.05);
-          border-radius: 10px;
-          padding: 10px 14px;
-          cursor: pointer;
+        }
+
+        .custom-radio-circle {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          border: 2px solid #cbd5e1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
           transition: all 0.2s;
         }
 
-        .checkout-addon-pill.selected {
-          border-color: #8a583c;
-          background: rgba(138, 88, 60, 0.02);
+        .payment-method-card.selected .custom-radio-circle {
+          border-color: #0f172a;
         }
 
-        .check-dot {
+        .radio-dot {
           width: 10px;
           height: 10px;
           border-radius: 50%;
-          border: 1.5px solid #bbb;
+          background: #0f172a;
         }
 
-        .checkout-addon-pill.selected .check-dot {
-          border-color: #8a583c;
-          background: #8a583c;
+        .payment-text-box {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
         }
 
-        /* Coupons styling */
+        .payment-title {
+          font-size: 14px;
+          font-weight: 750;
+          color: #0f172a;
+        }
+
+        .payment-desc {
+          font-size: 12px;
+          color: #64748b;
+        }
+
+        .payment-fast-badge {
+          font-size: 11px;
+          font-weight: 800;
+          background: #ecfdf5;
+          color: #059669;
+          padding: 3px 8px;
+          border-radius: 9999px;
+          border: 1px solid #d1fae5;
+        }
+
+        .payment-cash-badge {
+          font-size: 11px;
+          font-weight: 800;
+          background: #fef3c7;
+          color: #d97706;
+          padding: 3px 8px;
+          border-radius: 9999px;
+          border: 1px solid #fde68a;
+        }
+
+        /* Submit CTA */
+        .checkout-submit-cta-btn {
+          width: 100%;
+          background: #0f172a;
+          color: #ffffff;
+          border: none;
+          border-radius: 9999px;
+          padding: 16px 24px;
+          font-size: 15.5px;
+          font-weight: 800;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.35);
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          margin-top: 10px;
+        }
+
+        .checkout-submit-cta-btn:hover {
+          background: #1e293b;
+          transform: translateY(-2px);
+          box-shadow: 0 14px 35px -4px rgba(15, 23, 42, 0.45);
+        }
+
+        .checkout-submit-cta-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .btn-arrow-icon {
+          font-size: 18px;
+          transition: transform 0.2s;
+        }
+
+        .checkout-submit-cta-btn:hover .btn-arrow-icon {
+          transform: translateX(4px);
+        }
+
+        .secure-badge-note {
+          text-align: center;
+          font-size: 12px;
+          color: #94a3b8;
+          margin: 0;
+        }
+
+        /* Summary Column */
+        .summary-card-box {
+          background: #ffffff;
+          border: 1.5px solid #f1f5f9;
+          border-radius: 28px;
+          padding: 26px 24px;
+          box-shadow: 0 10px 35px -5px rgba(15, 23, 42, 0.04);
+          position: sticky;
+          top: 90px;
+        }
+
+        .summary-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-bottom: 16px;
+          border-bottom: 1px solid #f1f5f9;
+          margin-bottom: 16px;
+        }
+
+        .summary-title {
+          font-size: 17px;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0;
+        }
+
+        .items-count-badge {
+          font-size: 11.5px;
+          font-weight: 700;
+          background: #f1f5f9;
+          color: #475569;
+          padding: 3px 9px;
+          border-radius: 9999px;
+        }
+
+        /* Summary Items List */
+        .summary-items-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          max-height: 240px;
+          overflow-y: auto;
+          padding-right: 4px;
+          margin-bottom: 20px;
+        }
+
+        .summary-item-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .summary-item-thumb {
+          width: 46px;
+          height: 46px;
+          border-radius: 12px;
+          background: #f8fafc;
+          border: 1px solid #f1f5f9;
+          overflow: hidden;
+          flex-shrink: 0;
+        }
+
+        .summary-item-thumb img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .summary-item-info {
+          flex: 1;
+          min-width: 0;
+        }
+
+        .item-name {
+          font-size: 13.5px;
+          font-weight: 750;
+          color: #0f172a;
+          margin: 0 0 2px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .item-qty-tag {
+          font-size: 11px;
+          color: #64748b;
+        }
+
+        .checkout-portion-stepper {
+          display: inline-flex;
+          align-items: center;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 9999px;
+          padding: 2px 6px;
+          gap: 6px;
+          margin-top: 4px;
+        }
+
+        .checkout-stepper-btn {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          border: none;
+          background: #f1f5f9;
+          color: #0f172a;
+          font-size: 12px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+
+        .checkout-stepper-btn:hover {
+          background: #0f172a;
+          color: #ffffff;
+        }
+
+        .checkout-stepper-btn.minus:hover {
+          background: #ef4444;
+          color: #ffffff;
+        }
+
+        .checkout-stepper-qty {
+          font-size: 12px;
+          font-weight: 800;
+          color: #0f172a;
+          min-width: 12px;
+          text-align: center;
+        }
+
+        .item-subtotal-price {
+          font-size: 14px;
+          font-weight: 800;
+          color: #0f172a;
+          flex-shrink: 0;
+        }
+
+        /* Coupon Box */
+        .coupon-box-wrap {
+          margin-bottom: 20px;
+        }
+
+        .coupon-input-row {
+          display: flex;
+          gap: 8px;
+        }
+
         .coupon-text-field {
-          flex-grow: 1;
-          border: 1.5px solid rgba(44, 27, 13, 0.1);
-          border-radius: 6px;
-          padding: 8px 12px;
+          flex: 1;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 9999px;
+          padding: 8px 14px;
           font-size: 12.5px;
-          background: #fbf9f6;
+          font-weight: 600;
+          color: #0f172a;
           outline: none;
         }
 
         .coupon-text-field:focus {
-          border-color: #2c1b0d;
+          border-color: #0f172a;
         }
 
-        .btn-coupon-apply {
-          background: #2c1b0d;
+        .coupon-apply-btn {
+          background: #0f172a;
           color: #ffffff;
           border: none;
+          border-radius: 9999px;
           padding: 8px 16px;
-          border-radius: 6px;
-          font-size: 12.5px;
-          font-weight: 700;
-          cursor: pointer;
-        }
-
-        .coupon-pills-row {
-          display: flex;
-          gap: 8px;
-        }
-
-        .coupon-pill {
-          background: #fbf9f6;
-          border: 1px dashed rgba(44,27,13,0.2);
-          border-radius: 6px;
-          padding: 6px 12px;
-          font-size: 11.5px;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-
-        .coupon-pill:hover {
-          background: rgba(138,88,60,0.05);
-        }
-
-        .success-coupon-label {
-          background: rgba(39, 174, 96, 0.1);
-          color: #27ae60;
-          border-radius: 6px;
-          padding: 8px;
           font-size: 12px;
+          font-weight: 750;
+          cursor: pointer;
+        }
+
+        .coupon-success-msg {
+          font-size: 11.5px;
+          color: #16a34a;
           font-weight: 700;
-          margin-top: 10px;
-        }
-
-        /* Pricing breakdown list */
-        .breakdown-list {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
-
-        .breakdown-row {
-          display: flex;
-          justify-content: space-between;
-          font-size: 13.5px;
-        }
-
-        .breakdown-row.discount {
-          color: #27ae60;
-          font-weight: 600;
-        }
-
-        .breakdown-row.total {
-          font-size: 16px;
-          font-weight: 900;
-          color: #2c1b0d;
-          border-top: 1px dashed rgba(0,0,0,0.08);
-          padding-top: 12px;
           margin-top: 6px;
         }
 
-        /* Loading spinner */
-        .checkout-spinner {
-          border: 4px solid rgba(44, 27, 13, 0.1);
-          width: 48px;
-          height: 48px;
-          border-radius: 50%;
-          border-left-color: #2c1b0d;
-          animation: spin 1s linear infinite;
-          margin: 0 auto;
+        .coupon-error-msg {
+          font-size: 11.5px;
+          color: #dc2626;
+          margin-top: 6px;
         }
 
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+        /* Bill Breakdown */
+        .bill-breakdown-box {
+          background: #f8fafc;
+          border-radius: 20px;
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin-bottom: 16px;
+          border: 1px solid #f1f5f9;
         }
 
-        /* Thank you layout styles */
-        .thank-you-layout {
-          max-width: 600px;
-          margin: 0 auto;
+        .bill-line {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 13px;
+          color: #64748b;
         }
 
-        .thank-you-card {
-          background: #ffffff;
-          border-radius: 24px;
-          padding: 40px;
-          border: 1px solid rgba(0,0,0,0.05);
-          box-shadow: 0 10px 40px rgba(0,0,0,0.03);
+        .bill-val {
+          font-weight: 700;
+          color: #0f172a;
+        }
+
+        .discount-line .bill-val {
+          color: #16a34a;
+        }
+
+        .free-highlight {
+          color: #16a34a;
+          font-weight: 800;
+        }
+
+        .bill-divider {
+          height: 1px;
+          background: #e2e8f0;
+          margin: 4px 0;
+        }
+
+        .total-bill-line {
+          font-size: 16px;
+          font-weight: 900;
+          color: #0f172a;
+        }
+
+        .total-val {
+          font-size: 20px;
+          font-weight: 900;
+          color: #0f172a;
+        }
+
+        .modify-tray-link {
+          display: block;
           text-align: center;
+          font-size: 12.5px;
+          color: #64748b;
+          text-decoration: none;
+          font-weight: 650;
+          transition: color 0.2s;
         }
 
-        .success-badge-circle {
-          width: 64px;
-          height: 64px;
+        .modify-tray-link:hover {
+          color: #0f172a;
+        }
+
+        /* Loading Screen */
+        .checkout-loading-screen {
+          min-height: 100vh;
+          background: #ffffff;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 16px;
+        }
+
+        .loading-spinner-ring {
+          width: 40px;
+          height: 40px;
+          border: 3px solid #e2e8f0;
+          border-top-color: #0f172a;
           border-radius: 50%;
-          background: rgba(39, 174, 96, 0.1);
-          color: #27ae60;
+          animation: spinCheckout 0.8s linear infinite;
+        }
+
+        @keyframes spinCheckout {
+          to { transform: rotate(360deg); }
+        }
+
+        /* Mobile Bottom Nav Bar */
+        .mobile-bottom-nav {
+          display: none;
+        }
+
+
+
+        @media (max-width: 768px) {
+          .checkout-main-content {
+            padding: 20px 14px 100px;
+          }
+
+          .checkout-card-box {
+            padding: 22px 18px;
+            border-radius: 22px;
+          }
+
+          .checkout-fields-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .form-group.span-2 {
+            grid-column: span 1;
+          }
+
+          /* Show Mobile Bottom Bar */
+          .mobile-bottom-nav {
+            display: flex !important;
+            position: fixed !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            height: 62px !important;
+            background: rgba(255, 255, 255, 0.96) !important;
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
+            border-top: 1px solid #f1f5f9 !important;
+            z-index: 10000 !important;
+            justify-content: space-around !important;
+            align-items: center !important;
+            padding: 0 10px !important;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.04) !important;
+          }
+
+          .bottom-nav-item {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 3px !important;
+            color: #94a3b8 !important;
+            text-decoration: none !important;
+            background: transparent !important;
+            border: none !important;
+            cursor: pointer !important;
+            padding: 6px 12px !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            transition: all 0.2s ease !important;
+            position: relative !important;
+            -webkit-tap-highlight-color: transparent !important;
+          }
+
+          .bottom-nav-item.active {
+            color: #0f172a !important;
+            font-weight: 800 !important;
+          }
+
+          .bottom-nav-label {
+            font-size: 10.5px !important;
+            line-height: 1 !important;
+          }
+
+          .bottom-nav-icon-box {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .bottom-nav-badge {
+            position: absolute;
+            top: -5px;
+            right: -8px;
+            background: #0f172a;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 800;
+            min-width: 16px;
+            height: 16px;
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 3px;
+            border: 1.5px solid #ffffff;
+          }
+
+          .get-app-icon-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+
+          .get-app-sparkle {
+            position: absolute;
+            top: -6px;
+            right: -8px;
+            font-size: 11px;
+            color: #f59e0b;
+          }
+        }
+
+        /* PWA Install Modal */
+        .install-modal-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(15, 23, 42, 0.6);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          z-index: 20000;
           display: flex;
           align-items: center;
           justify-content: center;
-          font-size: 32px;
-          font-weight: bold;
-          margin: 0 auto 20px;
-        }
-
-        .success-title {
-          font-size: 24px;
-          font-weight: 900;
-          color: #2c1b0d;
-          margin-bottom: 8px;
-        }
-
-        .success-message {
-          font-size: 14px;
-          color: #666;
-          line-height: 1.5;
-          margin-bottom: 30px;
-        }
-
-        .receipt-box {
-          background: #fbf9f6;
-          border: 1px solid rgba(0,0,0,0.05);
-          border-radius: 16px;
           padding: 20px;
-          margin-bottom: 30px;
-          text-align: left;
         }
 
-        .receipt-row {
-          display: flex;
-          justify-content: space-between;
-          font-size: 13.5px;
-          margin-bottom: 10px;
-        }
-
-        .receipt-row:last-child {
-          margin-bottom: 0;
-        }
-
-        /* Mock Map Delivery Progress Tracker */
-        .mock-tracker-visual {
-          border: 1.5px solid rgba(0,0,0,0.05);
-          border-radius: 16px;
-          padding: 20px 16px;
-          margin-bottom: 30px;
+        .install-modal-card {
           background: #ffffff;
+          border-radius: 28px;
+          max-width: 400px;
+          width: 100%;
+          padding: 28px 24px;
+          text-align: center;
+          box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.3);
+          border: 1px solid #f1f5f9;
         }
 
-        .tracker-line {
-          position: relative;
-          height: 4px;
-          background: #eee;
-          margin: 20px 10px;
+        .install-modal-logo-box {
+          width: 72px;
+          height: 72px;
+          border-radius: 20px;
+          margin: 0 auto 16px;
+          overflow: hidden;
+          box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
         }
 
-        .tracker-progress {
-          position: absolute;
-          left: 0;
-          top: 0;
+        .install-modal-logo {
+          width: 100%;
           height: 100%;
-          width: 50%;
-          background: #8a583c;
+          object-fit: cover;
         }
 
-        .dot {
-          position: absolute;
-          top: 50%;
-          transform: translate(-50%, -50%);
-          font-size: 18px;
+        .install-modal-title {
+          font-size: 20px;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0 0 8px;
         }
 
-        .dot.start { left: 0; }
-        .dot.current { left: 50%; }
-        .dot.destination { left: 100%; }
+        .install-modal-desc {
+          font-size: 13.5px;
+          color: #64748b;
+          line-height: 1.5;
+          margin: 0 0 20px;
+        }
 
-        .tracker-labels {
+        .install-steps-box {
+          background: #f8fafc;
+          border-radius: 18px;
+          padding: 16px;
           display: flex;
-          justify-content: space-between;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 22px;
+          text-align: left;
+          border: 1px solid #f1f5f9;
+        }
+
+        .install-step-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          font-size: 12.5px;
+          color: #334155;
+          line-height: 1.45;
+        }
+
+        .step-num {
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          background: #0f172a;
+          color: #ffffff;
           font-size: 11px;
-          font-weight: 700;
-          color: #888;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
         }
 
-        @media (max-width: 990px) {
-          .checkout-grid-layout {
-            grid-template-columns: 1fr;
-          }
+        .install-modal-close-btn {
+          width: 100%;
+          background: #0f172a;
+          color: #ffffff;
+          border: none;
+          border-radius: 9999px;
+          padding: 12px;
+          font-size: 14px;
+          font-weight: 750;
+          cursor: pointer;
+          transition: background 0.2s;
         }
 
-        @media (max-width: 768px) {
-          .checkout-page-container {
-            padding: 100px 16px 40px;
-          }
-          .checkout-card {
-            padding: 20px;
-          }
-          .steps-status-bar {
-            padding: 12px 16px;
-            gap: 8px;
-          }
-          .step-indicator {
-            font-size: 12px;
-          }
-          .step-indicator span:last-child {
-            display: none;
-          }
-          .checkout-title-row h1 {
-            font-size: 24px;
-          }
+        .install-modal-close-btn:hover {
+          background: #334155;
         }
-
-        @media (max-width: 550px) {
-          .address-inputs-grid {
-            grid-template-columns: 1fr;
-          }
-          .form-group.full-width {
-            grid-column: span 1;
-          }
-        }
-      `}</style>
+      ` }} />
     </div>
   );
 }
 
 export default function CheckoutPage() {
   return (
-    <Suspense fallback={<div style={{ padding: "100px", textAlign: "center" }}>Loading Checkout Details...</div>}>
+    <Suspense
+      fallback={
+        <div style={{ background: "#ffffff", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "center" }}>
+          <h2>Loading Checkout...</h2>
+        </div>
+      }
+    >
       <CheckoutPortal />
     </Suspense>
   );

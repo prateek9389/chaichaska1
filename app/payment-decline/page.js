@@ -93,7 +93,6 @@ export default function PaymentDeclinePage() {
       <Suspense fallback={<div style={{ textAlign: "center", padding: "100px" }}>Loading...</div>}>
         <PaymentDeclineContent />
       </Suspense>
-      <Footer />
     </>
   );
 }

@@ -139,7 +139,6 @@ export default function PaymentSuccessPage() {
       <Suspense fallback={<div style={{ textAlign: "center", padding: "100px" }}>Loading...</div>}>
         <PaymentSuccessContent />
       </Suspense>
-      <Footer />
     </>
   );
 }
