@@ -82,14 +82,18 @@ export default function ShopPage() {
   }, []);
 
   const handleInstallApp = async () => {
+    setShowInstallModal(true);
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice && choice.outcome === "accepted") {
-        setDeferredPrompt(null);
+      try {
+        deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice && choice.outcome === "accepted") {
+          setDeferredPrompt(null);
+          setShowInstallModal(false);
+        }
+      } catch (e) {
+        console.warn("Direct install prompt error:", e);
       }
-    } else {
-      setShowInstallModal(true);
     }
   };
 
@@ -560,15 +564,14 @@ export default function ShopPage() {
         </div>
       </section>
 
-      {/* Main Container: Filter Sidebar + Product Grid */}
-      <div className="shop-main-layout">
-        
-        {/* Mobile Filter Drawer Overlay */}
-        <div
-          className={`filter-backdrop ${mobileFilterOpen ? "visible" : ""}`}
-          onClick={() => setMobileFilterOpen(false)}
-        />
+      {/* Mobile Filter Drawer Overlay */}
+      <div
+        className={`filter-backdrop ${mobileFilterOpen ? "visible" : ""}`}
+        onClick={() => setMobileFilterOpen(false)}
+      />
 
+      {/* Main Container: Filter Sidebar (290px) + Product Grid (1fr) */}
+      <div className="shop-main-layout">
         {/* Left Filter Sidebar */}
         <aside className={`shop-filter-sidebar ${mobileFilterOpen ? "open" : ""}`}>
           <div className="sidebar-header">
@@ -595,6 +598,31 @@ export default function ShopPage() {
           </div>
 
           <div className="sidebar-content">
+            {/* Desktop Sidebar Search Box */}
+            <div className="sidebar-search-box">
+              <svg className="sidebar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2.2">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                type="text"
+                placeholder="Search chai, coffee..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="sidebar-search-input"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="sidebar-search-clear"
+                  onClick={() => setSearchQuery("")}
+                  title="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
             {/* Category Filter Section */}
             <div className="sidebar-group">
               <div className="group-header">
@@ -1130,9 +1158,9 @@ export default function ShopPage() {
                 <img src="/logo.png" alt="Chai Chaska Logo" className="install-modal-logo" />
               </div>
 
-              <h3 className="install-modal-title">Install Chai Chaska App</h3>
+              <h3 className="install-modal-title">Add to Home Screen</h3>
               <p className="install-modal-desc">
-                Add Chai Chaska directly to your mobile home screen with zero storage overhead.
+                Install Chai Chaska on your home screen for quick 1-tap access and instant live order tracking.
               </p>
 
               <div className="install-steps-box">
@@ -1152,10 +1180,32 @@ export default function ShopPage() {
               </div>
 
               <button
+                className="install-modal-action-btn"
+                onClick={async () => {
+                  if (deferredPrompt) {
+                    try {
+                      deferredPrompt.prompt();
+                      const choice = await deferredPrompt.userChoice;
+                      if (choice && choice.outcome === "accepted") {
+                        setDeferredPrompt(null);
+                        setShowInstallModal(false);
+                      }
+                    } catch (e) {
+                      console.warn("Install error:", e);
+                    }
+                  } else {
+                    alert("To add Chai Chaska to your Home Screen:\n\n• Android / Chrome: Tap menu (⋮) -> 'Add to Home screen'\n• iPhone / Safari: Tap Share (⎋) -> 'Add to Home Screen'");
+                  }
+                }}
+              >
+                📲 Add to Home Screen
+              </button>
+
+              <button
                 className="install-modal-close-btn"
                 onClick={() => setShowInstallModal(false)}
               >
-                Got It, Thanks!
+                Maybe Later
               </button>
             </motion.div>
           </div>
@@ -1341,8 +1391,9 @@ export default function ShopPage() {
           position: relative;
         }
 
-        /* Top Pure White Header */
+        /* Top Header - Hidden on Desktop Screen Size */
         .shop-top-header {
+          display: none;
           background: #ffffff;
           padding: 20px 24px 16px;
           border-bottom: 1px solid #f1f5f9;
@@ -1601,11 +1652,11 @@ export default function ShopPage() {
         /* Main Shop Layout */
         .shop-main-layout {
           display: grid;
-          grid-template-columns: 290px 1fr;
-          gap: 36px;
-          max-width: 1400px;
+          grid-template-columns: 260px 1fr;
+          gap: 24px;
+          max-width: 1720px;
           margin: 0 auto;
-          padding: 36px 24px 72px;
+          padding: 24px 20px 72px;
           box-sizing: border-box;
         }
 
@@ -1613,12 +1664,12 @@ export default function ShopPage() {
         .shop-filter-sidebar {
           background: #ffffff;
           border: 1px solid #f1f5f9;
-          border-radius: 24px;
-          padding: 24px;
+          border-radius: 20px;
+          padding: 20px 18px;
           box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.03);
           height: fit-content;
           position: sticky;
-          top: 96px;
+          top: 86px;
           align-self: start;
         }
 
@@ -1678,6 +1729,51 @@ export default function ShopPage() {
           font-weight: 800;
           color: #0f172a;
           cursor: pointer;
+        }
+
+        .sidebar-search-box {
+          display: flex;
+          align-items: center;
+          gap: 9px;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 14px;
+          padding: 8px 12px;
+          transition: all 0.2s ease;
+        }
+
+        .sidebar-search-box:focus-within {
+          border-color: #0f172a;
+          background: #ffffff;
+          box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.05);
+        }
+
+        .sidebar-search-input {
+          border: none;
+          outline: none;
+          background: transparent;
+          font-size: 13px;
+          color: #0f172a;
+          width: 100%;
+          font-family: inherit;
+        }
+
+        .sidebar-search-input::placeholder {
+          color: #94a3b8;
+        }
+
+        .sidebar-search-clear {
+          background: none;
+          border: none;
+          color: #94a3b8;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          padding: 0 2px;
+        }
+
+        .sidebar-search-clear:hover {
+          color: #0f172a;
         }
 
         .sidebar-content {
@@ -2016,11 +2112,11 @@ export default function ShopPage() {
           background: #22c55e;
         }
 
-        /* Products Grid Layout */
+        /* Products Grid Layout (5 products in 1 row on desktop) */
         .products-grid-layout {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 28px;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 16px;
         }
 
         /* Grouped Sections */
@@ -2188,23 +2284,22 @@ export default function ShopPage() {
 
         /* Bottom Info Row (White Background) */
         .ref-card-bottom {
-          padding: 14px 6px 4px;
+          padding: 10px 4px 2px;
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
+          flex-direction: column;
+          gap: 8px;
         }
 
         .ref-card-left-info {
           display: flex;
           flex-direction: column;
-          gap: 3px;
+          gap: 4px;
+          width: 100%;
           overflow: hidden;
-          flex: 1;
         }
 
         .ref-card-title {
-          font-size: 15.5px;
+          font-size: 14.5px;
           font-weight: 750;
           color: #0f172a;
           letter-spacing: -0.02em;
@@ -2218,22 +2313,26 @@ export default function ShopPage() {
           display: flex;
           align-items: center;
           gap: 6px;
-          font-size: 12.5px;
+          font-size: 12px;
           color: #64748b;
           font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
 
         .status-dot-pulse {
-          width: 7px;
-          height: 7px;
+          width: 6.5px;
+          height: 6.5px;
           border-radius: 50%;
           background: #22c55e;
-          box-shadow: 0 0 0 2.5px rgba(34, 197, 94, 0.25);
+          box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25);
           flex-shrink: 0;
         }
 
         .status-text {
           color: #64748b;
+          white-space: nowrap;
         }
 
         .status-divider {
@@ -2243,31 +2342,34 @@ export default function ShopPage() {
         .ref-card-price {
           color: #0f172a;
           font-weight: 800;
+          font-size: 13.5px;
         }
 
-        /* Right Pill Action Button: "Add to tray" (Reference UI) */
+        /* Pill Action Button: "Add to tray" (Full-width & Responsive) */
         .ref-card-tray-btn {
+          width: 100%;
           background: #0f172a;
           color: #ffffff;
           border: none;
           border-radius: 9999px;
-          padding: 9px 16px;
-          font-size: 12.5px;
+          padding: 8px 12px;
+          font-size: 12px;
           font-weight: 700;
           cursor: pointer;
           display: flex;
           align-items: center;
+          justify-content: center;
           gap: 6px;
           white-space: nowrap;
-          flex-shrink: 0;
           transition: all 0.2s ease;
-          box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+          box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+          box-sizing: border-box;
         }
 
         .ref-card-tray-btn:hover {
           background: #334155;
-          transform: scale(1.03);
-          box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+          transform: scale(1.02);
+          box-shadow: 0 6px 16px rgba(15, 23, 42, 0.16);
         }
 
         .ref-card-tray-btn.in-tray {
@@ -2923,9 +3025,24 @@ export default function ShopPage() {
         }
 
         /* Responsive Breakpoints */
-        @media (max-width: 1150px) {
+        @media (max-width: 1550px) {
+          .products-grid-layout {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+          }
+        }
+
+        @media (max-width: 1250px) {
+          .products-grid-layout {
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+          }
+        }
+
+        @media (max-width: 980px) {
           .products-grid-layout {
             grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
           }
         }
 
@@ -2937,10 +3054,15 @@ export default function ShopPage() {
           }
 
           .shop-top-header {
+            display: block !important;
             padding: 12px 14px 8px !important;
             width: 100% !important;
             max-width: 100% !important;
             box-sizing: border-box !important;
+          }
+
+          .sidebar-search-box {
+            display: none !important;
           }
 
           .search-bar-shell {
@@ -3400,21 +3522,46 @@ export default function ShopPage() {
           flex-shrink: 0;
         }
 
-        .install-modal-close-btn {
+        .install-modal-action-btn {
           width: 100%;
           background: #0f172a;
           color: #ffffff;
-          border: none;
+          padding: 13px 20px;
           border-radius: 9999px;
-          padding: 12px;
-          font-size: 14px;
-          font-weight: 750;
+          border: none;
+          font-size: 14.5px;
+          font-weight: 800;
           cursor: pointer;
-          transition: background 0.2s;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-shadow: 0 4px 14px rgba(15, 23, 42, 0.2);
+          margin-bottom: 10px;
+        }
+
+        .install-modal-action-btn:hover {
+          background: #1e293b;
+          transform: translateY(-1px);
+        }
+
+        .install-modal-close-btn {
+          width: 100%;
+          background: transparent;
+          color: #64748b;
+          padding: 10px 16px;
+          border-radius: 9999px;
+          border: 1px solid #e2e8f0;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
         }
 
         .install-modal-close-btn:hover {
-          background: #334155;
+          background: #f1f5f9;
+          color: #0f172a;
         }
       ` }} />
     </div>

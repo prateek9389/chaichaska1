@@ -17,14 +17,18 @@ export default function CartPage() {
   const [showInstallModal, setShowInstallModal] = useState(false);
 
   const handleInstallApp = async () => {
+    setShowInstallModal(true);
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice && choice.outcome === "accepted") {
-        setDeferredPrompt(null);
+      try {
+        deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice && choice.outcome === "accepted") {
+          setDeferredPrompt(null);
+          setShowInstallModal(false);
+        }
+      } catch (e) {
+        console.warn("Direct install prompt error:", e);
       }
-    } else {
-      setShowInstallModal(true);
     }
   };
 
@@ -351,6 +355,76 @@ export default function CartPage() {
         </button>
       </nav>
 
+      {/* PWA Install Guide Modal */}
+      <AnimatePresence>
+        {showInstallModal && (
+          <div className="install-modal-backdrop" onClick={() => setShowInstallModal(false)}>
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 350, damping: 25 }}
+              className="install-modal-card"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="install-modal-logo-box">
+                <img src="/logo.png" alt="Chai Chaska Logo" className="install-modal-logo" />
+              </div>
+
+              <h3 className="install-modal-title">Add to Home Screen</h3>
+              <p className="install-modal-desc">
+                Install Chai Chaska directly to your mobile home screen with instant order tracking and zero storage overhead.
+              </p>
+
+              <div className="install-steps-box">
+                <div className="install-step-row">
+                  <div className="step-num">1</div>
+                  <div className="step-text">
+                    <strong>Chrome / Android:</strong> Tap the three dots (⋮) menu at top-right and choose <em>"Add to Home screen"</em>.
+                  </div>
+                </div>
+
+                <div className="install-step-row">
+                  <div className="step-num">2</div>
+                  <div className="step-text">
+                    <strong>Safari / iOS:</strong> Tap the Share button (⎋) at the bottom and choose <em>"Add to Home Screen"</em>.
+                  </div>
+                </div>
+              </div>
+
+              <button
+                className="install-modal-action-btn"
+                onClick={async () => {
+                  if (deferredPrompt) {
+                    try {
+                      deferredPrompt.prompt();
+                      const choice = await deferredPrompt.userChoice;
+                      if (choice && choice.outcome === "accepted") {
+                        setDeferredPrompt(null);
+                        setShowInstallModal(false);
+                      }
+                    } catch (e) {
+                      console.warn("Install error:", e);
+                    }
+                  } else {
+                    alert("To add Chai Chaska to your Home Screen:\n\n• Android / Chrome: Tap menu (⋮) -> 'Add to Home screen'\n• iPhone / Safari: Tap Share (⎋) -> 'Add to Home Screen'");
+                  }
+                }}
+              >
+                📲 Add to Home Screen
+              </button>
+
+              <button
+                className="install-modal-close-btn"
+                onClick={() => setShowInstallModal(false)}
+              >
+                Maybe Later
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Embedded Modern White Styling */}
       <style dangerouslySetInnerHTML={{ __html: `
         .cart-page-shell {
@@ -362,8 +436,8 @@ export default function CartPage() {
         }
 
         .cart-main-content {
-          padding: 36px 20px 90px;
-          max-width: 1140px;
+          padding: 36px 24px 90px;
+          max-width: 1280px;
           margin: 0 auto;
         }
 
@@ -492,9 +566,13 @@ export default function CartPage() {
         /* 2-Column Split */
         .cart-split-layout {
           display: grid;
-          grid-template-columns: 1.4fr 1fr;
+          grid-template-columns: minmax(0, 1.55fr) minmax(360px, 1fr);
           gap: 32px;
           align-items: start;
+        }
+
+        .cart-items-column {
+          min-width: 0;
         }
 
         /* Items Column */
@@ -586,13 +664,17 @@ export default function CartPage() {
         }
 
         .item-name {
-          font-size: 16px;
+          font-size: 15.5px;
           font-weight: 800;
           color: #0f172a;
           margin: 0;
-          white-space: nowrap;
+          line-height: 1.35;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
           overflow: hidden;
           text-overflow: ellipsis;
+          word-break: break-word;
         }
 
         .item-unit-rate {
@@ -1011,6 +1093,138 @@ export default function CartPage() {
             font-size: 11px;
             color: #f59e0b;
           }
+        }
+
+        /* PWA Install Modal */
+        .install-modal-backdrop {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(15, 23, 42, 0.6);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          z-index: 20000;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+
+        .install-modal-card {
+          background: #ffffff;
+          border-radius: 28px;
+          max-width: 400px;
+          width: 100%;
+          padding: 28px 24px;
+          text-align: center;
+          box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.3);
+          border: 1px solid #f1f5f9;
+        }
+
+        .install-modal-logo-box {
+          width: 72px;
+          height: 72px;
+          border-radius: 20px;
+          margin: 0 auto 16px;
+          overflow: hidden;
+          box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+        }
+
+        .install-modal-logo {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .install-modal-title {
+          font-size: 20px;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0 0 8px;
+        }
+
+        .install-modal-desc {
+          font-size: 13.5px;
+          color: #64748b;
+          line-height: 1.5;
+          margin: 0 0 20px;
+        }
+
+        .install-steps-box {
+          background: #f8fafc;
+          border-radius: 18px;
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          margin-bottom: 22px;
+          text-align: left;
+          border: 1px solid #f1f5f9;
+        }
+
+        .install-step-row {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          font-size: 12.5px;
+          color: #334155;
+          line-height: 1.45;
+        }
+
+        .step-num {
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          background: #0f172a;
+          color: #ffffff;
+          font-size: 11px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+
+        .install-modal-action-btn {
+          width: 100%;
+          background: #0f172a;
+          color: #ffffff;
+          border: none;
+          border-radius: 9999px;
+          padding: 13px;
+          font-size: 14.5px;
+          font-weight: 800;
+          cursor: pointer;
+          margin-bottom: 10px;
+          transition: all 0.2s;
+          box-shadow: 0 6px 20px rgba(15, 23, 42, 0.2);
+        }
+
+        .install-modal-action-btn:hover {
+          background: #1e293b;
+          transform: translateY(-1px);
+        }
+
+        .install-modal-close-btn {
+          width: 100%;
+          background: transparent;
+          color: #64748b;
+          border: 1px solid #e2e8f0;
+          border-radius: 9999px;
+          padding: 11px;
+          font-size: 13.5px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .install-modal-close-btn:hover {
+          background: #f8fafc;
+          color: #0f172a;
         }
       ` }} />
     </div>

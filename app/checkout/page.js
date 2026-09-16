@@ -49,14 +49,18 @@ function CheckoutPortal() {
   }, []);
 
   const handleInstallApp = async () => {
+    setShowInstallModal(true);
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice && choice.outcome === "accepted") {
-        setDeferredPrompt(null);
+      try {
+        deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice && choice.outcome === "accepted") {
+          setDeferredPrompt(null);
+          setShowInstallModal(false);
+        }
+      } catch (e) {
+        console.warn("Direct install prompt error:", e);
       }
-    } else {
-      setShowInstallModal(true);
     }
   };
 
@@ -75,7 +79,7 @@ function CheckoutPortal() {
     }
   }, [user, profile]);
 
-  // Load active coupons
+  // Load active discount coupons
   useEffect(() => {
     getCoupons()
       .then((c) => setDbCoupons(c || []))
@@ -92,6 +96,7 @@ function CheckoutPortal() {
   // Calculate pricing
   const subtotal = getCartTotal ? getCartTotal() : 0;
   const finalPayable = Math.max(0, subtotal - appliedDiscount);
+  const totalItemCount = cartItems.reduce((acc, i) => acc + (i.quantity || 1), 0);
 
   // Handle Coupon Application
   const handleApplyCoupon = (e) => {
@@ -462,6 +467,70 @@ function CheckoutPortal() {
                 </p>
               </form>
             </div>
+
+            {/* Right Column: Order Review (Desktop Only) */}
+            {cartItems && cartItems.length > 0 && (
+              <aside className="checkout-summary-column">
+                <div className="checkout-summary-card">
+                  <div className="summary-card-header">
+                    <h3 className="summary-card-title">Order Summary</h3>
+                    <span className="summary-count-badge">{totalItemCount} {totalItemCount === 1 ? "item" : "items"}</span>
+                  </div>
+
+                  {/* Items Preview */}
+                  <div className="checkout-items-scroll-list">
+                    {cartItems.map((item, idx) => {
+                      const itemPrice = parseInt(String(item.price).replace(/[^0-9]/g, "")) || 0;
+                      return (
+                        <div key={`${item.id}-${idx}`} className="checkout-item-preview-row">
+                          <img src={item.image || "/logo.png"} alt={item.name} className="checkout-item-thumb" />
+                          <div className="checkout-item-info">
+                            <span className="checkout-item-name">{item.name}</span>
+                            <span className="checkout-item-qty">Qty: {item.quantity || 1} • {item.sugar || "Regular"} Sugar</span>
+                          </div>
+                          <span className="checkout-item-total">₹{itemPrice * (item.quantity || 1)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Bill Breakdown */}
+                  <div className="checkout-bill-breakdown">
+                    <div className="checkout-bill-line">
+                      <span>Item Subtotal</span>
+                      <span>₹{subtotal}</span>
+                    </div>
+                    {appliedDiscount > 0 && (
+                      <div className="checkout-bill-line discount">
+                        <span>Promo Discount ({appliedCouponLabel})</span>
+                        <span>-₹{appliedDiscount}</span>
+                      </div>
+                    )}
+                    <div className="checkout-bill-line">
+                      <span>Desk Express Delivery</span>
+                      <span className="free-badge">FREE</span>
+                    </div>
+                    <div className="checkout-bill-divider" />
+                    <div className="checkout-bill-line total">
+                      <span>Grand Total</span>
+                      <span>₹{finalPayable}</span>
+                    </div>
+                  </div>
+
+                  {/* Trust Highlights */}
+                  <div className="checkout-trust-box">
+                    <div className="trust-row">
+                      <span>⚡</span>
+                      <span>Freshly brewed & delivered to your desk in 20 min</span>
+                    </div>
+                    <div className="trust-row">
+                      <span>☕</span>
+                      <span>Thermal sealed cup stays piping hot</span>
+                    </div>
+                  </div>
+                </div>
+              </aside>
+            )}
           </div>
 
         </div>
@@ -489,17 +558,17 @@ function CheckoutPortal() {
           <span className="bottom-nav-label">Orders</span>
         </Link>
 
-        {/* 3. Checkout (ACTIVE) */}
-        <Link href="/cart" className="bottom-nav-item active checkout-btn-item">
+        {/* 3. Checkout (Active) */}
+        <Link href="/checkout" className="bottom-nav-item active checkout-btn-item">
           <div className="bottom-nav-icon-box">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"></path>
               <line x1="3" y1="6" x2="21" y2="6"></line>
               <path d="M16 10a4 4 0 0 1-8 0"></path>
             </svg>
-            {cartItems && cartItems.length > 0 && (
+            {cartItems.length > 0 && (
               <span className="bottom-nav-badge">
-                {cartItems.reduce((sum, i) => sum + (i.quantity || 1), 0)}
+                {cartItems.reduce((acc, i) => acc + (i.quantity || 1), 0)}
               </span>
             )}
           </div>
@@ -539,9 +608,9 @@ function CheckoutPortal() {
                 <img src="/logo.png" alt="Chai Chaska Logo" className="install-modal-logo" />
               </div>
 
-              <h3 className="install-modal-title">Install Chai Chaska App</h3>
+              <h3 className="install-modal-title">Add to Home Screen</h3>
               <p className="install-modal-desc">
-                Add Chai Chaska directly to your mobile home screen with instant order tracking and zero storage overhead.
+                Install Chai Chaska directly to your mobile home screen with instant order tracking and zero storage overhead.
               </p>
 
               <div className="install-steps-box">
@@ -561,10 +630,32 @@ function CheckoutPortal() {
               </div>
 
               <button
+                className="install-modal-action-btn"
+                onClick={async () => {
+                  if (deferredPrompt) {
+                    try {
+                      deferredPrompt.prompt();
+                      const choice = await deferredPrompt.userChoice;
+                      if (choice && choice.outcome === "accepted") {
+                        setDeferredPrompt(null);
+                        setShowInstallModal(false);
+                      }
+                    } catch (e) {
+                      console.warn("Install error:", e);
+                    }
+                  } else {
+                    alert("To add Chai Chaska to your Home Screen:\n\n• Android / Chrome: Tap menu (⋮) -> 'Add to Home screen'\n• iPhone / Safari: Tap Share (⎋) -> 'Add to Home Screen'");
+                  }
+                }}
+              >
+                📲 Add to Home Screen
+              </button>
+
+              <button
                 className="install-modal-close-btn"
                 onClick={() => setShowInstallModal(false)}
               >
-                Got It, Thanks!
+                Maybe Later
               </button>
             </motion.div>
           </div>
@@ -582,8 +673,8 @@ function CheckoutPortal() {
         }
 
         .checkout-main-content {
-          padding: 36px 20px 80px;
-          max-width: 1140px;
+          padding: 36px 24px 80px;
+          max-width: 1240px;
           margin: 0 auto;
         }
 
@@ -639,11 +730,177 @@ function CheckoutPortal() {
           margin: 0;
         }
 
-        /* Centered Single-Column Form Layout */
+        /* 2-Column Split Layout on Desktop */
         .checkout-split-layout {
-          max-width: 580px;
-          margin: 0 auto;
+          display: grid;
+          grid-template-columns: minmax(0, 1.45fr) minmax(360px, 1fr);
+          gap: 32px;
+          align-items: start;
           width: 100%;
+        }
+
+        .checkout-form-column {
+          min-width: 0;
+        }
+
+        .checkout-summary-column {
+          min-width: 0;
+          position: sticky;
+          top: 96px;
+        }
+
+        .checkout-summary-card {
+          background: #ffffff;
+          border: 1.5px solid #f1f5f9;
+          border-radius: 28px;
+          padding: 28px 24px;
+          box-shadow: 0 10px 35px -5px rgba(15, 23, 42, 0.04);
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .summary-card-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-bottom: 14px;
+          border-bottom: 1px solid #f1f5f9;
+        }
+
+        .summary-card-title {
+          font-size: 18px;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0;
+        }
+
+        .summary-count-badge {
+          font-size: 11.5px;
+          font-weight: 700;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          color: #475569;
+          padding: 3px 10px;
+          border-radius: 9999px;
+        }
+
+        .checkout-items-scroll-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          max-height: 280px;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+
+        .checkout-item-preview-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 8px 10px;
+          background: #f8fafc;
+          border-radius: 14px;
+          border: 1px solid #f1f5f9;
+        }
+
+        .checkout-item-thumb {
+          width: 44px;
+          height: 44px;
+          border-radius: 10px;
+          object-fit: cover;
+          flex-shrink: 0;
+          background: #ffffff;
+        }
+
+        .checkout-item-info {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .checkout-item-name {
+          font-size: 13.5px;
+          font-weight: 750;
+          color: #0f172a;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .checkout-item-qty {
+          font-size: 11px;
+          color: #64748b;
+        }
+
+        .checkout-item-total {
+          font-size: 14px;
+          font-weight: 800;
+          color: #0f172a;
+          flex-shrink: 0;
+        }
+
+        .checkout-bill-breakdown {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding-top: 14px;
+          border-top: 1px solid #f1f5f9;
+        }
+
+        .checkout-bill-line {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 13px;
+          color: #64748b;
+        }
+
+        .checkout-bill-line.discount {
+          color: #059669;
+          font-weight: 600;
+        }
+
+        .checkout-bill-line .free-badge {
+          background: #ecfdf5;
+          color: #059669;
+          font-size: 10.5px;
+          font-weight: 800;
+          padding: 2px 7px;
+          border-radius: 6px;
+        }
+
+        .checkout-bill-divider {
+          height: 1px;
+          background: #f1f5f9;
+          margin: 4px 0;
+        }
+
+        .checkout-bill-line.total {
+          font-size: 16px;
+          font-weight: 850;
+          color: #0f172a;
+        }
+
+        .checkout-trust-box {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          padding: 12px;
+        }
+
+        .trust-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          color: #475569;
+          font-weight: 600;
         }
 
         .checkout-total-pill-bar {
@@ -1443,21 +1700,74 @@ function CheckoutPortal() {
           flex-shrink: 0;
         }
 
-        .install-modal-close-btn {
+        .install-modal-action-btn {
           width: 100%;
           background: #0f172a;
           color: #ffffff;
           border: none;
           border-radius: 9999px;
-          padding: 12px;
-          font-size: 14px;
-          font-weight: 750;
+          padding: 13px;
+          font-size: 14.5px;
+          font-weight: 800;
           cursor: pointer;
-          transition: background 0.2s;
+          margin-bottom: 10px;
+          transition: all 0.2s;
+          box-shadow: 0 6px 20px rgba(15, 23, 42, 0.2);
+        }
+
+        .install-modal-action-btn:hover {
+          background: #1e293b;
+          transform: translateY(-1px);
+        }
+
+        .install-modal-close-btn {
+          width: 100%;
+          background: transparent;
+          color: #64748b;
+          border: 1px solid #e2e8f0;
+          border-radius: 9999px;
+          padding: 11px;
+          font-size: 13.5px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
         }
 
         .install-modal-close-btn:hover {
-          background: #334155;
+          background: #f8fafc;
+          color: #0f172a;
+        }
+
+        /* Responsive Breakpoints */
+        @media (max-width: 860px) {
+          .checkout-main-content {
+            padding: 20px 14px 100px;
+          }
+
+          .checkout-split-layout {
+            display: flex !important;
+            flex-direction: column !important;
+            max-width: 100% !important;
+            gap: 20px !important;
+          }
+
+          .checkout-summary-column {
+            display: none !important;
+          }
+
+          .checkout-card-box {
+            padding: 22px 18px !important;
+            border-radius: 22px !important;
+          }
+
+          .checkout-fields-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+
+          .form-group.span-2 {
+            grid-column: span 1 !important;
+          }
         }
       ` }} />
     </div>

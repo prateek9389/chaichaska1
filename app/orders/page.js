@@ -37,14 +37,18 @@ export default function OrdersPage() {
   }, []);
 
   const handleInstallApp = async () => {
+    setShowInstallModal(true);
     if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice && choice.outcome === "accepted") {
-        setDeferredPrompt(null);
+      try {
+        deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice && choice.outcome === "accepted") {
+          setDeferredPrompt(null);
+          setShowInstallModal(false);
+        }
+      } catch (e) {
+        console.warn("Direct install prompt error:", e);
       }
-    } else {
-      setShowInstallModal(true);
     }
   };
 
@@ -640,9 +644,9 @@ export default function OrdersPage() {
                 <img src="/logo.png" alt="Chai Chaska Logo" className="install-modal-logo" />
               </div>
 
-              <h3 className="install-modal-title">Install Chai Chaska App</h3>
+              <h3 className="install-modal-title">Add to Home Screen</h3>
               <p className="install-modal-desc">
-                Add Chai Chaska directly to your mobile home screen with instant order tracking and zero storage overhead.
+                Install Chai Chaska on your home screen for quick 1-tap access and instant live order tracking.
               </p>
 
               <div className="install-steps-box">
@@ -662,10 +666,32 @@ export default function OrdersPage() {
               </div>
 
               <button
+                className="install-modal-action-btn"
+                onClick={async () => {
+                  if (deferredPrompt) {
+                    try {
+                      deferredPrompt.prompt();
+                      const choice = await deferredPrompt.userChoice;
+                      if (choice && choice.outcome === "accepted") {
+                        setDeferredPrompt(null);
+                        setShowInstallModal(false);
+                      }
+                    } catch (e) {
+                      console.warn("Install error:", e);
+                    }
+                  } else {
+                    alert("To add Chai Chaska to your Home Screen:\n\n• Android / Chrome: Tap menu (⋮) -> 'Add to Home screen'\n• iPhone / Safari: Tap Share (⎋) -> 'Add to Home Screen'");
+                  }
+                }}
+              >
+                📲 Add to Home Screen
+              </button>
+
+              <button
                 className="install-modal-close-btn"
                 onClick={() => setShowInstallModal(false)}
               >
-                Got It, Thanks!
+                Maybe Later
               </button>
             </motion.div>
           </div>

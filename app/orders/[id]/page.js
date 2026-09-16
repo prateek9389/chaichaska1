@@ -659,10 +659,32 @@ export default function OrderDetailPage({ params }) {
               </div>
 
               <button
+                className="install-modal-action-btn"
+                onClick={async () => {
+                  if (deferredPrompt) {
+                    try {
+                      deferredPrompt.prompt();
+                      const choice = await deferredPrompt.userChoice;
+                      if (choice && choice.outcome === "accepted") {
+                        setDeferredPrompt(null);
+                        setShowInstallModal(false);
+                      }
+                    } catch (e) {
+                      console.warn("Install error:", e);
+                    }
+                  } else {
+                    alert("To add Chai Chaska to your Home Screen:\n\n• Android / Chrome: Tap menu (⋮) -> 'Add to Home screen'\n• iPhone / Safari: Tap Share (⎋) -> 'Add to Home Screen'");
+                  }
+                }}
+              >
+                📲 Add to Home Screen
+              </button>
+
+              <button
                 className="install-modal-close-btn"
                 onClick={() => setShowInstallModal(false)}
               >
-                Got it, Thanks!
+                Maybe Later
               </button>
             </motion.div>
           </div>
@@ -1815,17 +1837,46 @@ export default function OrderDetailPage({ params }) {
           line-height: 1.3;
         }
 
-        .install-modal-close-btn {
+        .install-modal-action-btn {
           width: 100%;
           background: #0f172a;
           color: #ffffff;
-          padding: 12px;
+          padding: 13px 20px;
           border-radius: 9999px;
           border: none;
-          font-size: 14px;
-          font-weight: 750;
+          font-size: 14.5px;
+          font-weight: 800;
           cursor: pointer;
-          transition: background 0.2s;
+          transition: all 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          box-shadow: 0 4px 14px rgba(15, 23, 42, 0.2);
+          margin-bottom: 10px;
+        }
+
+        .install-modal-action-btn:hover {
+          background: #1e293b;
+          transform: translateY(-1px);
+        }
+
+        .install-modal-close-btn {
+          width: 100%;
+          background: transparent;
+          color: #64748b;
+          padding: 10px 16px;
+          border-radius: 9999px;
+          border: 1px solid #e2e8f0;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .install-modal-close-btn:hover {
+          background: #f1f5f9;
+          color: #0f172a;
         }
 
         .install-modal-close-btn:hover {
