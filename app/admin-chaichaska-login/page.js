@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback } from "@/lib/firestore";
+import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback, getRestockHistory } from "@/lib/firestore";
 import { loginWithEmail, signUpWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -90,125 +90,68 @@ export default function AdminDashboard() {
   };
   
   const activeTab = activeTabState;
-  const [timeFilter, setTimeFilter] = useState("Weekly");
+  const [timeFilter, setTimeFilter] = useState("All");
   const [queueFilter, setQueueFilter] = useState("All");
+  const [pendingModalView, setPendingModalView] = useState("orders");
+  const [pendingSearchTerm, setPendingSearchTerm] = useState("");
   
   const [isOnline, setIsOnline] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Active Orders Queue with detailed fields (including office number, product image, details, priority, createdAt, allocatedTime)
-  const [orders, setOrders] = useState([
-    {
-      id: "#10234",
-      customer: "John Bike Parts",
-      date: "09/12/2026",
-      status: "Shipped",
-      total: "₹1,200",
-      item: "Classic Masala Chai x8",
-      office: "Suite 302, Building A",
-      sugar: "Normal Sugar",
-      milk: "Whole Milk",
-      img: "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg",
-      priority: "Normal",
-      createdAt: Date.now() - 3600000, // 1 hour ago
-      allocatedTime: "30 mins",
-    },
-    {
-      id: "#10235",
-      customer: "Elite Cycling Co.",
-      date: "09/11/2026",
-      status: "Pending",
-      total: "₹3,600",
-      item: "Saffron Royal Chai x12",
-      office: "Floor 4, Conference Room B",
-      sugar: "Mild Sugar",
-      milk: "Oat Milk",
-      img: "https://i.pinimg.com/736x/21/74/32/2174329b8ef1603c1cbc68bd9ef5865a.jpg",
-      priority: "High",
-      createdAt: Date.now() - 1800000, // 30 mins ago
-      allocatedTime: "40 mins",
-    },
-    {
-      id: "#10236",
-      customer: "SpeedWheels",
-      date: "09/10/2026",
-      status: "Delivered",
-      total: "₹2,800",
-      item: "Ginger Chai x10",
-      office: "Cabin 12, Floor 5",
-      sugar: "No Sugar",
-      milk: "Almond Milk",
-      img: "https://i.pinimg.com/736x/95/d1/9a/95d19a7cad652dd1caceb091c9794ac9.jpg",
-      priority: "Normal",
-      createdAt: Date.now() - 7200000, // 2 hours ago
-      allocatedTime: "35 mins",
-    },
-    {
-      id: "#10239",
-      customer: "Vikram R.",
-      date: "09/12/2026",
-      status: "Received",
-      total: "₹380",
-      item: "Kashmiri Kahwa x2",
-      office: "Office 402, Block B",
-      sugar: "Normal Sweet",
-      milk: "Black Chai",
-      img: "https://i.pinimg.com/736x/c4/a8/cc/c4a8ccde9a67e5f24e2be4d0621f4186.jpg",
-      priority: "High",
-      createdAt: Date.now() - 480000, // 8 mins ago
-      allocatedTime: "",
-    },
-    {
-      id: "#10240",
-      customer: "Sneha K.",
-      date: "09/12/2026",
-      status: "Received",
-      total: "₹169",
-      item: "Ginger (Adrak) Chai x1",
-      office: "Office 105, Ground Floor",
-      sugar: "No Sugar",
-      milk: "Almond Milk",
-      img: "/chai-ingredients.png",
-      priority: "Normal",
-      createdAt: Date.now() - 120000, // 2 mins ago
-      allocatedTime: "",
-    },
-  ]);
+  // Active Orders Queue from live Firebase database
+  const [orders, setOrders] = useState([]);
 
-  // Today's Prep Tally
-  const todayTally = {
-    "Masala Chai": 24,
-    "Cardamom Chai": 18,
-    "Ginger Chai": 15,
-    "Saffron Royal Chai": 9,
-    "Almond Cookies": 30,
-  };
+  // Today's Prep Tally — dynamically derived from today's orders
+  const todayTally = (() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayOrders = orders.filter(o => (o.createdAt || 0) >= todayStart.getTime());
+    const tally = {};
+    todayOrders.forEach(o => {
+      if (Array.isArray(o.items) && o.items.length > 0) {
+        o.items.forEach(it => {
+          const name = it.name || it.item || "Chai";
+          const qty = parseInt(it.quantity) || 1;
+          tally[name] = (tally[name] || 0) + qty;
+        });
+      } else {
+        const itemStr = o.item || "Chai";
+        itemStr.split("+").forEach(part => {
+          const match = part.trim().match(/^(.*?)(?:\s*x\s*(\d+))?$/);
+          const name = match && match[1] ? match[1].trim() : part.trim();
+          const qty = match && match[2] ? parseInt(match[2]) : 1;
+          tally[name] = (tally[name] || 0) + qty;
+        });
+      }
+    });
+    return tally;
+  })();
 
-  const floorBatches = [
-    { floor: "Floor 5", items: "5x Masala Chai, 2x Cookies", status: "High Demand" },
-    { floor: "Floor 3", items: "3x Ginger Chai, 4x Cookies", status: "Medium Demand" },
-  ];
+  // Floor batches — dynamically derived from active orders
+  const floorBatches = (() => {
+    const floorMap = {};
+    orders.filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing").forEach(o => {
+      const floor = o.office || o.address || "General Area";
+      if (!floorMap[floor]) floorMap[floor] = { items: [], count: 0 };
+      floorMap[floor].items.push(o.item || "Chai Selection");
+      floorMap[floor].count++;
+    });
+    return Object.entries(floorMap).map(([f, v]) => ({
+      floor: f,
+      items: v.items.join(", "),
+      status: v.count >= 5 ? "High Demand" : v.count >= 2 ? "Medium Demand" : "Normal Demand"
+    }));
+  })();
 
-  // Stock
-  const [stocks, setStocks] = useState([
-    { name: "Assam Loose Tea Leaves", qty: "45 Kg Remaining", level: "In Stock", unitPrice: 350, unit: "Kg", supplier: "Jaipur Spices Ltd (+91 99999 11111)" },
-    { name: "Fresh Ginger Roots", qty: "12 Kg Remaining", level: "Low Stock", unitPrice: 120, unit: "Kg", supplier: "Alwar Organic Farms (+91 88888 22222)" },
-    { name: "Green Cardamom Elaichi Pods", qty: "2.5 Kg Remaining", level: "Low Stock", unitPrice: 1800, unit: "Kg", supplier: "Kerala Plantation Direct (+91 77777 33333)" },
-    { name: "Organic Kashmiri Saffron", qty: "80 Grams Remaining", level: "Low Stock", unitPrice: 280, unit: "Grams", supplier: "Pampore Saffron Valley (+91 66666 44444)" },
-    { name: "Whole Milk Cartons", qty: "5 Ltrs Remaining", level: "Out of Stock", unitPrice: 65, unit: "Ltrs", supplier: "Jaipur Dairy Co-op (+91 55555 55555)" },
-  ]);
+  // Stock (Inventory) — fetched from Firebase
+  const [stocks, setStocks] = useState([]);
 
   // Auto alerts and restock logs
   const [autoAlertEnabled, setAutoAlertEnabled] = useState(true);
-  const [restockHistory, setRestockHistory] = useState([
-    { date: "02/07/2026", item: "Assam Loose Tea Leaves", qty: "20 Kg", source: "Jaipur Spices Ltd" },
-    { date: "30/06/2026", item: "Whole Milk Cartons", qty: "50 Ltrs", source: "Jaipur Dairy Co-op" },
-  ]);
+  const [restockHistory, setRestockHistory] = useState([]);
 
-  // Restock alerts/requests states
-  const [restockRequests, setRestockRequests] = useState([
-    { item: "Green Cardamom Elaichi Pods", qty: "10 Kg", urgency: "High", notes: "Almost out of Elaichi base", date: "Just now", status: "Sent to Admin" }
-  ]);
+  // Restock alerts/requests states — fetched from Firebase
+  const [restockRequests, setRestockRequests] = useState([]);
   const [selectedItem, setSelectedItem] = useState("Assam Loose Tea Leaves");
   const [requestQty, setRequestQty] = useState("");
   const [urgency, setUrgency] = useState("Medium");
@@ -284,15 +227,46 @@ export default function AdminDashboard() {
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("All");
   const [inventorySelectedDate, setInventorySelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Customer Management Table
-  const customerManagement = [
-    { name: "John Bike Parts", orders: 10, value: "₹12,000", lastOrder: "09/12/2026", loyalty: "Gold" },
-    { name: "Elite Cycling Co.", orders: 15, value: "₹25,000", lastOrder: "09/11/2026", loyalty: "Platinum" },
-  ];
+  // Customer Management Table — dynamically derived from live orders
+  const customerManagement = (() => {
+    const map = {};
+    orders.forEach(o => {
+      const name = o.customer || o.address?.firstName || "Customer";
+      if (!map[name]) map[name] = { name, orders: 0, totalVal: 0, lastOrder: 0 };
+      map[name].orders++;
+      const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      map[name].totalVal += isNaN(val) ? 0 : val;
+      map[name].lastOrder = Math.max(map[name].lastOrder, o.createdAt || 0);
+    });
+    return Object.values(map).map(c => ({
+      name: c.name,
+      orders: c.orders,
+      value: "₹" + c.totalVal.toLocaleString("en-IN"),
+      lastOrder: c.lastOrder ? new Date(c.lastOrder).toLocaleDateString("en-IN") : "-",
+      loyalty: c.orders >= 10 ? "Platinum" : c.orders >= 5 ? "Gold" : c.orders >= 2 ? "Silver" : "New"
+    })).sort((a, b) => b.orders - a.orders);
+  })();
+
+  // Helper to determine if an order has pending payment
+  const isOrderPendingPayment = (o) => {
+    if (!o) return false;
+    if (o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
+    const ps = String(o.paymentStatus || "").trim().toLowerCase();
+    const pm = String(o.paymentMethod || "").trim().toLowerCase();
+    const st = String(o.status || "").trim().toLowerCase();
+    if (ps === "paid" || ps === "completed" || ps === "success" || ps === "successful") return false;
+    if (ps === "pending" || ps.includes("cod") || ps.includes("unpaid") || ps.includes("due") || ps === "pending payment") return true;
+    if (st === "pending payment") return true;
+    if (pm.includes("cod") || pm.includes("cash on delivery")) {
+      return o.status !== "Delivered" && o.status !== "Completed";
+    }
+    return false;
+  };
 
   // Earnings Summary Stats (Dynamic calculations from Firebase orders)
   const filteredOrders = orders.filter(o => {
-    if (!o.createdAt) return true; // keep mock/older orders if no timestamp
+    if (timeFilter === "All" || !timeFilter) return true;
+    if (!o.createdAt) return true;
     const now = Date.now();
     const diff = now - o.createdAt;
     if (timeFilter === "Daily") return diff <= 24 * 60 * 60 * 1000;
@@ -304,12 +278,12 @@ export default function AdminDashboard() {
   const validOrders = filteredOrders.filter(o => o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
 
   const totalSalesVal = validOrders.reduce((acc, o) => {
-    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
 
-  const pendingAmountVal = orders.filter(o => o.paymentStatus === "Pending").reduce((acc, o) => {
-    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+  const pendingAmountVal = filteredOrders.filter(isOrderPendingPayment).reduce((acc, o) => {
+    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
 
@@ -386,12 +360,24 @@ export default function AdminDashboard() {
     monthsData[currentMonthIdx].highlighted = true;
   }
 
-  const todaySettlements = [
-    { item: "Classic Masala Chai (24 units)", value: "₹3,576" },
-    { item: "Saffron Royal Chai (9 units)", value: "₹2,241" },
-    { item: "Ginger (Adrak) Chai (15 units)", value: "₹2,535" },
-    { item: "Almond Cookies (30 units)", value: "₹1,500" },
-  ];
+  // Today's settlements — dynamically derived from today's orders
+  const todaySettlements = (() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayOrders = orders.filter(o => (o.createdAt || 0) >= todayStart.getTime() && o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
+    const itemMap = {};
+    todayOrders.forEach(o => {
+      const key = o.item || "Chai Selection";
+      if (!itemMap[key]) itemMap[key] = { count: 0, value: 0 };
+      itemMap[key].count++;
+      const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      itemMap[key].value += isNaN(val) ? 0 : val;
+    });
+    return Object.entries(itemMap).map(([k, v]) => ({
+      item: `${k} (${v.count} units)`,
+      value: `₹${v.value.toLocaleString("en-IN")}`
+    }));
+  })();
 
   const historyOrders = orders.map((o, idx) => {
     const totalStr = typeof o.total === "string" && o.total.includes("₹") ? o.total : `₹${o.total}`;
@@ -411,70 +397,10 @@ export default function AdminDashboard() {
     };
   });
 
-  // Menu items
-  const [menuItems, setMenuItems] = useState([
-    {
-      name: "Classic Masala Chai",
-      price: 149,
-      active: true,
-      image: "https://i.pinimg.com/736x/82/64/80/8264808f4840845e96abc7f7ec60b82f.jpg",
-      desc: "Our signature blend brewed with freshly ground whole spices.",
-      category: "Chai",
-      unit: "Kulhad",
-      veg: true,
-      prepTime: "8 mins",
-      minQty: 1,
-      maxQty: 12,
-      isSpecial: true,
-      approvalStatus: "Approved",
-      scheduleDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-      timeSlot: "All Day",
-      linkedIngredients: ["Assam Loose Tea Leaves"]
-    },
-    {
-      name: "Ginger (Adrak) Chai",
-      price: 169,
-      active: true,
-      image: "/chai-ingredients.png",
-      desc: "Warm and soothing brew infusing robust Assam CTC with grated farm ginger.",
-      category: "Chai",
-      unit: "Cup",
-      veg: true,
-      prepTime: "6 mins",
-      minQty: 1,
-      maxQty: 10,
-      isSpecial: false,
-      approvalStatus: "Approved",
-      scheduleDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-      timeSlot: "All Day",
-      linkedIngredients: ["Fresh Ginger Roots"]
-    },
-    {
-      name: "Saffron Royal Chai",
-      price: 249,
-      active: true,
-      image: "https://i.pinimg.com/736x/21/74/32/2174329b8ef1603c1cbc68bd9ef5865a.jpg",
-      desc: "Fragrant luxury Kashmiri saffron strands infused with sweet milk.",
-      category: "Chai",
-      unit: "Kulhad",
-      veg: true,
-      prepTime: "12 mins",
-      minQty: 1,
-      maxQty: 6,
-      isSpecial: false,
-      linkedIngredients: ["Organic Kashmiri Saffron"],
-      approvalStatus: "Approved",
-      scheduleDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
-      timeSlot: "Evening Only"
-    },
-  ]);
-
+  // Menu items — fetched from Firebase
+  const [menuItems, setMenuItems] = useState([]);
   const [menuSubTab, setMenuSubTab] = useState("live");
-  const [combos, setCombos] = useState([
-    { name: "Evening Rush Combo", items: "Classic Masala Chai + Almond Cookies", price: 199, active: true, desc: "A perfect hot masala brew paired with 2 crisp almond cookies." },
-    { name: "Kesar Winter Booster", items: "Saffron Royal Chai + Saffron Biscuits", price: 299, active: true, desc: "Luxury Saffron tea served with premium custom saffron-dipped biscuits." }
-  ]);
-
+  const [combos, setCombos] = useState([]);
 
   const [newMenuItemName, setNewMenuItemName] = useState("");
   const [newMenuItemPrice, setNewMenuItemPrice] = useState("");
@@ -500,12 +426,8 @@ export default function AdminDashboard() {
     }
   }, [activeInvoice]);
 
-  // Feedback list
-  const [feedbackList, setFeedbackList] = useState([
-    { orderId: "ORD-8102", customer: "Rohan V.", rating: 5, date: "09/12/2026", text: "Absolutely loved the warm cardamom notes! Perfectly balanced sweetness." },
-    { orderId: "ORD-8101", customer: "Priya P.", rating: 4, date: "09/12/2026", text: "The saffron aroma is premium, but the milk was slightly thick today. Good effort!" },
-    { orderId: "ORD-8098", customer: "Karan J.", rating: 5, date: "09/11/2026", text: "Kashmiri Kahwa is a lifesaver in these airconditioned office rooms." }
-  ]);
+  // Feedback list — fetched from Firebase
+  const [feedbackList, setFeedbackList] = useState([]);
 
   // Product Creation States
   const [productsList, setProductsList] = useState([]);
@@ -542,9 +464,7 @@ export default function AdminDashboard() {
   const [leaveStart, setLeaveStart] = useState("2026-07-10");
   const [leaveEnd, setLeaveEnd] = useState("2026-07-12");
   const [newLeaveReason, setNewLeaveReason] = useState("");
-  const [leaveRequests, setLeaveRequests] = useState([
-    { start: "2026-07-10", end: "2026-07-12", reason: "Family Event", status: "Approved" }
-  ]);
+  const [leaveRequests, setLeaveRequests] = useState([]);
   const [adminLeaveReasons, setAdminLeaveReasons] = useState({});
   const [workingHours, setWorkingHours] = useState("8:00 AM - 6:00 PM");
   const [shopName, setShopName] = useState("Chai Chaska Jaipur HQ");
@@ -629,6 +549,7 @@ export default function AdminDashboard() {
     const unsubProducts = onProductsSnapshot((data) => setProductsList(data));
     const unsubRestock = onRestockRequestsSnapshot((data) => setRestockRequests(data));
     const unsubLeave = onLeaveRequestsSnapshot((data) => setLeaveRequests(data));
+    getRestockHistory().then(setRestockHistory);
     return () => {
       unsubOrders();
       unsubProducts();
@@ -1589,6 +1510,42 @@ export default function AdminDashboard() {
             {/* TAB CONTENT */}
             {activeTab === "dashboard" && (
               <div style={{ padding: "24px", background: "#f8f9fa", minHeight: "100vh", fontFamily: "sans-serif" }}>
+                
+                {/* METRICS HEADER & TIME FILTER */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "800", color: "#2c1b0d" }}>Dashboard Live Metrics</h2>
+                    <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#777" }}>Live Firestore real-time data and order analytics.</p>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", background: "#ffffff", padding: "4px 8px", borderRadius: "10px", border: "1px solid #eaeaea", boxShadow: "0 2px 6px rgba(0,0,0,0.03)" }}>
+                    <span style={{ fontSize: "12px", color: "#888", fontWeight: "600", marginRight: "4px" }}>Filter:</span>
+                    {[
+                      { id: "All", label: "All Time" },
+                      { id: "Daily", label: "Today" },
+                      { id: "Weekly", label: "This Week" },
+                      { id: "Monthly", label: "This Month" }
+                    ].map(tf => (
+                      <button
+                        key={tf.id}
+                        onClick={() => setTimeFilter(tf.id)}
+                        style={{
+                          padding: "5px 12px",
+                          borderRadius: "6px",
+                          border: "none",
+                          background: timeFilter === tf.id ? "#2c1b0d" : "transparent",
+                          color: timeFilter === tf.id ? "#ffffff" : "#666",
+                          fontWeight: timeFilter === tf.id ? "bold" : "normal",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                      >
+                        {tf.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* TOP ROW: SUMMARY CARDS */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
                   {[
@@ -1683,7 +1640,7 @@ export default function AdminDashboard() {
                   <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                       <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>Pending Orders</h3>
-                      <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                      <span style={{ color: "#8a583c", cursor: "pointer", fontSize: "12px", fontWeight: "600" }} onClick={() => setActiveTab("queue")}>View Queue →</span>
                     </div>
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
@@ -1696,22 +1653,29 @@ export default function AdminDashboard() {
                           </tr>
                         </thead>
                         <tbody>
-                          {orders.slice(0, 6).map((o, i) => (
-                            <tr key={o.id} style={{ borderBottom: i !== 5 ? "1px solid #f5f5f5" : "none" }}>
-                              <td style={{ padding: "12px 0", fontWeight: "600", color: "#333" }}>{o.id}</td>
-                              <td style={{ padding: "12px 0", color: "#555" }}>{o.customer}</td>
-                              <td style={{ padding: "12px 0", color: "#333", fontWeight: "500" }}>{o.total}</td>
+                          {orders.filter(o => o.status === "Pending" || o.status === "Received" || o.status === "Preparing" || o.status === "Out for Delivery").slice(0, 8).map((o, i, arr) => (
+                            <tr key={o.id} style={{ borderBottom: i !== arr.length - 1 ? "1px solid #f5f5f5" : "none" }}>
+                              <td style={{ padding: "12px 0", fontWeight: "700", color: "#8a583c" }}>{o.orderId || o.id}</td>
+                              <td style={{ padding: "12px 0", color: "#444", fontWeight: "500" }}>{o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : "Walk-in")}</td>
+                              <td style={{ padding: "12px 0", color: "#2c1b0d", fontWeight: "700" }}>{typeof o.total === "string" && o.total.includes("₹") ? o.total : `₹${o.total || o.price || 0}`}</td>
                               <td style={{ padding: "12px 0" }}>
                                 <span style={{
                                   padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold",
-                                  background: o.status === "Pending" || o.status === "Received" ? "#fff3e0" : o.status === "Preparing" ? "#e8f5e9" : "#e3f2fd",
-                                  color: o.status === "Pending" || o.status === "Received" ? "#ef6c00" : o.status === "Preparing" ? "#2e7d32" : "#1565c0"
+                                  background: o.status === "Pending" || o.status === "Received" ? "#fff3e0" : o.status === "Preparing" ? "#e3f2fd" : "#e8f5e9",
+                                  color: o.status === "Pending" || o.status === "Received" ? "#ef6c00" : o.status === "Preparing" ? "#1565c0" : "#2e7d32"
                                 }}>
                                   {o.status || "Received"}
                                 </span>
                               </td>
                             </tr>
                           ))}
+                          {orders.filter(o => o.status === "Pending" || o.status === "Received" || o.status === "Preparing" || o.status === "Out for Delivery").length === 0 && (
+                            <tr>
+                              <td colSpan="4" style={{ padding: "20px", textAlign: "center", color: "#999", fontStyle: "italic" }}>
+                                No pending orders right now.
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -4349,133 +4313,385 @@ export default function AdminDashboard() {
       )}
 
       {/* STATS MODALS */}
-      {activeStatsModal === "offline" && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000 }}>
-          <div style={{ background: "#fff", padding: "32px", borderRadius: "24px", width: "900px", maxWidth: "90vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.3)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f2eee9", paddingBottom: "12px" }}>
-              <h3 style={{ margin: 0, color: "#2c1b0d", fontSize: "20px" }}>🏪 Offline Orders List</h3>
-              <button
-                onClick={() => setActiveStatsModal(null)}
-                style={{ background: "transparent", border: "none", fontSize: "24px", cursor: "pointer", color: "#e74c3c", fontWeight: "bold" }}
-              >
-                &times;
-              </button>
-            </div>
-            
-            <div style={{ flex: 1, overflowY: "auto", paddingRight: "8px" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "15px" }}>
-                <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
-                  <tr style={{ color: "#555" }}>
-                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Order ID</th>
-                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Customer</th>
-                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Items</th>
-                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Date</th>
-                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Total</th>
-                    <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {validOrders.filter(o => o.isOffline === true).map((o, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
-                      <td style={{ padding: "16px", fontWeight: "bold", color: "#8a583c" }}>{o.id}</td>
-                      <td style={{ padding: "16px", fontWeight: "bold" }}>{o.customer || "Walk-in"}</td>
-                      <td style={{ padding: "16px" }}>
-                        <span style={{ display: "block" }}>{o.item || "Chai Selection"}</span>
-                        <span style={{ fontSize: "12px", color: "#888" }}>{o.customization || "Standard"}</span>
-                      </td>
-                      <td style={{ padding: "16px", color: "#777" }}>{o.date || new Date(o.createdAt).toLocaleDateString()}</td>
-                      <td style={{ padding: "16px", fontWeight: "bold", color: "#2c1b0d", fontSize: "16px" }}>{o.total || o.price}</td>
-                      <td style={{ padding: "16px" }}>
-                        <span style={{ fontSize: "12px", background: o.status === "Delivered" || o.status === "Completed" ? "rgba(39, 174, 96, 0.1)" : "rgba(241, 196, 15, 0.1)", color: o.status === "Delivered" || o.status === "Completed" ? "#27ae60" : "#f39c12", padding: "6px 12px", borderRadius: "8px", fontWeight: "bold" }}>
-                          {o.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {validOrders.filter(o => o.isOffline === true).length === 0 && (
-                    <tr><td colSpan="6" style={{ textAlign: "center", padding: "60px", color: "#888", fontSize: "16px" }}>No offline orders found.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            
-            <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "12px" }}>
-              <button
-                onClick={() => setActiveStatsModal(null)}
-                style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeStatsModal === "pending" && (() => {
-        const pendingOrders = validOrders.filter(o => o.paymentStatus === "Pending");
-        const groupedByCustomer = pendingOrders.reduce((acc, o) => {
-          const custName = o.customer || "Walk-in";
-          if (!acc[custName]) {
-            acc[custName] = { totalAmount: 0, statuses: [], count: 0, orders: [] };
-          }
-          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price);
-          acc[custName].totalAmount += (isNaN(val) ? 0 : val);
-          if (!acc[custName].statuses.includes(o.status)) acc[custName].statuses.push(o.status);
-          acc[custName].count += 1;
-          acc[custName].orders.push(o.id);
-          return acc;
-        }, {});
-        const groupedArr = Object.keys(groupedByCustomer).map(k => ({ customer: k, ...groupedByCustomer[k] }));
-
+      {/* STATS MODALS */}
+      {activeStatsModal === "offline" && (() => {
+        const offlineOrders = orders.filter(o => o.isOffline === true);
         return (
-          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000 }}>
-            <div style={{ background: "#fff", padding: "32px", borderRadius: "24px", width: "1200px", maxWidth: "95vw", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.3)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f2eee9", paddingBottom: "12px", flexShrink: 0 }}>
-                <h3 style={{ margin: 0, color: "#2c1b0d", fontSize: "20px" }}>⏳ Pending Amounts by Customer</h3>
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, backdropFilter: "blur(4px)", padding: "16px" }}>
+            <div style={{ background: "#fff", padding: "28px", borderRadius: "20px", width: "1100px", maxWidth: "95vw", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #f2eee9", paddingBottom: "14px", flexShrink: 0 }}>
+                <div>
+                  <h3 style={{ margin: 0, color: "#2c1b0d", fontSize: "20px", fontWeight: "800" }}>🏪 Offline & Counter Orders ({offlineOrders.length})</h3>
+                  <p style={{ margin: "4px 0 0 0", fontSize: "13px", color: "#777" }}>Direct orders placed at the tea shop counter.</p>
+                </div>
                 <button
                   onClick={() => setActiveStatsModal(null)}
-                  style={{ background: "transparent", border: "none", fontSize: "24px", cursor: "pointer", color: "#e74c3c", fontWeight: "bold" }}
+                  style={{ background: "#f1eee9", border: "none", width: "36px", height: "36px", borderRadius: "50%", fontSize: "18px", cursor: "pointer", color: "#555", display: "flex", alignItems: "center", justifyContent: "center" }}
                 >
-                  &times;
+                  ✕
                 </button>
               </div>
               
-              <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", paddingRight: "12px", minHeight: 0, maxHeight: "calc(90vh - 160px)" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "15px" }}>
+              <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", paddingRight: "8px" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
                   <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
-                    <tr style={{ color: "#555" }}>
-                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Customer</th>
-                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}># of Orders</th>
-                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Total Pending Amount</th>
-                      <th style={{ padding: "16px", borderBottom: "2px solid #eee" }}>Order Statuses</th>
+                    <tr style={{ color: "#666", borderBottom: "2px solid #eee" }}>
+                      <th style={{ padding: "14px" }}>Order ID</th>
+                      <th style={{ padding: "14px" }}>Customer</th>
+                      <th style={{ padding: "14px" }}>Items</th>
+                      <th style={{ padding: "14px" }}>Date</th>
+                      <th style={{ padding: "14px" }}>Total</th>
+                      <th style={{ padding: "14px" }}>Payment</th>
+                      <th style={{ padding: "14px" }}>Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {groupedArr.map((g, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
-                        <td style={{ padding: "16px", fontWeight: "bold", fontSize: "16px" }}>{g.customer}</td>
-                        <td style={{ padding: "16px", color: "#555" }}>{g.count} order(s)</td>
-                        <td style={{ padding: "16px", fontWeight: "bold", color: "#e74c3c", fontSize: "16px" }}>₹{g.totalAmount.toLocaleString()}</td>
-                        <td style={{ padding: "16px" }}>
-                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                            {g.statuses.map(s => (
-                              <span key={s} style={{ fontSize: "12px", background: "rgba(241, 196, 15, 0.1)", color: "#f39c12", padding: "6px 12px", borderRadius: "8px", fontWeight: "bold" }}>{s}</span>
-                            ))}
-                          </div>
+                    {offlineOrders.map((o, i) => (
+                      <tr key={o.id || i} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                        <td style={{ padding: "14px", fontWeight: "bold", color: "#8a583c" }}>{o.orderId || o.id}</td>
+                        <td style={{ padding: "14px", fontWeight: "bold" }}>{o.customer || "Walk-in"}</td>
+                        <td style={{ padding: "14px" }}>
+                          <span style={{ display: "block" }}>{o.item || "Chai Selection"}</span>
+                          <span style={{ fontSize: "12px", color: "#888" }}>{o.customization || (o.walkIn ? "Counter Pickup" : "Walk-in")}</span>
+                        </td>
+                        <td style={{ padding: "14px", color: "#777" }}>{o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString("en-IN") : "-")}</td>
+                        <td style={{ padding: "14px", fontWeight: "bold", color: "#2c1b0d", fontSize: "15px" }}>{typeof o.total === "string" && o.total.includes("₹") ? o.total : `₹${o.total || o.price || 0}`}</td>
+                        <td style={{ padding: "14px" }}>
+                          <span style={{ fontSize: "11px", background: o.paymentStatus === "Paid" ? "#e8f5e9" : "#fff3e0", color: o.paymentStatus === "Paid" ? "#2e7d32" : "#e65100", padding: "4px 8px", borderRadius: "6px", fontWeight: "bold" }}>
+                            {o.paymentStatus || o.paymentMethod || "Pending"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "14px" }}>
+                          <span style={{ fontSize: "11px", background: o.status === "Delivered" || o.status === "Completed" ? "rgba(39, 174, 96, 0.1)" : "rgba(241, 196, 15, 0.1)", color: o.status === "Delivered" || o.status === "Completed" ? "#27ae60" : "#f39c12", padding: "6px 12px", borderRadius: "8px", fontWeight: "bold" }}>
+                            {o.status || "Received"}
+                          </span>
                         </td>
                       </tr>
                     ))}
-                    {groupedArr.length === 0 && (
-                      <tr><td colSpan="4" style={{ textAlign: "center", padding: "60px", color: "#888", fontSize: "16px" }}>No pending amounts found.</td></tr>
+                    {offlineOrders.length === 0 && (
+                      <tr><td colSpan="7" style={{ textAlign: "center", padding: "60px", color: "#888", fontSize: "15px" }}>No offline orders found.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
               
-              <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "12px" }}>
+              <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "14px" }}>
                 <button
                   onClick={() => setActiveStatsModal(null)}
-                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
+                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 24px", borderRadius: "8px", fontWeight: "bold", fontSize: "13px", cursor: "pointer" }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {activeStatsModal === "pending" && (() => {
+        const allPendingOrders = orders.filter(isOrderPendingPayment);
+        const filteredPending = allPendingOrders.filter(o => {
+          if (!pendingSearchTerm) return true;
+          const term = pendingSearchTerm.toLowerCase();
+          const id = (o.orderId || o.id || "").toLowerCase();
+          const cust = (o.customer || o.address?.firstName || "").toLowerCase();
+          const ph = (o.phone || o.address?.phone || "").toLowerCase();
+          return id.includes(term) || cust.includes(term) || ph.includes(term);
+        });
+
+        const totalPendingSum = allPendingOrders.reduce((acc, o) => {
+          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+          return acc + (isNaN(val) ? 0 : val);
+        }, 0);
+
+        const groupedByCustomer = allPendingOrders.reduce((acc, o) => {
+          const custName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : "Walk-in Customer");
+          if (!acc[custName]) {
+            acc[custName] = { 
+              customer: custName, 
+              phone: o.phone || o.address?.phone || "N/A", 
+              totalAmount: 0, 
+              count: 0, 
+              orders: [],
+              lastDate: o.createdAt || 0
+            };
+          }
+          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+          acc[custName].totalAmount += (isNaN(val) ? 0 : val);
+          acc[custName].count += 1;
+          acc[custName].orders.push(o);
+          acc[custName].lastDate = Math.max(acc[custName].lastDate, o.createdAt || 0);
+          return acc;
+        }, {});
+        const customerList = Object.values(groupedByCustomer).sort((a, b) => b.totalAmount - a.totalAmount);
+
+        return (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, backdropFilter: "blur(4px)", padding: "16px" }}>
+            <div style={{ background: "#ffffff", borderRadius: "20px", width: "1250px", maxWidth: "98vw", maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", overflow: "hidden" }}>
+              
+              {/* MODAL HEADER */}
+              <div style={{ padding: "20px 28px", borderBottom: "1px solid #f0ebe4", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fcfaf8" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ fontSize: "24px" }}>⏳</span>
+                    <h3 style={{ margin: 0, color: "#2c1b0d", fontSize: "20px", fontWeight: "800" }}>Pending Amount & Payment Details</h3>
+                  </div>
+                  <p style={{ margin: "4px 0 0 34px", fontSize: "13px", color: "#777" }}>
+                    Real-time database tracking of unpaid, COD, and pending orders.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveStatsModal(null)}
+                  style={{ background: "#f1eee9", border: "none", width: "36px", height: "36px", borderRadius: "50%", fontSize: "18px", cursor: "pointer", color: "#555", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* SUMMARY STATS & CONTROLS BAR */}
+              <div style={{ padding: "16px 28px", background: "#fff", borderBottom: "1px solid #f0f0f0", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+                <div style={{ display: "flex", gap: "24px", alignItems: "center" }}>
+                  <div style={{ background: "#fff8f0", padding: "8px 16px", borderRadius: "10px", border: "1px solid #ffe0b2" }}>
+                    <span style={{ fontSize: "11px", color: "#e65100", fontWeight: "bold", textTransform: "uppercase" }}>Total Pending Amount</span>
+                    <div style={{ fontSize: "20px", fontWeight: "900", color: "#c62828" }}>₹{totalPendingSum.toLocaleString("en-IN")}</div>
+                  </div>
+                  <div style={{ background: "#f5f5f5", padding: "8px 16px", borderRadius: "10px", border: "1px solid #e0e0e0" }}>
+                    <span style={{ fontSize: "11px", color: "#555", fontWeight: "bold", textTransform: "uppercase" }}>Pending Orders</span>
+                    <div style={{ fontSize: "20px", fontWeight: "900", color: "#2c1b0d" }}>{allPendingOrders.length}</div>
+                  </div>
+                  <div style={{ background: "#f5f5f5", padding: "8px 16px", borderRadius: "10px", border: "1px solid #e0e0e0" }}>
+                    <span style={{ fontSize: "11px", color: "#555", fontWeight: "bold", textTransform: "uppercase" }}>Pending Customers</span>
+                    <div style={{ fontSize: "20px", fontWeight: "900", color: "#2c1b0d" }}>{customerList.length}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                  {/* SEARCH INPUT */}
+                  <div style={{ position: "relative" }}>
+                    <input
+                      type="text"
+                      placeholder="Search order ID or name..."
+                      value={pendingSearchTerm}
+                      onChange={(e) => setPendingSearchTerm(e.target.value)}
+                      style={{ padding: "8px 14px 8px 30px", borderRadius: "8px", border: "1px solid #ddd", fontSize: "13px", width: "220px" }}
+                    />
+                    <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", fontSize: "12px", color: "#888" }}>🔍</span>
+                  </div>
+
+                  {/* TAB TOGGLE */}
+                  <div style={{ display: "flex", background: "#eee", borderRadius: "8px", padding: "3px" }}>
+                    <button
+                      onClick={() => setPendingModalView("orders")}
+                      style={{
+                        border: "none",
+                        padding: "6px 14px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        cursor: "pointer",
+                        background: pendingModalView === "orders" ? "#ffffff" : "transparent",
+                        color: pendingModalView === "orders" ? "#2c1b0d" : "#777",
+                        boxShadow: pendingModalView === "orders" ? "0 2px 4px rgba(0,0,0,0.1)" : "none"
+                      }}
+                    >
+                      All Orders ({filteredPending.length})
+                    </button>
+                    <button
+                      onClick={() => setPendingModalView("customers")}
+                      style={{
+                        border: "none",
+                        padding: "6px 14px",
+                        borderRadius: "6px",
+                        fontSize: "12px",
+                        fontWeight: "bold",
+                        cursor: "pointer",
+                        background: pendingModalView === "customers" ? "#ffffff" : "transparent",
+                        color: pendingModalView === "customers" ? "#2c1b0d" : "#777",
+                        boxShadow: pendingModalView === "customers" ? "0 2px 4px rgba(0,0,0,0.1)" : "none"
+                      }}
+                    >
+                      By Customer ({customerList.length})
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* MODAL BODY */}
+              <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", padding: "16px 28px" }}>
+                {pendingModalView === "orders" ? (
+                  <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                    <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
+                      <tr style={{ color: "#666", borderBottom: "2px solid #eaeaea" }}>
+                        <th style={{ padding: "12px 14px" }}>Order ID</th>
+                        <th style={{ padding: "12px 14px" }}>Customer & Phone</th>
+                        <th style={{ padding: "12px 14px" }}>Items</th>
+                        <th style={{ padding: "12px 14px" }}>Date</th>
+                        <th style={{ padding: "12px 14px" }}>Amount</th>
+                        <th style={{ padding: "12px 14px" }}>Payment Status</th>
+                        <th style={{ padding: "12px 14px" }}>Order Status</th>
+                        <th style={{ padding: "12px 14px", textAlign: "right" }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPending.map((o, idx) => {
+                        const custName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : "Walk-in");
+                        const phoneNum = o.phone || o.address?.phone || "";
+                        const totalFormatted = typeof o.total === "string" && o.total.includes("₹") ? o.total : `₹${o.total || o.price || 0}`;
+                        const orderDate = o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString("en-IN") : "N/A");
+
+                        return (
+                          <tr key={o.id || idx} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                            <td style={{ padding: "14px", fontWeight: "700", color: "#8a583c" }}>
+                              {o.orderId || o.id}
+                            </td>
+                            <td style={{ padding: "14px" }}>
+                              <div style={{ fontWeight: "700", color: "#222" }}>{custName}</div>
+                              {phoneNum ? (
+                                <div style={{ fontSize: "11px", color: "#777", marginTop: "2px" }}>
+                                  📞 {phoneNum}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td style={{ padding: "14px", maxWidth: "240px" }}>
+                              <span style={{ display: "block", fontWeight: "500", color: "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={o.item}>
+                                {o.item || "Chai Selection"}
+                              </span>
+                              {o.office || o.address ? (
+                                <span style={{ fontSize: "11px", color: "#888" }}>📍 {typeof o.address === "string" ? o.address : (o.office || "Delivery")}</span>
+                              ) : null}
+                            </td>
+                            <td style={{ padding: "14px", color: "#666", fontSize: "12px" }}>{orderDate}</td>
+                            <td style={{ padding: "14px", fontWeight: "800", color: "#c62828", fontSize: "15px" }}>{totalFormatted}</td>
+                            <td style={{ padding: "14px" }}>
+                              <span style={{ fontSize: "11px", background: "#fff3e0", color: "#e65100", padding: "4px 8px", borderRadius: "6px", fontWeight: "bold", border: "1px solid #ffe0b2" }}>
+                                {o.paymentStatus || o.paymentMethod || "Pending"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "14px" }}>
+                              <span style={{
+                                fontSize: "11px",
+                                background: o.status === "Delivered" ? "#e8f5e9" : o.status === "Preparing" ? "#e3f2fd" : "#f5f5f5",
+                                color: o.status === "Delivered" ? "#2e7d32" : o.status === "Preparing" ? "#1565c0" : "#555",
+                                padding: "4px 8px",
+                                borderRadius: "6px",
+                                fontWeight: "bold"
+                              }}>
+                                {o.status || "Received"}
+                              </span>
+                            </td>
+                            <td style={{ padding: "14px", textAlign: "right" }}>
+                              <button
+                                onClick={async () => {
+                                  if (confirm(`Mark order ${o.orderId || o.id} as PAID?`)) {
+                                    await updateOrder(o.id, { paymentStatus: "Paid" });
+                                    setToastMsg(`✅ Order ${o.orderId || o.id} marked as Paid!`);
+                                    setTimeout(() => setToastMsg(""), 3500);
+                                  }
+                                }}
+                                style={{
+                                  background: "#27ae60",
+                                  color: "#fff",
+                                  border: "none",
+                                  padding: "6px 12px",
+                                  borderRadius: "6px",
+                                  fontSize: "12px",
+                                  fontWeight: "bold",
+                                  cursor: "pointer",
+                                  boxShadow: "0 2px 4px rgba(39, 174, 96, 0.2)"
+                                }}
+                              >
+                                ✓ Mark Paid
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredPending.length === 0 && (
+                        <tr>
+                          <td colSpan="8" style={{ textAlign: "center", padding: "60px", color: "#999", fontSize: "14px" }}>
+                            🎉 No pending payments found! All orders are settled.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
+                    <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
+                      <tr style={{ color: "#666", borderBottom: "2px solid #eaeaea" }}>
+                        <th style={{ padding: "14px" }}>Customer Name</th>
+                        <th style={{ padding: "14px" }}>Phone</th>
+                        <th style={{ padding: "14px" }}># Pending Orders</th>
+                        <th style={{ padding: "14px" }}>Order IDs</th>
+                        <th style={{ padding: "14px" }}>Total Pending Amount</th>
+                        <th style={{ padding: "14px", textAlign: "right" }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customerList.map((c, idx) => (
+                        <tr key={idx} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                          <td style={{ padding: "14px", fontWeight: "700", color: "#222" }}>{c.customer}</td>
+                          <td style={{ padding: "14px", color: "#666" }}>{c.phone}</td>
+                          <td style={{ padding: "14px", fontWeight: "600", color: "#555" }}>{c.count} order(s)</td>
+                          <td style={{ padding: "14px" }}>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {c.orders.map(ord => (
+                                <span key={ord.id} style={{ fontSize: "11px", background: "#f1eee9", color: "#555", padding: "2px 6px", borderRadius: "4px" }}>
+                                  {ord.orderId || ord.id}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td style={{ padding: "14px", fontWeight: "800", color: "#c62828", fontSize: "16px" }}>
+                            ₹{c.totalAmount.toLocaleString("en-IN")}
+                          </td>
+                          <td style={{ padding: "14px", textAlign: "right" }}>
+                            <button
+                              onClick={async () => {
+                                if (confirm(`Mark ALL ${c.count} pending orders for ${c.customer} as PAID?`)) {
+                                  for (const ord of c.orders) {
+                                    await updateOrder(ord.id, { paymentStatus: "Paid" });
+                                  }
+                                  setToastMsg(`✅ All orders for ${c.customer} marked as Paid!`);
+                                  setTimeout(() => setToastMsg(""), 3500);
+                                }
+                              }}
+                              style={{
+                                background: "#27ae60",
+                                color: "#fff",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "6px",
+                                fontSize: "12px",
+                                fontWeight: "bold",
+                                cursor: "pointer"
+                              }}
+                            >
+                              ✓ Settle All ({c.count})
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {customerList.length === 0 && (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: "center", padding: "60px", color: "#999", fontSize: "14px" }}>
+                            No customers with pending payments.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* MODAL FOOTER */}
+              <div style={{ padding: "14px 28px", borderTop: "1px solid #f0ebe4", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fcfaf8" }}>
+                <span style={{ fontSize: "12px", color: "#888" }}>
+                  Showing live real-time sync with database. Marking as paid updates live everywhere.
+                </span>
+                <button
+                  onClick={() => setActiveStatsModal(null)}
+                  style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 24px", borderRadius: "8px", fontWeight: "bold", fontSize: "13px", cursor: "pointer" }}
                 >
                   Close
                 </button>
