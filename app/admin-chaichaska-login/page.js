@@ -1966,7 +1966,7 @@ export default function AdminDashboard() {
                             const orderIdText = selectedQueueOrder?.orderId || selectedQueueOrder?.id || "";
                             const currentStatus = selectedQueueOrder?.status || "Received";
                             
-                            const message = `Hi ${customerName},\n\nYour Chai Chaska order #${orderIdText.slice(-6).toUpperCase()} status is now: *${currentStatus}*.\n\nThank you for choosing Chai Chaska!\nVisit: https://chaichaska.com`;
+                            const message = `Hi ${customerName},\n\nYour Chai Chaska order #${orderIdText.slice(-6).toUpperCase()} status is now: *${currentStatus}*.\n\nThank you for choosing Chai Chaska!\nVisit: https://www.chaichaska.co.in/`;
                             
                             const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
                             window.open(url, '_blank');

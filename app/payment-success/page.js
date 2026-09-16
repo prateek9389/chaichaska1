@@ -51,81 +51,185 @@ function PaymentSuccessContent() {
         <h2 className="success-title">{type === "cod" || orderDetails?.paymentMethod === "Cash on Delivery" ? "Order Placed Successfully!" : "Payment Successful!"}</h2>
         <p className="success-message">{type === "cod" || orderDetails?.paymentMethod === "Cash on Delivery" ? "Your order has been placed with Cash on Delivery and is heading to the brewing counter. Please keep cash ready for delivery." : "Your payment was processed successfully. Your order is confirmed and heading to the brewing counter."}</p>
 
-        <div className="receipt-box" style={{ marginTop: "32px", padding: "24px", background: "#fbf9f6", borderRadius: "16px", border: "1px dashed rgba(138,88,60,0.3)" }}>
-          <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
-            <span style={{ color: "#666" }}>Reference ID:</span>
-            <strong style={{ color: "#2c1b0d" }}>{orderId}</strong>
+        <div className="receipt-box">
+          <div className="receipt-row">
+            <span className="receipt-label">Reference ID:</span>
+            <strong className="receipt-val">#{orderId?.slice(-8).toUpperCase() || orderId}</strong>
           </div>
           
           {orderDetails && (
             <>
-              <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
-                <span style={{ color: "#666" }}>{type === "cod" || orderDetails?.paymentMethod === "Cash on Delivery" ? "Amount Payable:" : "Amount Paid:"}</span>
-                <strong style={{ color: "#2c1b0d", fontSize: "16px" }}>{orderDetails.total}</strong>
+              <div className="receipt-row">
+                <span className="receipt-label">{type === "cod" || orderDetails?.paymentMethod === "Cash on Delivery" ? "Amount Payable:" : "Amount Paid:"}</span>
+                <strong className="receipt-val highlight">{orderDetails.total}</strong>
               </div>
-              <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", fontSize: "14px" }}>
-                <span style={{ color: "#666" }}>Payment Method:</span>
-                <strong style={{ color: "#8a583c" }}>{orderDetails?.paymentMethod || (type === "cod" ? "Cash on Delivery" : "Paytm (Online)")}</strong>
+              <div className="receipt-row">
+                <span className="receipt-label">Payment Method:</span>
+                <strong className="receipt-val">{orderDetails?.paymentMethod || (type === "cod" ? "Cash on Delivery" : "UPI Instant")}</strong>
               </div>
-              <div className="receipt-row" style={{ display: "flex", justifyContent: "space-between", fontSize: "14px", borderTop: "1px dashed rgba(0,0,0,0.1)", paddingTop: "12px" }}>
-                <span style={{ color: "#666" }}>Status:</span>
-                <strong style={{ color: "#27ae60" }}>{orderDetails.status || "PAID"}</strong>
+              <div className="receipt-row status-row">
+                <span className="receipt-label">Status:</span>
+                <span className="receipt-status-badge">
+                  <span className="status-dot"></span>
+                  <span>{orderDetails.status || "CONFIRMED"}</span>
+                </span>
               </div>
             </>
           )}
-
         </div>
 
-        <div style={{ marginTop: "32px", display: "flex", gap: "12px", justifyContent: "center" }}>
-          <Link href={`/orders/${orderId}`} className="btn-continue-checkout" style={{ padding: "14px 24px", background: "#fbf9f6", color: "#2c1b0d", border: "1px solid rgba(0,0,0,0.1)", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
-            Track Order
+        <div className="payment-success-actions">
+          <Link href={`/orders/${orderId}`} className="action-btn-track">
+            <span>Track Live Order</span>
+            <span>→</span>
           </Link>
-          <Link href="/shop" className="btn-continue-checkout" style={{ padding: "14px 32px", background: "#8a583c", color: "#fff", textDecoration: "none", borderRadius: "12px", fontWeight: "bold" }}>
-            Return to Shop
+          <Link href="/shop" className="action-btn-shop">
+            Order More Brews
           </Link>
         </div>
       </div>
 
       <style>{`
         .thank-you-layout {
-          min-height: calc(100vh - 200px);
+          min-height: calc(100vh - 140px);
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 60px 20px;
-          background: #fcfaf7;
+          padding: 50px 20px 80px;
+          background: #ffffff;
         }
         .thank-you-card {
-          background: #fff;
-          padding: 40px;
-          border-radius: 24px;
+          background: #ffffff;
+          border: 1.5px solid #f1f5f9;
+          border-radius: 28px;
+          padding: 44px 36px;
           text-align: center;
-          max-width: 500px;
+          max-width: 520px;
           width: 100%;
-          box-shadow: 0 10px 40px rgba(0,0,0,0.05);
+          box-shadow: 0 20px 50px -10px rgba(15, 23, 42, 0.08);
+          box-sizing: border-box;
         }
         .success-badge-circle {
-          width: 70px;
-          height: 70px;
-          background: #27ae60;
-          color: #fff;
+          width: 72px;
+          height: 72px;
+          background: #ecfdf5;
+          border: 2px solid #a7f3d0;
+          color: #059669;
           border-radius: 50%;
           display: flex;
           align-items: center;
           justify-content: center;
           font-size: 32px;
+          font-weight: 800;
           margin: 0 auto 20px;
+          box-shadow: 0 6px 20px rgba(16, 185, 129, 0.15);
         }
         .success-title {
-          font-size: 24px;
-          font-weight: 800;
-          color: #2c1b0d;
-          margin-bottom: 12px;
+          font-size: clamp(22px, 3.5vw, 28px);
+          font-weight: 850;
+          color: #0f172a;
+          margin: 0 0 10px;
+          letter-spacing: -0.02em;
         }
         .success-message {
-          color: #666;
-          font-size: 15px;
-          line-height: 1.5;
+          color: #64748b;
+          font-size: 14.5px;
+          line-height: 1.55;
+          margin: 0;
+        }
+        .receipt-box {
+          margin-top: 28px;
+          padding: 20px 22px;
+          background: #f8fafc;
+          border-radius: 20px;
+          border: 1px solid #e2e8f0;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          text-align: left;
+        }
+        .receipt-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 13.5px;
+        }
+        .receipt-label {
+          color: #64748b;
+          font-weight: 500;
+        }
+        .receipt-val {
+          color: #0f172a;
+          font-weight: 750;
+        }
+        .receipt-val.highlight {
+          font-size: 16px;
+          font-weight: 850;
+          color: #0f172a;
+        }
+        .status-row {
+          border-top: 1px solid #e2e8f0;
+          padding-top: 10px;
+          margin-top: 2px;
+        }
+        .receipt-status-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #ecfdf5;
+          color: #059669;
+          padding: 3px 10px;
+          border-radius: 9999px;
+          font-size: 12px;
+          font-weight: 800;
+        }
+        .status-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: #10b981;
+        }
+        .payment-success-actions {
+          margin-top: 32px;
+          display: flex;
+          gap: 14px;
+          justify-content: center;
+          flex-wrap: wrap;
+        }
+        .action-btn-track {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 13px 26px;
+          background: #0f172a;
+          color: #ffffff;
+          text-decoration: none;
+          border-radius: 9999px;
+          font-size: 14px;
+          font-weight: 800;
+          transition: all 0.2s;
+          box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);
+        }
+        .action-btn-track:hover {
+          background: #1e293b;
+          transform: translateY(-1px);
+        }
+        .action-btn-shop {
+          display: inline-flex;
+          align-items: center;
+          padding: 13px 24px;
+          background: #ffffff;
+          color: #0f172a;
+          border: 1.5px solid #e2e8f0;
+          text-decoration: none;
+          border-radius: 9999px;
+          font-size: 14px;
+          font-weight: 750;
+          transition: all 0.2s;
+        }
+        .action-btn-shop:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
         }
       `}</style>
     </div>

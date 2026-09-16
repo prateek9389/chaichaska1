@@ -8,7 +8,7 @@ Your order (*${orderId || 'ORD'}*) has been updated!
 Current Status: *${status || 'Updated'}*
 Total Amount: ${totalAmount ? String(totalAmount) : 'N/A'}
 
-Check your orders here: https://chaichaska.in/orders
+Check your orders here: https://www.chaichaska.co.in/orders
 
 Thank you for ordering from Chai Chaska!`;
 

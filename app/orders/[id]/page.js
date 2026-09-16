@@ -830,7 +830,7 @@ export default function OrderDetailPage({ params }) {
 
         .order-detail-content-wrap {
           width: 100%;
-          max-width: 1060px;
+          max-width: 1200px;
           margin: 0 auto;
           padding: 32px 24px 80px;
           box-sizing: border-box;
@@ -1251,11 +1251,13 @@ export default function OrderDetailPage({ params }) {
         /* 2-Column Responsive Split */
         .detail-dual-grid {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 24px;
+          grid-template-columns: minmax(0, 1.35fr) minmax(360px, 1fr);
+          gap: 28px;
+          align-items: start;
         }
 
         .detail-surface-card {
+          min-width: 0;
           background: #ffffff;
           border-radius: 28px;
           border: 1px solid #f1f5f9;
