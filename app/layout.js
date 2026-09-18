@@ -1,6 +1,7 @@
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CartProvider } from "@/contexts/CartContext";
+import WhatsAppButton from "@/components/WhatsAppButton";
 
 export const metadata = {
   title: "Chai Chaska | Chai with Love",
@@ -30,6 +31,7 @@ export default function RootLayout({ children }) {
         <AuthProvider>
           <CartProvider>
             {children}
+            <WhatsAppButton />
           </CartProvider>
         </AuthProvider>
         <script

@@ -159,7 +159,7 @@ export default function ShopPage() {
 
   // Categories list extracted from data
   const availableCategories = useMemo(() => {
-    const set = new Set(["All", "Chai", "Coffee", "Drinks", "Water"]);
+    const set = new Set(["All", "Chai", "Coffee", "Drinks", "Water", "Sandwich", "Snacks", "Toast", "Maggi"]);
     products.forEach((p) => {
       if (p.category) set.add(p.category);
     });
@@ -3051,6 +3051,7 @@ export default function ShopPage() {
             width: 100% !important;
             max-width: 100vw !important;
             overflow-x: hidden !important;
+              padding-bottom: 120px !important; /* Added to clear view tray */
           }
 
           .shop-top-header {
@@ -3123,6 +3124,7 @@ export default function ShopPage() {
             padding: 12px 10px 50px !important;
             box-sizing: border-box !important;
             overflow-x: hidden !important;
+              padding-bottom: 120px !important; /* Added to clear view tray */
             gap: 14px !important;
           }
 
@@ -3131,6 +3133,7 @@ export default function ShopPage() {
             max-width: 100% !important;
             box-sizing: border-box !important;
             overflow-x: hidden !important;
+              padding-bottom: 120px !important; /* Added to clear view tray */
           }
 
           .category-nav-bar {

@@ -2948,6 +2948,10 @@ export default function AdminDashboard() {
                             <select value={newMenuCategory} onChange={(e) => setNewMenuCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                               <option value="Chai">Chai</option>
                               <option value="Coffee">Coffee</option>
+                            <option value="Sandwich">Sandwich</option>
+                            <option value="Snacks">Snacks</option>
+                            <option value="Toast">Toast</option>
+                            <option value="Maggi">Maggi</option>
                               <option value="Drinks">Drinks</option>
                               <option value="Water">Water</option>
                             </select>
@@ -3200,6 +3204,10 @@ export default function AdminDashboard() {
                           <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                             <option value="Chai">Chai</option>
                             <option value="Coffee">Coffee</option>
+                            <option value="Sandwich">Sandwich</option>
+                            <option value="Snacks">Snacks</option>
+                            <option value="Toast">Toast</option>
+                            <option value="Maggi">Maggi</option>
                             <option value="Drinks">Drinks</option>
                             <option value="Water">Water</option>
                           </select>
@@ -3358,6 +3366,10 @@ export default function AdminDashboard() {
                         <select value={newProdCategory} onChange={(e) => setNewProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                           <option value="Chai">Chai</option>
                           <option value="Coffee">Coffee</option>
+                            <option value="Sandwich">Sandwich</option>
+                            <option value="Snacks">Snacks</option>
+                            <option value="Toast">Toast</option>
+                            <option value="Maggi">Maggi</option>
                           <option value="Drinks">Drinks</option>
                           <option value="Water">Water</option>
                         </select>
@@ -3487,6 +3499,10 @@ export default function AdminDashboard() {
                           <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
                             <option value="Chai">Chai</option>
                             <option value="Coffee">Coffee</option>
+                            <option value="Sandwich">Sandwich</option>
+                            <option value="Snacks">Snacks</option>
+                            <option value="Toast">Toast</option>
+                            <option value="Maggi">Maggi</option>
                             <option value="Drinks">Drinks</option>
                             <option value="Water">Water</option>
                           </select>
