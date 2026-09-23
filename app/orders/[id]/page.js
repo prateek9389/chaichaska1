@@ -466,15 +466,23 @@ export default function OrderDetailPage({ params }) {
 
                 <div className="breakdown-line grand-total-line">
                   <div className="grand-total-label-box">
-                    <span className="grand-total-title">Total Paid</span>
+                    <span className="grand-total-title">
+                      {order.paymentMethod === "Cash on Delivery" ? "Amount Payable on Delivery" : "Total Paid"}
+                    </span>
                     <span className="tax-inclusive-tag">Inclusive of all taxes</span>
                   </div>
                   <strong className="grand-total-value">{rawPrice}</strong>
                 </div>
 
                 <div className="payment-method-strip">
-                  <span className="shield-icon">🛡️</span>
-                  <span>Paid securely via <strong>{order.paymentMethod || "UPI Instant Merchant Transfer"}</strong></span>
+                  <span className="shield-icon">{order.paymentMethod === "Cash on Delivery" ? "💵" : "🛡️"}</span>
+                  <span>
+                    {order.paymentMethod === "Cash on Delivery" ? (
+                      <>Payment Method: <strong>Cash on Delivery (Pay upon arrival)</strong></>
+                    ) : (
+                      <>Paid securely via <strong>{order.paymentMethod || "UPI Instant Merchant Transfer"}</strong></>
+                    )}
+                  </span>
                 </div>
               </div>
             </motion.div>
@@ -738,12 +746,16 @@ export default function OrderDetailPage({ params }) {
           {/* Row 3: Total Due block */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", padding: "18px 24px", borderRadius: "10px", marginBottom: "28px", border: "1px solid #e2e8f0" }}>
             <div>
-              <span style={{ fontSize: "10.5px", color: "#64748b", textTransform: "uppercase", display: "block", fontWeight: "800", letterSpacing: "0.5px" }}>TOTAL AMOUNT PAID</span>
+              <span style={{ fontSize: "10.5px", color: "#64748b", textTransform: "uppercase", display: "block", fontWeight: "800", letterSpacing: "0.5px" }}>
+                {order.paymentMethod === "Cash on Delivery" ? "AMOUNT PAYABLE (COD)" : "TOTAL AMOUNT PAID"}
+              </span>
               <strong style={{ fontSize: "24px", color: "#0f172a" }}>{rawPrice}</strong>
             </div>
             <div style={{ textAlign: "right", fontSize: "12px", color: "#475569" }}>
               <span style={{ display: "block", fontWeight: "700", color: "#0f172a" }}>Payment Status</span>
-              <span style={{ color: "#10b981", fontWeight: "800" }}>PAID VIA UPI INSTANT</span>
+              <span style={{ color: order.paymentMethod === "Cash on Delivery" ? "#d97706" : "#10b981", fontWeight: "800" }}>
+                {order.paymentStatus || (order.paymentMethod === "Cash on Delivery" ? "COD (PAY UPON ARRIVAL)" : "PAID")}
+              </span>
             </div>
           </div>
 
@@ -777,8 +789,12 @@ export default function OrderDetailPage({ params }) {
             <div>
               <strong style={{ fontSize: "11.5px", textTransform: "uppercase", display: "block", color: "#64748b", marginBottom: "8px" }}>Payment Details</strong>
               <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                <span style={{ fontSize: "12px", background: "#f1f5f9", padding: "6px 12px", borderRadius: "6px", fontWeight: "700", color: "#0f172a" }}>UPI Transfer</span>
-                <span style={{ fontSize: "12px", background: "#f1f5f9", padding: "6px 12px", borderRadius: "6px", fontWeight: "700", color: "#0f172a" }}>Authorized Merchant</span>
+                <span style={{ fontSize: "12px", background: "#f1f5f9", padding: "6px 12px", borderRadius: "6px", fontWeight: "700", color: "#0f172a" }}>
+                  {order.paymentMethod || "Cash on Delivery"}
+                </span>
+                <span style={{ fontSize: "12px", background: "#f1f5f9", padding: "6px 12px", borderRadius: "6px", fontWeight: "700", color: "#0f172a" }}>
+                  {order.paymentMethod === "Cash on Delivery" ? "Pay Upon Arrival" : "Authorized"}
+                </span>
               </div>
               <span style={{ fontSize: "11px", color: "#94a3b8", display: "block", marginTop: "8px" }}>TransID: {orderId}</span>
             </div>

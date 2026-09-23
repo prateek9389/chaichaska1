@@ -24,8 +24,8 @@ function CheckoutPortal() {
   const [floorNumber, setFloorNumber] = useState("");
   const [phone, setPhone] = useState("");
 
-  // Payment Method: "upi" | "cod"
-  const [paymentMethod, setPaymentMethod] = useState("upi");
+  // Payment Method: "cod" (Cash on Delivery Only)
+  const [paymentMethod, setPaymentMethod] = useState("cod");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Coupon State
@@ -171,130 +171,32 @@ function CheckoutPortal() {
       subtotal: `₹${subtotal}`,
       discount: `₹${appliedDiscount}`,
       coupon: appliedCouponLabel || "None",
-      paymentMethod: paymentMethod === "cod" ? "Cash on Delivery" : "UPI Online",
+      paymentMethod: "Cash on Delivery",
+      paymentStatus: "COD (Pay upon arrival)",
       status: "Received",
       createdAt: Date.now(),
       allocatedTime: 20, // 20 minutes default brewing & delivery window
     };
 
     try {
-      if (paymentMethod === "cod") {
-        // Cash on Delivery Instant Order
-        const orderId = await createOrder({
-          ...orderData,
-          paymentStatus: "COD (Pay upon arrival)",
-        });
+      // Cash on Delivery Instant Order
+      const orderId = await createOrder(orderData);
 
-        // Save to guest orders
-        try {
-          const guestOrders = JSON.parse(localStorage.getItem("guest_orders") || "[]");
-          if (!guestOrders.find((o) => o.id === orderId)) {
-            guestOrders.push({ id: orderId, timestamp: Date.now() });
-            localStorage.setItem("guest_orders", JSON.stringify(guestOrders));
-          }
-        } catch (err) {
-          console.error(err);
-        }
-
-        clearCart();
-        router.push(`/payment-success?order_id=${orderId}&type=cod`);
-        return;
-      }
-
-      // Online UPI Payment Flow
-      const tempOrderId = `ORD-${Date.now().toString().slice(-6)}`;
-      let txnToken = null;
-
-      try {
-        const res = await fetch("/api/paytm/initiate-transaction", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            amount: finalPayable,
-            customerId: user?.uid || `guest_${Date.now()}`,
-            customerPhone: phone.trim() || "9999999999",
-            customerEmail: user?.email || "customer@chaichaska.com",
-            orderId: tempOrderId,
-          }),
-        });
-        const payData = await res.json();
-        if (payData && payData.txnToken) {
-          txnToken = payData.txnToken;
-        }
-      } catch (apiErr) {
-        console.warn("Paytm API check:", apiErr);
-      }
-
-      if (txnToken && window.Paytm && window.Paytm.CheckoutJS) {
-        // Invoke Paytm SDK
-        await createOrder({
-          ...orderData,
-          orderId: tempOrderId,
-          status: "Pending Payment",
-        });
-
-        window.Paytm.CheckoutJS.init({
-          root: "",
-          flow: "DEFAULT",
-          data: {
-            orderId: tempOrderId,
-            token: txnToken,
-            tokenType: "TXN_TOKEN",
-            amount: finalPayable,
-          },
-          handler: {
-            notifyMerchant: function (eventName, data) {
-              console.log("Paytm event:", eventName, data);
-            },
-          },
-        })
-          .then(function () {
-            window.Paytm.CheckoutJS.invoke();
-          })
-          .catch(function (error) {
-            console.error("Paytm init error", error);
-            fallbackDirectOrder();
-          });
-      } else {
-        // Direct seamless online order completion
-        fallbackDirectOrder();
-      }
-    } catch (err) {
-      console.error("Checkout error:", err);
-      fallbackDirectOrder();
-    }
-  };
-
-  const fallbackDirectOrder = async () => {
-    try {
-      const orderId = await createOrder({
-        userId: user?.uid || "guest",
-        customer: personName.trim(),
-        officeNumber: officeNumber.trim(),
-        floorNumber: floorNumber.trim(),
-        office: `Office ${officeNumber.trim()}, Floor ${floorNumber.trim()}`,
-        phone: phone.trim() || "N/A",
-        item: cartItems.map((i) => `${i.name} x${i.quantity || 1}`).join(" + "),
-        image: cartItems[0]?.image || "/logo.png",
-        img: cartItems[0]?.image || "/logo.png",
-        total: `₹${finalPayable}`,
-        paymentMethod: "UPI Instant Transfer",
-        status: "Received",
-        createdAt: Date.now(),
-        allocatedTime: 20,
-      });
-
+      // Save to guest orders
       try {
         const guestOrders = JSON.parse(localStorage.getItem("guest_orders") || "[]");
         if (!guestOrders.find((o) => o.id === orderId)) {
           guestOrders.push({ id: orderId, timestamp: Date.now() });
           localStorage.setItem("guest_orders", JSON.stringify(guestOrders));
         }
-      } catch (err) {}
+      } catch (err) {
+        console.error(err);
+      }
 
       clearCart();
-      router.push(`/payment-success?order_id=${orderId}&type=upi`);
+      router.push(`/payment-success?order_id=${orderId}&type=cod`);
     } catch (err) {
+      console.error("Checkout error:", err);
       alert("Order placement encountered an error. Please try again.");
       setIsSubmitting(false);
     }
@@ -341,7 +243,7 @@ function CheckoutPortal() {
                   <span className="section-number-pill">📍</span>
                   <div>
                     <h2 className="section-heading">Delivery Details</h2>
-                    <p className="section-subheading">Enter your desk info to complete your payment</p>
+                    <p className="section-subheading">Enter your desk info for Cash on Delivery</p>
                   </div>
                 </div>
 
@@ -435,13 +337,35 @@ function CheckoutPortal() {
                   </div>
                 </div>
 
+                {/* Explicit Payment Method Section: Cash on Delivery Only */}
+                <div className="card-section-title-row" style={{ marginTop: "1.75rem" }}>
+                  <span className="section-number-pill">💵</span>
+                  <div>
+                    <h2 className="section-heading">Payment Method</h2>
+                    <p className="section-subheading">Cash on Delivery is the only supported payment option</p>
+                  </div>
+                </div>
 
+                <div className="payment-options-grid" style={{ marginBottom: "1.5rem" }}>
+                  <div className="payment-method-card selected">
+                    <div className="payment-card-left">
+                      <div className="custom-radio-circle">
+                        <div className="radio-dot" />
+                      </div>
+                      <div className="payment-text-box">
+                        <span className="payment-title">💵 Cash on Delivery (COD)</span>
+                        <span className="payment-desc">Pay cash when your steaming cup of chai arrives at your desk</span>
+                      </div>
+                    </div>
+                    <span className="payment-cash-badge">Active</span>
+                  </div>
+                </div>
 
                 {/* Total Summary Row */}
                 <div className="checkout-total-pill-bar">
                   <div className="total-bar-info">
-                    <span className="total-bar-label">Total Amount Payable</span>
-                    <span className="total-bar-subtext">Includes all taxes & 20-min desk delivery</span>
+                    <span className="total-bar-label">Total Amount Payable (COD)</span>
+                    <span className="total-bar-subtext">Includes all taxes & 20-min desk delivery • Pay Cash upon Arrival</span>
                   </div>
                   <span className="total-bar-price">₹{finalPayable}</span>
                 </div>
@@ -456,14 +380,14 @@ function CheckoutPortal() {
                     <span>Placing Your Brew Order...</span>
                   ) : (
                     <>
-                      <span>Pay ₹{finalPayable} & Place Order</span>
+                      <span>Place Order (Cash on Delivery) • ₹{finalPayable}</span>
                       <span className="btn-arrow-icon">→</span>
                     </>
                   )}
                 </button>
 
                 <p className="secure-badge-note">
-                  🔒 Encrypted 256-bit checkout • Freshly brewed upon order placement
+                  💵 Cash on Delivery • Freshly brewed upon order placement
                 </p>
               </form>
             </div>
