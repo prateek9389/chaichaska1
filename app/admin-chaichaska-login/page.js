@@ -1422,26 +1422,7 @@ export default function AdminDashboard() {
                 </button>
                 <div>
                   <span className="welcome-label">Welcome!</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    <h1 className="operator-title">{brewmasterName}</h1>
-                    <button 
-                      onClick={handleWipeAddonsDB}
-                      disabled={isWiping}
-                      style={{
-                        padding: "6px 12px",
-                        background: "#e74c3c",
-                        color: "#fff",
-                        border: "none",
-                        borderRadius: "8px",
-                        fontSize: "12px",
-                        fontWeight: "bold",
-                        cursor: isWiping ? "not-allowed" : "pointer",
-                        opacity: isWiping ? 0.7 : 1
-                      }}
-                    >
-                      {isWiping ? "Wiping..." : "Wipe Addons DB"}
-                    </button>
-                  </div>
+                  <h1 className="operator-title">{brewmasterName}</h1>
                 </div>
               </div>
 

@@ -80,6 +80,8 @@ export default function AdminDashboard() {
   const [isQueueSidebarOpen, setIsQueueSidebarOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [deliveryTimeInput, setDeliveryTimeInput] = useState("");
+  const [queueDeliveryPaymentMethod, setQueueDeliveryPaymentMethod] = useState("Cash");
+  const [queueDeliveryPaymentStatus, setQueueDeliveryPaymentStatus] = useState("Paid");
   const [isOnline, setIsOnline] = useState(true);
   const [saveAnimation, setSaveAnimation] = useState(false);
 
@@ -92,8 +94,7 @@ export default function AdminDashboard() {
     address: "",
     phone: "",
     walkIn: false,
-    items: [],
-    paymentStatus: "Pending"
+    items: []
   });
 
   // Live Brewing Kettles & Hot Stations State (Interactive Grid)
@@ -328,6 +329,8 @@ export default function AdminDashboard() {
       office: o.office || o.address || (o.walkIn ? "Counter Pickup" : "Desk Delivery"),
       isOffline: Boolean(o.isOffline || o.walkIn),
       walkIn: Boolean(o.walkIn),
+      paymentMethod: o.paymentMethod || (o.isOffline || o.walkIn ? "Cash" : "Online UPI"),
+      paymentStatus: o.paymentStatus || "Paid",
       image: o.img || o.image || (Array.isArray(o.items) && o.items[0]?.image) || "/logo.png",
       rawOrder: o
     };
@@ -851,10 +854,17 @@ export default function AdminDashboard() {
                 Ready to Dispatch
               </button>
             )}
-            {(o.status === "Shipped" || o.status === "In Transit") && (
+            {(o.status === "Shipped" || o.status === "In Transit" || o.status === "Out for Delivery" || o.status === "Ready") && (
               <button
-                onClick={() => updateOrder(o.id, { status: "Delivered" })}
-                style={{ background: "#8a583c", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
+                onClick={() => {
+                  const updates = { status: "Delivered" };
+                  if (Boolean(o.isOffline || o.walkIn) && (!o.paymentMethod || o.paymentMethod === "Pending Selection")) {
+                    updates.paymentMethod = "Cash";
+                    updates.paymentStatus = "Paid";
+                  }
+                  updateOrder(o.id, updates);
+                }}
+                style={{ background: "#27ae60", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
               >
                 Mark Delivered
               </button>
@@ -1147,29 +1157,6 @@ export default function AdminDashboard() {
 
               <div className="header-actions-wrap" style={{ display: "flex", gap: "12px", alignItems: "center" }}>
                 <button
-                  type="button"
-                  onClick={triggerMockOrderAlert}
-                  className="btn-test-alert"
-                  title="Test Ringtone Alert"
-                  style={{
-                    background: "#000000",
-                    color: "#ffffff",
-                    border: "1px solid #3f3f46",
-                    padding: "9px 16px",
-                    borderRadius: "20px",
-                    fontWeight: "700",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    boxShadow: "0 2px 6px rgba(0,0,0,0.2)"
-                  }}
-                >
-                  <span>🔔</span> Test Ringtone Alert
-                </button>
-
-                <button
                   className="btn-pending-requests"
                   onClick={() => setShowPendingSidebar(!showPendingSidebar)}
                   style={{
@@ -1226,50 +1213,47 @@ export default function AdminDashboard() {
               </div>
             </header>
 
-            {/* TAB CONTENT: DASHBOARD (DESKTOP RESPONSIVE BLACK & WHITE THEME WITH RICH GRID SECTIONS) */}
-            {activeTab === "dashboard" && (
-              <div className="dashboard-content-wrapper" style={{ padding: "28px 32px", background: "#f8fafc", minHeight: "100vh", fontFamily: "sans-serif" }}>
-                
-                {/* 1. METRICS HEADER & REAL-TIME STATION CONTROL */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "16px", background: "#ffffff", padding: "18px 24px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 10px rgba(0,0,0,0.02)" }}>
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "20px" }}>☕</span>
-                      <h2 style={{ margin: 0, fontSize: "22px", fontWeight: "900", color: "#09090b", letterSpacing: "-0.5px" }}>Brewmaster Station Command</h2>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "#f4f4f5", color: "#09090b", fontSize: "11px", fontWeight: "800", padding: "4px 10px", borderRadius: "20px", border: "1px solid #e4e4e7" }}>
-                        <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#10b981", display: "inline-block" }}></span>
-                        STATION LIVE
-                      </span>
+            {/* TAB CONTENT: DASHBOARD (MATCHING ADMIN DASHBOARD LAYOUT - ZERO COST & FULL OFFLINE/ONLINE VISIBILITY) */}
+            {activeTab === "dashboard" && (() => {
+              // Dynamic Calculations matching Admin
+              const validOrders = orders.filter(o => o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
+              const totalOrdersCount = validOrders.length;
+              const deliveredOrdersCount = validOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
+              const receivedOrdersCount = validOrders.filter(o => o.status === "Received" || o.status === "Pending").length;
+              const preparingOrdersCount = validOrders.filter(o => o.status === "Preparing").length;
+              const deliveryOrdersCount = validOrders.filter(o => o.status === "Out for Delivery" || o.status === "Ready" || o.status === "Shipped").length;
+              const offlineOrdersCount = validOrders.filter(o => Boolean(o.isOffline || o.walkIn)).length;
+              const onlineOrdersCount = validOrders.filter(o => !o.isOffline && !o.walkIn).length;
+
+              // Top items calculation matching Admin
+              const itemCounts = {};
+              orders.forEach(o => {
+                if (Array.isArray(o.items) && o.items.length > 0) {
+                  o.items.forEach(it => {
+                    const name = it.name || it.item || "Chai";
+                    const qty = parseInt(it.quantity) || 1;
+                    itemCounts[name] = (itemCounts[name] || 0) + qty;
+                  });
+                } else if (o.item) {
+                  const match = o.item.match(/(.*?)\s*x\s*(\d+)/i);
+                  const name = match ? match[1].trim() : o.item.trim();
+                  const qty = match ? parseInt(match[2]) : 1;
+                  itemCounts[name] = (itemCounts[name] || 0) + (qty || 1);
+                }
+              });
+              const sortedItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
+
+              return (
+                <div style={{ padding: "24px", background: "#f8f9fa", minHeight: "100vh", fontFamily: "sans-serif" }}>
+                  
+                  {/* METRICS HEADER & TIME FILTER */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "800", color: "#2c1b0d" }}>Dashboard Live Metrics</h2>
+                      <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#777" }}>Live Firestore real-time data and order analytics.</p>
                     </div>
-                    <p style={{ margin: 0, fontSize: "12.5px", color: "#71717a" }}>Real-time kitchen orders, brewing station kettles & corporate desk delivery management.</p>
-                  </div>
-
-                  <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                    {/* Ringtone Audio Test Button */}
-                    <button
-                      type="button"
-                      onClick={testAudioAlert}
-                      style={{
-                        background: "#09090b",
-                        color: "#ffffff",
-                        border: "1px solid #27272a",
-                        padding: "7px 14px",
-                        borderRadius: "10px",
-                        fontSize: "12px",
-                        fontWeight: "750",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                        transition: "all 0.15s ease"
-                      }}
-                      title="Test Audio Ringtone Alert"
-                    >
-                      <span>🔔</span> Test Alert
-                    </button>
-
-                    {/* Time Filter Toggle Group */}
-                    <div style={{ display: "flex", gap: "4px", alignItems: "center", background: "#f4f4f5", padding: "4px", borderRadius: "10px", border: "1px solid #e4e4e7" }}>
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center", background: "#ffffff", padding: "4px 8px", borderRadius: "10px", border: "1px solid #eaeaea", boxShadow: "0 2px 6px rgba(0,0,0,0.03)" }}>
+                      <span style={{ fontSize: "12px", color: "#888", fontWeight: "600", marginRight: "4px" }}>Filter:</span>
                       {[
                         { id: "All", label: "All Time" },
                         { id: "Daily", label: "Today" },
@@ -1278,14 +1262,15 @@ export default function AdminDashboard() {
                       ].map(tf => (
                         <button
                           key={tf.id}
+                          type="button"
                           onClick={() => setTimeFilter(tf.id)}
                           style={{
-                            padding: "6px 14px",
-                            borderRadius: "7px",
+                            padding: "5px 12px",
+                            borderRadius: "6px",
                             border: "none",
-                            background: timeFilter === tf.id ? "#000000" : "transparent",
-                            color: timeFilter === tf.id ? "#ffffff" : "#71717a",
-                            fontWeight: timeFilter === tf.id ? "800" : "600",
+                            background: timeFilter === tf.id ? "#2c1b0d" : "transparent",
+                            color: timeFilter === tf.id ? "#ffffff" : "#666",
+                            fontWeight: timeFilter === tf.id ? "bold" : "normal",
                             fontSize: "12px",
                             cursor: "pointer",
                             transition: "all 0.15s ease"
@@ -1296,715 +1281,640 @@ export default function AdminDashboard() {
                       ))}
                     </div>
                   </div>
-                </div>
 
-                {/* 2. SECTION: OPERATIONAL KITCHEN STATS GRID (6 RESPONSIVE CARDS - ZERO MONEY) */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "16px", marginBottom: "24px" }}>
-                  {[
-                    { label: "Total Orders", value: statsSummary.totalOrders, icon: "🧾", sub: "Recorded orders" },
-                    { label: "Active in Kitchen", value: statsSummary.activeBrewing, icon: "♨️", sub: "Currently brewing" },
-                    { label: "Awaiting Brew", value: statsSummary.awaitingBrew, icon: "⏳", sub: "In immediate queue" },
-                    { label: "Ready for Runner", value: statsSummary.readyDelivery, icon: "🚀", sub: "Hot & packed" },
-                    { label: "Offline Walk-ins", value: statsSummary.offlineOrders, icon: "🏪", sub: "Direct counter" },
-                    { label: "Completed Today", value: statsSummary.completedOrders, icon: "✅", sub: "Fulfilled brews" }
-                  ].map((card, i) => (
-                    <div 
-                      key={i} 
-                      style={{ 
-                        background: "#ffffff", 
-                        borderRadius: "16px", 
-                        padding: "18px 20px", 
-                        border: "1px solid #e2e8f0", 
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.02)", 
-                        display: "flex", 
-                        flexDirection: "column", 
-                        justifyContent: "space-between",
-                        gap: "10px",
-                        transition: "transform 0.15s ease, box-shadow 0.15s ease"
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "12.5px", fontWeight: "750", color: "#71717a" }}>{card.label}</span>
-                        <div style={{ background: "#f4f4f5", width: "36px", height: "36px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", border: "1px solid #e4e4e7" }}>{card.icon}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: "28px", fontWeight: "950", color: "#09090b", letterSpacing: "-0.5px" }}>{card.value}</div>
-                        <span style={{ fontSize: "11px", color: "#a1a1aa" }}>{card.sub}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* 3. SECTION: LIVE KETTLES & BREWING STATIONS GRID (INTERACTIVE 6-CARD GRID) */}
-                <div style={{ marginBottom: "24px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                    <div>
-                      <h3 style={{ fontSize: "16px", fontWeight: "850", margin: 0, color: "#09090b" }}>Live Brewing Kettles & Hot Stations</h3>
-                      <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#71717a" }}>Tap any station to toggle temperature and preparation stage</p>
-                    </div>
-                    <span style={{ fontSize: "12px", color: "#71717a", background: "#ffffff", padding: "4px 10px", borderRadius: "8px", border: "1px solid #e2e8f0", fontWeight: "600" }}>
-                      6 Active Stations
-                    </span>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: "16px" }}>
-                    {kettleStations.map((st) => (
-                      <div
-                        key={st.id}
-                        onClick={() => cycleKettleStatus(st.id)}
-                        style={{
-                          background: "#ffffff",
-                          borderRadius: "16px",
-                          padding: "18px",
-                          border: st.status === "Boiling" ? "1.5px solid #000000" : "1px solid #e2e8f0",
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
-                          cursor: "pointer",
-                          transition: "all 0.2s ease",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "12px"
+                  {/* TOP ROW: SUMMARY CARDS (MATCHING ADMIN DASHBOARD 1:1 - ZERO COST) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+                    {[
+                      { label: "Total Orders", value: `${totalOrdersCount}`, icon: "🧾", color: "#e8f5e9", text: "#2e7d32" },
+                      { label: "Pending Orders", value: `${receivedOrdersCount + preparingOrdersCount}`, icon: "⏳", color: "#fff3e0", text: "#ef6c00", modal: "pending" },
+                      { label: "Offline Orders", value: `${offlineOrdersCount}`, icon: "🏪", color: "#fff3e0", text: "#ef6c00", modal: "offline" },
+                      { label: "Online Orders", value: `${onlineOrdersCount}`, icon: "🌐", color: "#e3f2fd", text: "#1565c0" },
+                      { label: "Shipping Orders", value: `${deliveryOrdersCount}`, icon: "🚚", color: "#e3f2fd", text: "#1565c0" },
+                      { label: "Pending Orders", value: `${preparingOrdersCount}`, icon: "🕒", color: "#ffebee", text: "#c62828" },
+                      { label: "Completed Orders", value: `${deliveredOrdersCount}`, icon: "💰", color: "#e8f5e9", text: "#2e7d32" }
+                    ].map((card, i) => (
+                      <div 
+                        key={i} 
+                        onClick={() => {
+                          if (card.modal === "pending") setActiveStatsModal("pending");
+                          if (card.modal === "offline") setActiveStatsModal("offline");
+                        }}
+                        style={{ 
+                          background: "#ffffff", 
+                          borderRadius: "12px", 
+                          padding: "16px", 
+                          border: "1px solid #eaeaea", 
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.02)", 
+                          display: "flex", 
+                          flexDirection: "column", 
+                          gap: "12px",
+                          cursor: card.modal ? "pointer" : "default"
                         }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <div>
-                            <span style={{ fontSize: "11px", fontWeight: "800", color: "#71717a", textTransform: "uppercase" }}>{st.kettle}</span>
-                            <h4 style={{ fontSize: "14px", fontWeight: "850", margin: "2px 0 0", color: "#09090b" }}>{st.name}</h4>
-                          </div>
-                          <span style={{ fontSize: "20px" }}>{st.icon}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div style={{ background: card.color, width: "40px", height: "40px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>{card.icon}</div>
+                          <span style={{ fontSize: "14px", fontWeight: "600", color: "#555" }}>{card.label}</span>
                         </div>
-
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", padding: "8px 12px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
-                          <span style={{
-                            fontSize: "11px",
-                            fontWeight: "850",
-                            padding: "3px 8px",
-                            borderRadius: "6px",
-                            background: st.status === "Boiling" ? "#000000" : st.status === "Ready" ? "#18181b" : "#f4f4f5",
-                            color: st.status === "Boiling" || st.status === "Ready" ? "#ffffff" : "#09090b",
-                            border: "1px solid #e4e4e7"
-                          }}>
-                            {st.status === "Boiling" ? "🔥 Boiling" : st.status === "Steeping" ? "♨️ Steeping" : st.status === "Ready" ? "✓ Ready" : "💤 Standby"}
-                          </span>
-                          <span style={{ fontSize: "12px", fontWeight: "800", color: "#09090b" }}>{st.temp}</span>
-                        </div>
-
-                        {/* Pot Volume Bar */}
-                        <div>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#71717a", marginBottom: "4px" }}>
-                            <span>Batch Volume</span>
-                            <span style={{ fontWeight: "750", color: "#09090b" }}>{st.cups} / {st.maxCups} Cups</span>
-                          </div>
-                          <div style={{ width: "100%", height: "6px", background: "#f4f4f5", borderRadius: "4px", overflow: "hidden" }}>
-                            <div style={{ width: `${(st.cups / st.maxCups) * 100}%`, height: "100%", background: "#000000", borderRadius: "4px" }}></div>
-                          </div>
-                        </div>
-
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11px", color: "#a1a1aa", paddingTop: "4px", borderTop: "1px dashed #f1f5f9" }}>
-                          <span>{st.tag}</span>
-                          <span style={{ color: "#09090b", fontWeight: "700" }}>Tap to Cycle ↻</span>
-                        </div>
+                        <div style={{ fontSize: "24px", fontWeight: "bold", color: "#222" }}>{card.value}</div>
                       </div>
                     ))}
                   </div>
-                </div>
 
-                {/* 4. SECTION: CORE WORKSPACE GRID (2-COLUMN RESPONSIVE LAYOUT) */}
-                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: "24px", marginBottom: "24px" }} className="dashboard-double-row-grid">
-                  
-                  {/* LEFT: Live Active Orders List with Images & Desk Route (No Money) */}
-                  <div style={{ background: "#ffffff", borderRadius: "18px", padding: "22px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #f1f5f9", paddingBottom: "14px" }}>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <h3 style={{ fontSize: "16px", fontWeight: "900", margin: 0, color: "#09090b" }}>Live Orders Queue</h3>
-                          <span style={{ fontSize: "11px", fontWeight: "800", background: "#000000", color: "#ffffff", padding: "2px 8px", borderRadius: "12px" }}>
-                            {orders.filter(o => o.status !== "Delivered" && o.status !== "Completed" && o.status !== "Cancelled").length} Live
-                          </span>
-                        </div>
-                        <p style={{ margin: "3px 0 0", fontSize: "12px", color: "#71717a" }}>Desk delivery orders requiring kitchen preparation & dispatch</p>
+                  {/* MIDDLE ROW: SPLIT COLUMNS (MATCHING ADMIN DASHBOARD 1:1) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
+                    
+                    {/* LEFT: High Demanding Products */}
+                    <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                        <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>High Demanding Products</h3>
+                        <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
                       </div>
-                      <span 
-                        style={{ color: "#09090b", cursor: "pointer", fontSize: "12.5px", fontWeight: "800", background: "#f4f4f5", padding: "6px 14px", borderRadius: "8px", border: "1px solid #e4e4e7", transition: "all 0.15s ease" }} 
-                        onClick={() => setActiveTab("queue")}
-                      >
-                        Open Full Queue →
-                      </span>
-                    </div>
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "480px", overflowY: "auto", paddingRight: "6px" }}>
-                      {orders.filter(o => o.status !== "Delivered" && o.status !== "Completed" && o.status !== "Cancelled").slice(0, 10).map((o) => (
-                        <div 
-                          key={o.id}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "14px",
-                            padding: "14px",
-                            borderRadius: "14px",
-                            border: "1px solid #e2e8f0",
-                            background: "#ffffff",
-                            transition: "all 0.15s ease"
-                          }}
-                        >
-                          <img 
-                            src={o.image || o.img || "/logo.png"} 
-                            alt={o.item || "Chai"} 
-                            style={{ width: "54px", height: "54px", borderRadius: "12px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }} 
-                          />
-                          <div style={{ flexGrow: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                              <span style={{ fontSize: "11px", fontWeight: "850", color: "#ffffff", background: "#000000", padding: "2px 7px", borderRadius: "5px" }}>
-                                #{typeof o.id === "string" ? o.id.slice(-5).toUpperCase() : o.id}
-                              </span>
-                              <strong style={{ fontSize: "14px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {o.item || "Chai Selection"}
-                              </strong>
-                            </div>
-                            <div style={{ fontSize: "12px", color: "#71717a", display: "flex", flexWrap: "wrap", gap: "8px", alignItems: "center" }}>
-                              <span>👤 {o.customer || "Office Guest"}</span>
-                              <span style={{ fontWeight: "700", color: "#09090b" }}>📍 {o.office ? `Office: ${o.office}` : (o.walkIn ? "Counter" : "Desk")}</span>
-                              {o.floor && <span>• Floor: {o.floor}</span>}
-                            </div>
-                            {(o.sugar || o.milk) && (
-                              <div style={{ fontSize: "11px", color: "#71717a", marginTop: "3px", background: "#f8fafc", padding: "2px 8px", borderRadius: "6px", display: "inline-block", border: "1px solid #f1f5f9" }}>
-                                {o.sugar ? `Sugar: ${o.sugar}` : ""} {o.milk ? `• Milk: ${o.milk}` : ""}
-                              </div>
-                            )}
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end", flexShrink: 0 }}>
-                            <span style={{
-                              fontSize: "11px",
-                              fontWeight: "850",
-                              padding: "4px 10px",
-                              borderRadius: "6px",
-                              background: o.status === "Preparing" ? "#000000" : o.status === "Ready" ? "#18181b" : "#f4f4f5",
-                              color: o.status === "Preparing" || o.status === "Ready" ? "#ffffff" : "#09090b",
-                              border: "1px solid #e4e4e7"
-                            }}>
-                              {o.status || "Received"}
-                            </span>
-                            {o.status === "Received" || o.status === "Pending" ? (
-                              <button
-                                onClick={() => updateOrder(o.id, { status: "Preparing" })}
-                                style={{ background: "#000000", color: "#ffffff", border: "none", padding: "5px 12px", borderRadius: "6px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer" }}
-                              >
-                                Brew ♨️
-                              </button>
-                            ) : o.status === "Preparing" ? (
-                              <button
-                                onClick={() => updateOrder(o.id, { status: "Ready" })}
-                                style={{ background: "#09090b", color: "#ffffff", border: "none", padding: "5px 12px", borderRadius: "6px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer" }}
-                              >
-                                Ready 🚀
-                              </button>
-                            ) : o.status === "Ready" ? (
-                              <button
-                                onClick={() => updateOrder(o.id, { status: "Delivered" })}
-                                style={{ background: "#27272a", color: "#ffffff", border: "none", padding: "5px 12px", borderRadius: "6px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer" }}
-                              >
-                                Deliver ✓
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                      ))}
-                      {orders.filter(o => o.status !== "Delivered" && o.status !== "Completed" && o.status !== "Cancelled").length === 0 && (
-                        <div style={{ textAlign: "center", padding: "40px 10px", color: "#71717a", fontSize: "13px" }}>
-                          ☕ Kitchen clear! No active brewing orders in queue.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* RIGHT: Today's Prep Tally List with Cup Counters (No Money) */}
-                  <div style={{ background: "#ffffff", borderRadius: "18px", padding: "22px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #f1f5f9", paddingBottom: "14px" }}>
-                      <div>
-                        <h3 style={{ fontSize: "16px", fontWeight: "900", margin: 0, color: "#09090b" }}>Today's Chai Prep Tally</h3>
-                        <p style={{ margin: "3px 0 0", fontSize: "12px", color: "#71717a" }}>Cups ordered today grouped by tea variety</p>
-                      </div>
-                      <span style={{ fontSize: "12px", fontWeight: "850", color: "#ffffff", background: "#000000", padding: "5px 12px", borderRadius: "8px" }}>
-                        {Object.values(todayTally).reduce((a, b) => a + b, 0)} Total Cups
-                      </span>
-                    </div>
-
-                    <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxHeight: "480px", overflowY: "auto", paddingRight: "6px" }}>
-                      {Object.entries(todayTally).map(([chaiName, count], idx) => {
-                        const icon = chaiName.toLowerCase().includes("coffee") ? "☕" : chaiName.toLowerCase().includes("green") ? "🍵" : "🫖";
-                        return (
-                          <div 
-                            key={idx}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              padding: "12px 16px",
-                              borderRadius: "12px",
-                              border: "1px solid #e2e8f0",
-                              background: "#ffffff"
-                            }}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                              <div style={{ width: "38px", height: "38px", borderRadius: "10px", background: "#f4f4f5", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", border: "1px solid #e4e4e7" }}>
-                                {icon}
-                              </div>
-                              <div>
-                                <strong style={{ fontSize: "14px", color: "#09090b", display: "block" }}>{chaiName}</strong>
-                                <span style={{ fontSize: "11.5px", color: "#71717a" }}>Fresh Kitchen Batch</span>
-                              </div>
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                              <span style={{ fontSize: "14px", fontWeight: "900", color: "#000000", background: "#f4f4f5", border: "1px solid #e4e4e7", padding: "5px 12px", borderRadius: "8px" }}>
-                                {count} {count === 1 ? "Cup" : "Cups"}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {Object.keys(todayTally).length === 0 && (
-                        <div style={{ textAlign: "center", padding: "40px 10px", color: "#71717a", fontSize: "13px" }}>
-                          No tea tallies recorded yet for today.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 5. SECTION: CORPORATE DESK & FLOOR DISPATCH ROUTE GRID */}
-                <div style={{ marginBottom: "24px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                    <div>
-                      <h3 style={{ fontSize: "16px", fontWeight: "850", margin: 0, color: "#09090b" }}>Desk Delivery & Corporate Floor Dispatch Routes</h3>
-                      <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#71717a" }}>Active delivery distribution mapped by office wings and corporate floors</p>
-                    </div>
-                    <span style={{ fontSize: "12px", color: "#71717a", background: "#ffffff", padding: "4px 10px", borderRadius: "8px", border: "1px solid #e2e8f0", fontWeight: "600" }}>
-                      Floor Tracking
-                    </span>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px" }}>
-                    {[
-                      { floor: "Floor 1: Reception & Lounges", icon: "🏢", zone: "Zone A", runner: "Runner 1 (Ramesh)", status: "Active Dispatch", eta: "3 mins" },
-                      { floor: "Floor 2: Engineering & Tech Bay", icon: "💻", zone: "Zone B", runner: "Runner 2 (Suresh)", status: "En Route", eta: "2 mins" },
-                      { floor: "Floor 3: Sales & Operations Wing", icon: "📊", zone: "Zone C", runner: "Runner 1 (Ramesh)", status: "Preparing Tray", eta: "5 mins" },
-                      { floor: "Floor 4: Executive Boardrooms", icon: "👔", zone: "VIP Zone", runner: "Direct Service", status: "Priority Hot", eta: "Immediate" }
-                    ].map((fl, i) => {
-                      const floorOrdersCount = orders.filter(o => 
-                        (o.office && o.office.toLowerCase().includes(fl.floor.toLowerCase().slice(0, 7))) ||
-                        (o.floor && fl.floor.includes(o.floor))
-                      ).length;
-
-                      return (
-                        <div
-                          key={i}
-                          style={{
-                            background: "#ffffff",
-                            borderRadius: "16px",
-                            padding: "18px 20px",
-                            border: "1px solid #e2e8f0",
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
-                            display: "flex",
-                            flexDirection: "column",
-                            justifyContent: "space-between",
-                            gap: "12px"
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                              <span style={{ fontSize: "22px" }}>{fl.icon}</span>
-                              <div>
-                                <h4 style={{ fontSize: "13.5px", fontWeight: "850", margin: 0, color: "#09090b" }}>{fl.floor}</h4>
-                                <span style={{ fontSize: "11px", color: "#71717a" }}>{fl.zone} • {fl.runner}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", padding: "10px 14px", borderRadius: "10px", border: "1px solid #f1f5f9" }}>
-                            <div>
-                              <span style={{ fontSize: "10.5px", color: "#71717a", display: "block" }}>Active Deliveries</span>
-                              <strong style={{ fontSize: "15px", color: "#09090b" }}>{floorOrdersCount || (i === 1 ? 4 : i === 2 ? 2 : 1)} Desks</strong>
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                              <span style={{ fontSize: "11px", fontWeight: "800", background: "#000000", color: "#ffffff", padding: "3px 8px", borderRadius: "6px" }}>
-                                {fl.status}
-                              </span>
-                              <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", marginTop: "2px" }}>ETA: {fl.eta}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 6. SECTION: INGREDIENTS & STOCK HEALTH MONITOR GRID (ZERO MONEY) */}
-                <div style={{ marginBottom: "24px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                    <div>
-                      <h3 style={{ fontSize: "16px", fontWeight: "850", margin: 0, color: "#09090b" }}>Kitchen Ingredients & Supply Levels</h3>
-                      <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#71717a" }}>Operational stock health meters for daily brewing requirements</p>
-                    </div>
-                    <span style={{ fontSize: "12px", color: "#71717a", background: "#ffffff", padding: "4px 10px", borderRadius: "8px", border: "1px solid #e2e8f0", fontWeight: "600" }}>
-                      Live Inventory
-                    </span>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-                    {[
-                      { name: "Assam CTC Blend", qty: "8.5 kg / 10 kg", pct: 85, icon: "🌿", status: "Optimal" },
-                      { name: "Dairy Full Cream Milk", qty: "24 L / 30 L", pct: 80, icon: "🥛", status: "Fresh Batch" },
-                      { name: "Fresh Ginger & Spices", qty: "3.8 kg / 5 kg", pct: 76, icon: "🧄", status: "Good" },
-                      { name: "Sulphur-Free Sugar", qty: "7.2 kg / 10 kg", pct: 72, icon: "🍬", status: "Plentiful" },
-                      { name: "Clay Kulhad Cups", qty: "195 / 250 pcs", pct: 78, icon: "🏺", status: "Stocked" },
-                      { name: "Thermal Paper Cups", qty: "450 / 500 pcs", pct: 90, icon: "📦", status: "Abundant" }
-                    ].map((item, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          background: "#ffffff",
-                          borderRadius: "16px",
-                          padding: "16px 18px",
-                          border: "1px solid #e2e8f0",
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "8px"
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: "18px" }}>{item.icon}</span>
-                          <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#09090b", background: "#f4f4f5", padding: "2px 6px", borderRadius: "5px", border: "1px solid #e4e4e7" }}>
-                            {item.status}
-                          </span>
-                        </div>
-                        <h4 style={{ fontSize: "13px", fontWeight: "850", margin: "2px 0 0", color: "#09090b" }}>{item.name}</h4>
-                        <span style={{ fontSize: "11.5px", color: "#71717a" }}>{item.qty}</span>
-                        <div style={{ width: "100%", height: "6px", background: "#f4f4f5", borderRadius: "4px", overflow: "hidden", marginTop: "4px" }}>
-                          <div style={{ width: `${item.pct}%`, height: "100%", background: "#000000", borderRadius: "4px" }}></div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 7. SECTION: KITCHEN SPEED & PERFORMANCE METRICS GRID */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px", marginBottom: "24px" }}>
-                  {[
-                    { label: "Avg. Boil & Steep Time", value: "4m 12s", icon: "⏱️", desc: "Well under 5 min target" },
-                    { label: "Runner Dispatch Speed", value: "2m 20s", icon: "🏃", desc: "Fast desk delivery turnaround" },
-                    { label: "Recipe Customization Rate", value: "100%", icon: "🎯", desc: "Accurate sugar & milk spec" },
-                    { label: "Hygiene & Kitchen Audit", value: "Grade A+", icon: "🏆", desc: "Certified sanitation standards" }
-                  ].map((m, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        background: "#09090b",
-                        color: "#ffffff",
-                        borderRadius: "16px",
-                        padding: "18px 20px",
-                        border: "1px solid #27272a",
-                        boxShadow: "0 4px 15px rgba(0,0,0,0.08)",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px"
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: "12px", color: "#a1a1aa", fontWeight: "700" }}>{m.label}</span>
-                        <span style={{ fontSize: "18px" }}>{m.icon}</span>
-                      </div>
-                      <div style={{ fontSize: "24px", fontWeight: "950", color: "#ffffff", letterSpacing: "-0.5px" }}>{m.value}</div>
-                      <span style={{ fontSize: "11px", color: "#71717a" }}>{m.desc}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* 8. SECTION: INVENTORY ALERTS TABLE (MONOCHROME B&W) */}
-                <div style={{ background: "#ffffff", borderRadius: "18px", padding: "22px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #f1f5f9", paddingBottom: "14px" }}>
-                    <div>
-                      <h3 style={{ fontSize: "16px", fontWeight: "900", margin: 0, color: "#09090b" }}>Inventory Reorder & Low Stock Alerts</h3>
-                      <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#71717a" }}>Kitchen ingredient threshold tracking</p>
-                    </div>
-                    <span style={{ color: "#71717a", cursor: "pointer", fontSize: "13px" }}>•••</span>
-                  </div>
-                  <div style={{ maxHeight: "360px", overflowY: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
-                      <thead style={{ position: "sticky", top: 0, zIndex: 1, background: "#f8fafc" }}>
-                        <tr style={{ color: "#71717a", borderBottom: "1px solid #e2e8f0" }}>
-                          <th style={{ padding: "12px 14px", borderRadius: "6px 0 0 6px" }}>Item Name</th>
-                          <th style={{ padding: "12px 14px" }}>Stock Count</th>
-                          <th style={{ padding: "12px 14px" }}>Stock Level</th>
-                          <th style={{ padding: "12px 14px", borderRadius: "0 6px 6px 0", textAlign: "right" }}>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {stocks.map((s, i) => (
-                          <tr key={i} style={{ borderBottom: i !== stocks.length - 1 ? "1px solid #f1f5f9" : "none" }}>
-                            <td style={{ padding: "14px", display: "flex", alignItems: "center", gap: "10px", color: "#09090b", fontWeight: "600" }}>
-                               <div style={{ background: "#f4f4f5", width: "30px", height: "30px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", border: "1px solid #e4e4e7" }}>📦</div>
-                               {s.name}
-                            </td>
-                            <td style={{ padding: "14px", color: "#52525b", fontWeight: "600" }}>{s.qty}</td>
-                            <td style={{ padding: "14px" }}>
-                              <span style={{
-                                fontSize: "11px",
-                                fontWeight: "800",
-                                padding: "3px 8px",
-                                borderRadius: "6px",
-                                background: s.level === "Out of Stock" || s.level === "Low Stock" ? "#000000" : "#f4f4f5",
-                                color: s.level === "Out of Stock" || s.level === "Low Stock" ? "#ffffff" : "#09090b",
-                                border: "1px solid #e4e4e7"
-                              }}>
-                                {s.level}
-                              </span>
-                            </td>
-                            <td style={{ padding: "14px", textAlign: "right" }}>
-                              <button style={{ padding: "6px 14px", border: "1px solid #000000", background: "#000000", color: "#ffffff", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "750" }}>
-                                Reorder
-                              </button>
-                            </td>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid #eaeaea", color: "#888", fontSize: "13px" }}>
+                            <th style={{ paddingBottom: "10px" }}>Product</th>
+                            <th style={{ paddingBottom: "10px" }}>Sales</th>
+                            <th style={{ paddingBottom: "10px" }}>Trend</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {sortedItems.slice(0, 5).map((item, i) => {
+                            const name = item[0];
+                            const qty = item[1];
+                            const icon = name.toLowerCase().includes("chai") || name.toLowerCase().includes("tea") ? "☕" : name.toLowerCase().includes("coffee") ? "🍵" : "🥤";
+                            const category = name.toLowerCase().includes("chai") || name.toLowerCase().includes("tea") ? "Chai" : name.toLowerCase().includes("coffee") ? "Coffee" : "Beverage";
+                            return (
+                              <tr key={i} style={{ borderBottom: i !== 4 ? "1px solid #f5f5f5" : "none" }}>
+                                <td style={{ padding: "12px 0", display: "flex", alignItems: "center", gap: "10px" }}>
+                                  <div style={{ background: "#f8f9fa", width: "36px", height: "36px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px" }}>{icon}</div>
+                                  <div>
+                                    <div style={{ fontSize: "14px", fontWeight: "600", color: "#333" }}>{name.split(" x")[0]}</div>
+                                    <div style={{ fontSize: "12px", color: "#888" }}>{category}</div>
+                                  </div>
+                                </td>
+                                <td style={{ padding: "12px 0", fontSize: "14px", color: "#333", fontWeight: "500" }}>{qty} sold</td>
+                                <td style={{ padding: "12px 0" }}>
+                                   <div style={{ display: "flex", gap: "3px", alignItems: "flex-end", height: "20px" }}>
+                                     <div style={{ width: "4px", height: "40%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                     <div style={{ width: "4px", height: "60%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                     <div style={{ width: "4px", height: "100%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                     <div style={{ width: "4px", height: "80%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                     <div style={{ width: "4px", height: "50%", background: "#e0e0e0", borderRadius: "2px" }}></div>
+                                   </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {sortedItems.length === 0 && (
+                            <tr><td colSpan="3" style={{ padding: "20px", textAlign: "center", color: "#999" }}>No products sold yet.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* RIGHT: Pending Orders (Matching Admin with Channel instead of Amount) */}
+                    <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                        <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>Pending Orders</h3>
+                        <span style={{ color: "#8a583c", cursor: "pointer", fontSize: "12px", fontWeight: "600" }} onClick={() => setActiveTab("queue")}>View Queue →</span>
+                      </div>
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                          <thead>
+                            <tr style={{ borderBottom: "1px solid #eaeaea", color: "#888" }}>
+                              <th style={{ paddingBottom: "10px" }}>Order ID</th>
+                              <th style={{ paddingBottom: "10px" }}>Customer Name</th>
+                              <th style={{ paddingBottom: "10px" }}>Channel</th>
+                              <th style={{ paddingBottom: "10px" }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orders.filter(o => o.status === "Pending" || o.status === "Received" || o.status === "Preparing" || o.status === "Out for Delivery").slice(0, 8).map((o, i, arr) => {
+                              const isOffline = Boolean(o.isOffline || o.walkIn);
+                              return (
+                                <tr key={o.id} style={{ borderBottom: i !== arr.length - 1 ? "1px solid #f5f5f5" : "none" }}>
+                                  <td style={{ padding: "12px 0", fontWeight: "700", color: "#8a583c" }}>{o.orderId || o.id}</td>
+                                  <td style={{ padding: "12px 0", color: "#444", fontWeight: "500" }}>{o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (isOffline ? "Walk-in" : "Guest"))}</td>
+                                  <td style={{ padding: "12px 0" }}>
+                                    {isOffline ? (
+                                      <span style={{ background: "#fff3e0", color: "#ef6c00", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
+                                        🏪 Counter Order
+                                      </span>
+                                    ) : (
+                                      <span style={{ background: "#e3f2fd", color: "#1565c0", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold" }}>
+                                        🏢 {o.office || "Desk Delivery"}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: "12px 0" }}>
+                                    <span style={{
+                                      padding: "4px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold",
+                                      background: o.status === "Pending" || o.status === "Received" ? "#fff3e0" : o.status === "Preparing" ? "#e3f2fd" : "#e8f5e9",
+                                      color: o.status === "Pending" || o.status === "Received" ? "#ef6c00" : o.status === "Preparing" ? "#1565c0" : "#2e7d32"
+                                    }}>
+                                      {o.status || "Received"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {orders.filter(o => o.status === "Pending" || o.status === "Received" || o.status === "Preparing" || o.status === "Out for Delivery").length === 0 && (
+                              <tr>
+                                <td colSpan="4" style={{ padding: "20px", textAlign: "center", color: "#999", fontStyle: "italic" }}>
+                                  No pending orders right now.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* BOTTOM ROW: INVENTORY ALERTS (MATCHING ADMIN) */}
+                  <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                      <h3 style={{ fontSize: "16px", fontWeight: "bold", margin: 0, color: "#222" }}>Inventory Alerts</h3>
+                      <span style={{ color: "#888", cursor: "pointer" }}>•••</span>
+                    </div>
+                    <div style={{ maxHeight: "350px", overflowY: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                        <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
+                          <tr style={{ color: "#555" }}>
+                            <th style={{ padding: "12px", borderRadius: "6px 0 0 6px" }}>Product Name</th>
+                            <th style={{ padding: "12px" }}>Current Stock</th>
+                            <th style={{ padding: "12px" }}>Alert Status</th>
+                            <th style={{ padding: "12px", borderRadius: "0 6px 6px 0", textAlign: "right" }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stocks.filter(s => (parseFloat(s.qty) || 0) <= (s.minLimit || 10)).map((s, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                              <td style={{ padding: "12px", display: "flex", alignItems: "center", gap: "10px", color: "#333", fontWeight: "500" }}>
+                                 <div style={{ background: "#f8f9fa", width: "28px", height: "28px", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>📦</div>
+                                 {s.name}
+                              </td>
+                              <td style={{ padding: "12px", color: "#555" }}>{s.qty} {s.unit || ""}</td>
+                              <td style={{ padding: "12px" }}>
+                                <span style={{ color: "#c62828", fontWeight: "600" }}>
+                                  Low Stock
+                                </span>
+                              </td>
+                              <td style={{ padding: "12px", textAlign: "right" }}>
+                                <button onClick={() => setActiveTab("stock")} style={{ padding: "6px 12px", border: "1px solid #eaeaea", background: "#ffffff", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "600", color: "#555" }}>
+                                  Reorder
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {stocks.filter(s => (parseFloat(s.qty) || 0) <= (s.minLimit || 10)).length === 0 && (
+                            <tr>
+                              <td colSpan="4" style={{ padding: "20px", textAlign: "center", color: "#888" }}>No low stock alerts!</td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                 </div>
+              );
+            })()}
 
-              </div>
-            )}
 
-
-            {/* TAB: ORDER QUEUE (ONLINE DESK DELIVERY ONLY - NO OFFLINE ORDERS) */}
+            {/* TAB: ORDER QUEUE (ALL ACTIVE ONLINE & OFFLINE PREPARATION ORDERS) */}
             {activeTab === "queue" && (() => {
-              const onlineQueueOrders = orders
-                .filter(o => o.priority !== "Subscription" && !o.isOffline && !o.walkIn)
+              const allQueueOrders = orders
+                .filter(o => o.priority !== "Subscription")
                 .sort((a, b) => b.createdAt - a.createdAt);
+
+              const onlineQueueCount = allQueueOrders.filter(o => !o.isOffline && !o.walkIn).length;
+              const offlineQueueCount = allQueueOrders.filter(o => o.isOffline || o.walkIn).length;
+
+              const filteredQueueOrders = allQueueOrders.filter(o => {
+                if (queueFilter === "online") return !o.isOffline && !o.walkIn;
+                if (queueFilter === "offline") return Boolean(o.isOffline || o.walkIn);
+                return true;
+              });
 
               return (
                 <div className="tab-body-wrapper" style={{ padding: "28px 32px" }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: "wrap", gap: "12px" }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: "wrap", gap: "14px" }}>
                     <div>
-                      <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b" }}>Online Order Queue</h3>
-                      <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Real-time corporate desk delivery orders requiring active kitchen brewing and dispatch</p>
+                      <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b" }}>Live Order Queue</h3>
+                      <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Real-time preparation queue for online desk delivery orders and in-store counter walk-ins</p>
                     </div>
-                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                      <span style={{ fontSize: "11.5px", fontWeight: "800", background: "#09090b", color: "#ffffff", padding: "6px 12px", borderRadius: "8px" }}>
-                        {onlineQueueOrders.length} Online Desk Orders
-                      </span>
+
+                    {/* Filter Tabs & Counter */}
+                    <div style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setQueueFilter("all")}
+                        style={{
+                          padding: "6px 14px",
+                          border: "none",
+                          background: queueFilter === "all" ? "#09090b" : "transparent",
+                          color: queueFilter === "all" ? "#ffffff" : "#52525b",
+                          borderRadius: "7px",
+                          fontSize: "12px",
+                          fontWeight: "800",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                      >
+                        ☕ All ({allQueueOrders.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQueueFilter("online")}
+                        style={{
+                          padding: "6px 14px",
+                          border: "none",
+                          background: queueFilter === "online" ? "#09090b" : "transparent",
+                          color: queueFilter === "online" ? "#ffffff" : "#52525b",
+                          borderRadius: "7px",
+                          fontSize: "12px",
+                          fontWeight: "800",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                      >
+                        🏢 Online Desk ({onlineQueueCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQueueFilter("offline")}
+                        style={{
+                          padding: "6px 14px",
+                          border: "none",
+                          background: queueFilter === "offline" ? "#09090b" : "transparent",
+                          color: queueFilter === "offline" ? "#ffffff" : "#52525b",
+                          borderRadius: "7px",
+                          fontSize: "12px",
+                          fontWeight: "800",
+                          cursor: "pointer",
+                          transition: "all 0.15s ease"
+                        }}
+                      >
+                        🏪 Counter / Offline ({offlineQueueCount})
+                      </button>
                     </div>
                   </div>
 
                   <div className="queue-list-container">
-                    {onlineQueueOrders.length === 0 ? (
+                    {filteredQueueOrders.length === 0 ? (
                       <div className="empty-column-msg" style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "14px", padding: "48px 20px", textAlign: "center", color: "#71717a" }}>
-                        <span style={{ fontSize: "32px", display: "block", marginBottom: "8px" }}>🏢</span>
-                        <strong style={{ fontSize: "14px", color: "#09090b", display: "block", marginBottom: "4px" }}>No active online desk delivery orders in queue</strong>
-                        <span style={{ fontSize: "12px", color: "#71717a" }}>Offline & counter walk-in orders are recorded directly in Order History & Offline tab.</span>
+                        <span style={{ fontSize: "32px", display: "block", marginBottom: "8px" }}>🫖</span>
+                        <strong style={{ fontSize: "14px", color: "#09090b", display: "block", marginBottom: "4px" }}>No active orders in this queue filter</strong>
+                        <span style={{ fontSize: "12px", color: "#71717a" }}>New orders from desk or offline counter will appear here instantly.</span>
                       </div>
                     ) : (
-                      onlineQueueOrders.map((o) => (
-                        <div
-                          key={o.id}
-                          className="queue-list-item"
-                          style={{ border: "1px solid #e2e8f0", borderRadius: "14px", padding: "14px 18px", background: "#ffffff", marginBottom: "12px", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", transition: "all 0.15s ease" }}
-                          onClick={() => {
-                            setSelectedQueueOrder(o);
-                            setDeliveryTimeInput(o.allocatedTime || "");
-                            setIsQueueSidebarOpen(true);
-                          }}
-                        >
-                          <img src={o.image || o.img || "/logo.png"} alt={o.id} className="queue-list-img" style={{ width: "54px", height: "54px", borderRadius: "10px", objectFit: 'cover', border: "1px solid #e4e4e7", flexShrink: 0 }} />
-                          <div className="queue-list-info" style={{ flexGrow: 1, minWidth: 0 }}>
-                            <h4 style={{ fontSize: '14px', marginBottom: '4px', margin: 0, display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                              <span style={{ color: '#ffffff', fontWeight: '900', background: "#09090b", padding: "2px 7px", borderRadius: "4px", fontSize: "12px" }}>
-                                {o.orderId || (o.id && o.id.length > 8 ? o.id.substring(0,8) : o.id)}
+                      filteredQueueOrders.map((o) => {
+                        const isOffline = Boolean(o.isOffline || o.walkIn);
+                        return (
+                          <div
+                            key={o.id}
+                            className="queue-list-item"
+                            style={{ border: "1px solid #e2e8f0", borderRadius: "14px", padding: "14px 18px", background: "#ffffff", marginBottom: "12px", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", transition: "all 0.15s ease" }}
+                            onClick={() => {
+                              setSelectedQueueOrder(o);
+                              setDeliveryTimeInput(o.allocatedTime || "");
+                              setQueueDeliveryPaymentMethod(o.paymentMethod || "Cash");
+                              setQueueDeliveryPaymentStatus(o.paymentStatus || (o.paymentMethod === "Pending Selection" ? "Pending" : "Paid"));
+                              setIsQueueSidebarOpen(true);
+                            }}
+                          >
+                            <img src={o.image || o.img || "/logo.png"} alt={o.id} className="queue-list-img" style={{ width: "54px", height: "54px", borderRadius: "10px", objectFit: 'cover', border: "1px solid #e4e4e7", flexShrink: 0 }} />
+                            <div className="queue-list-info" style={{ flexGrow: 1, minWidth: 0 }}>
+                              <h4 style={{ fontSize: '14px', marginBottom: '4px', margin: 0, display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                <span style={{ color: '#ffffff', fontWeight: '900', background: "#09090b", padding: "2px 7px", borderRadius: "4px", fontSize: "12px" }}>
+                                  {o.orderId || (o.id && o.id.length > 8 ? o.id.substring(0,8) : o.id)}
+                                </span>
+                                <strong style={{ color: "#09090b" }}>{o.customer || "Guest"}</strong>
+                                <span style={{
+                                  fontSize: "10.5px",
+                                  fontWeight: "800",
+                                  padding: "2px 7px",
+                                  borderRadius: "4px",
+                                  background: isOffline ? "#fff7ed" : "#eff6ff",
+                                  color: isOffline ? "#c2410c" : "#1d4ed8",
+                                  border: isOffline ? "1px solid #fed7aa" : "1px solid #bfdbfe"
+                                }}>
+                                  {isOffline ? "🏪 Offline Counter" : "🌐 Online Desk"}
+                                </span>
+                                {isOffline ? (
+                                  <span style={{
+                                    fontSize: "10.5px",
+                                    fontWeight: "750",
+                                    padding: "2px 7px",
+                                    borderRadius: "4px",
+                                    background: (o.paymentStatus === "Pending" || o.paymentMethod === "Corporate Due" || o.paymentMethod === "Pending Selection") ? "#fef3c7" : "#ecfdf5",
+                                    color: (o.paymentStatus === "Pending" || o.paymentMethod === "Corporate Due" || o.paymentMethod === "Pending Selection") ? "#92400e" : "#065f46",
+                                    border: "1px solid #e2e8f0"
+                                  }}>
+                                    {o.paymentMethod === "Cash" ? "💵 Cash" : o.paymentMethod === "Card" ? "💳 Card" : (o.paymentMethod === "Corporate Due" || o.paymentStatus === "Pending" || o.paymentMethod === "Pending Selection") ? "⏳ Pending / Due" : `📱 ${o.paymentMethod || "Online UPI"}`}
+                                  </span>
+                                ) : (
+                                  <span style={{
+                                    fontSize: "10.5px",
+                                    fontWeight: "750",
+                                    padding: "2px 7px",
+                                    borderRadius: "4px",
+                                    background: "#f0fdf4",
+                                    color: "#166534",
+                                    border: "1px solid #bbf7d0"
+                                  }}>
+                                    💳 Paid Online
+                                  </span>
+                                )}
+                              </h4>
+                              <p style={{ fontWeight: '750', color: '#09090b', fontSize: '13px', margin: '4px 0 2px' }}>{o.item}</p>
+                              <p style={{ fontSize: '11.5px', color: '#71717a', margin: '0 0 4px' }}>📍 {o.office || o.address || (o.walkIn ? "Counter Pickup" : "Desk Delivery")}</p>
+                              <span className="time-elapsed" style={{ fontSize: '10.5px', fontWeight: 'bold', color: '#71717a' }}>
+                                ⏱️ {(() => {
+                                  const diffMs = Date.now() - o.createdAt;
+                                  const diffMins = Math.floor(diffMs / 60000);
+                                  if (diffMins < 60) return `${diffMins}m ago`;
+                                  if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+                                  return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', year: 'numeric' });
+                                })()}
                               </span>
-                              <strong style={{ color: "#09090b" }}>{o.customer || "Guest"}</strong>
-                              <span style={{ fontSize: "10.5px", fontWeight: "750", background: "#f4f4f5", border: "1px solid #e4e4e7", color: "#52525b", padding: "1px 6px", borderRadius: "4px" }}>
-                                🏢 Online Desk
+                            </div>
+                            <div className="queue-list-status" style={{ flexShrink: 0, textAlign: "right" }}>
+                              <span style={{
+                                fontSize: "11px",
+                                fontWeight: "800",
+                                padding: "5px 12px",
+                                borderRadius: "6px",
+                                background: o.status === "Preparing" ? "#0284c7" : o.status === "Delivered" ? "#16a34a" : o.status === "Out for Delivery" || o.status === "Ready" ? "#7e22ce" : "#f4f4f5",
+                                color: o.status === "Preparing" || o.status === "Delivered" || o.status === "Out for Delivery" || o.status === "Ready" ? "#ffffff" : "#09090b",
+                                border: "1px solid #e4e4e7",
+                                display: "inline-block"
+                              }}>
+                                {o.status || "Received"}
                               </span>
-                            </h4>
-                            <p style={{ fontWeight: '750', color: '#09090b', fontSize: '13px', margin: '4px 0 2px' }}>{o.item}</p>
-                            <p style={{ fontSize: '11.5px', color: '#71717a', margin: '0 0 4px' }}>📍 {o.office || o.address || "Desk Delivery"}</p>
-                            <span className="time-elapsed" style={{ fontSize: '10.5px', fontWeight: 'bold', color: '#71717a' }}>
-                              ⏱️ {(() => {
-                                const diffMs = Date.now() - o.createdAt;
-                                const diffMins = Math.floor(diffMs / 60000);
-                                if (diffMins < 60) return `${diffMins}m ago`;
-                                if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
-                                return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', year: 'numeric' });
-                              })()}
-                            </span>
+                            </div>
                           </div>
-                          <div className="queue-list-status" style={{ flexShrink: 0, textAlign: "right" }}>
-                            <span style={{
-                              fontSize: "11px",
-                              fontWeight: "800",
-                              padding: "5px 12px",
-                              borderRadius: "6px",
-                              background: o.status === "Preparing" ? "#09090b" : o.status === "Ready" ? "#18181b" : "#f4f4f5",
-                              color: o.status === "Preparing" || o.status === "Ready" ? "#ffffff" : "#09090b",
-                              border: "1px solid #e4e4e7",
-                              display: "inline-block"
-                            }}>
-                              {o.status || "Received"}
-                            </span>
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
 
                 {/* SLIDING SIDEBAR FOR ORDER DETAILS (NO MONEY) */}
                 <div className={`queue-sidebar-overlay ${isQueueSidebarOpen ? "open" : ""}`} onClick={() => setIsQueueSidebarOpen(false)}></div>
                 <div className={`queue-sidebar-panel ${isQueueSidebarOpen ? "open" : ""}`}>
-                  {selectedQueueOrder && (
-                    <div className="queue-sidebar-content">
-                      <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
+                  {selectedQueueOrder && (() => {
+                    const isOffline = Boolean(selectedQueueOrder.isOffline || selectedQueueOrder.walkIn);
+                    return (
+                      <div className="queue-sidebar-content">
+                        <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
 
-                      <h2>Order #{selectedQueueOrder.id ? (typeof selectedQueueOrder.id === "string" ? selectedQueueOrder.id.slice(-6).toUpperCase() : selectedQueueOrder.id) : ""}</h2>
-                      <div className="sidebar-detail-group">
-                        <label>Customer</label>
-                        <p>{selectedQueueOrder.customer}</p>
-                        <label>Office / Desk</label>
-                        <p>{selectedQueueOrder.office || selectedQueueOrder.address || "Counter Pickup"}</p>
-                        <label>Phone</label>
-                        <p>{selectedQueueOrder.phone || "N/A"}</p>
-                      </div>
+                        <h2>Order #{selectedQueueOrder.id ? (typeof selectedQueueOrder.id === "string" ? selectedQueueOrder.id.slice(-6).toUpperCase() : selectedQueueOrder.id) : ""}</h2>
+                        <div className="sidebar-detail-group">
+                          <label>Customer</label>
+                          <p>{selectedQueueOrder.customer}</p>
+                          <label>Channel</label>
+                          <p>{isOffline ? "🏪 Offline Counter Order" : "🌐 Online App Order (Desk Delivery)"}</p>
+                          <label>Office / Desk</label>
+                          <p>{selectedQueueOrder.office || selectedQueueOrder.address || (isOffline ? "Counter Pickup" : "Desk Delivery")}</p>
+                          <label>Phone</label>
+                          <p>{selectedQueueOrder.phone || "N/A"}</p>
+                        </div>
 
-                      <div className="sidebar-detail-group">
-                        <label>Items to Brew</label>
-                        <p><strong>{selectedQueueOrder.item}</strong></p>
+                        <div className="sidebar-detail-group">
+                          <label>Items to Brew</label>
+                          <p><strong>{selectedQueueOrder.item}</strong></p>
 
-                        <label>Preferences</label>
-                        <p>{selectedQueueOrder.sugar || "Regular Sugar"} | {selectedQueueOrder.milk || "Standard Milk"}</p>
-                        
-                        <label>Fulfillment Priority</label>
-                        <p>{selectedQueueOrder.priority || "Standard Desk Delivery"}</p>
-                      </div>
+                          <label>Preferences</label>
+                          <p>{selectedQueueOrder.sugar || "Regular Sugar"} | {selectedQueueOrder.milk || "Standard Milk"}</p>
+                          
+                          <label>Fulfillment Priority</label>
+                          <p>{selectedQueueOrder.priority || (isOffline ? "Counter Fast Fulfillment" : "Standard Desk Delivery")}</p>
+                        </div>
 
-                      <div className="sidebar-detail-group">
-                        <label>Update Status</label>
-                        <select
-                          className="sidebar-select"
-                          value={selectedQueueOrder.status || "Received"}
-                          onChange={(e) => {
-                            const newStatus = e.target.value;
-                            setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
-                            updateOrder(selectedQueueOrder.id, { status: newStatus });
-                          }}
-                        >
-                          <option value="Received">Received</option>
-                          <option value="Preparing">Preparing</option>
-                          <option value="Out for Delivery">Out for Delivery</option>
-                          <option value="Delivered">Delivered</option>
-                          <option value="Cancelled">Cancelled</option>
-                        </select>
-                      </div>
-
-                      <div className="sidebar-detail-group">
-                        <label>Set Delivery Time</label>
-                        <div style={{ display: "flex", gap: "10px" }}>
-                          <input
-                            type="text"
-                            className="sidebar-input"
-                            value={deliveryTimeInput}
-                            onChange={(e) => setDeliveryTimeInput(e.target.value)}
-                            placeholder="e.g. 15 mins"
-                          />
-                          <button
-                            className="sidebar-save-btn"
-                            onClick={() => {
-                              const updatedStatus = selectedQueueOrder.status || "Received";
-                              updateOrder(selectedQueueOrder.id, {
-                                allocatedTime: deliveryTimeInput,
-                                status: updatedStatus
-                              });
-
-                              if (selectedQueueOrder.userId || selectedQueueOrder.userId === undefined) {
-                                // Assume userId exists in real data. If so, fetch token and notify
-                                const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
-                                if (uid) {
-                                  getDoc(doc(db, "users", uid)).then(userSnap => {
-                                    if (userSnap.exists() && userSnap.data().fcmToken) {
-                                      fetch("/api/notify", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                          token: userSnap.data().fcmToken,
-                                          title: "Order Update",
-                                          body: `Your order is now ${updatedStatus}`,
-                                          orderId: selectedQueueOrder.id,
-                                          userId: uid
-                                        })
-                                      });
-                                    }
-                                  }).catch(e => console.error("Error fetching user for push:", e));
-                                }
+                        <div className="sidebar-detail-group">
+                          <label>Update Status</label>
+                          <select
+                            className="sidebar-select"
+                            value={selectedQueueOrder.status || "Received"}
+                            onChange={(e) => {
+                              const newStatus = e.target.value;
+                              const updates = { status: newStatus };
+                              // Only handle settlement if it is an OFFLINE order
+                              if (isOffline && newStatus === "Delivered" && (!selectedQueueOrder.paymentMethod || selectedQueueOrder.paymentMethod === "Pending Selection")) {
+                                updates.paymentMethod = queueDeliveryPaymentMethod || "Cash";
+                                updates.paymentStatus = queueDeliveryPaymentStatus || "Paid";
                               }
-
-                              setToastMsg("Order details updated successfully!");
-                              setSaveAnimation(true);
-                              setTimeout(() => {
-                                setToastMsg("");
-                                setSaveAnimation(false);
-                              }, 2000);
-                            }}
-                            style={{ 
-                              background: saveAnimation ? "#25D366" : "#2c1b0d",
-                              transition: "background 0.3s ease"
+                              setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
+                              updateOrder(selectedQueueOrder.id, updates);
                             }}
                           >
-                            {saveAnimation ? (
-                              <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                  <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425z"/>
-                                </svg>
-                                Saved!
+                            <option value="Received">Received</option>
+                            <option value="Preparing">Preparing</option>
+                            <option value="Out for Delivery">Out for Delivery / Ready</option>
+                            <option value="Delivered">Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
+                          </select>
+                        </div>
+
+                        {/* PAYMENT SETTLEMENT: ONLINE vs OFFLINE */}
+                        {!isOffline ? (
+                          /* ONLINE ORDERS: NO CASH/UPI UPDATE NEEDED */
+                          <div className="sidebar-detail-group" style={{
+                            background: "#f0fdf4",
+                            border: "1px solid #bbf7d0",
+                            borderRadius: "12px",
+                            padding: "12px 14px",
+                            marginTop: "8px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px"
+                          }}>
+                            <span style={{ fontSize: "22px" }}>🌐</span>
+                            <div>
+                              <div style={{ fontSize: "12px", fontWeight: "800", color: "#166534" }}>Online Order (App Checkout)</div>
+                              <div style={{ fontSize: "11px", color: "#15803d" }}>Payment settled online. No manual cash / UPI update needed.</div>
+                            </div>
+                          </div>
+                        ) : (
+                          /* OFFLINE ORDERS: COUNTER SETTLEMENT SELECTOR */
+                          <div className="sidebar-detail-group" style={{
+                            background: "#fffbeb",
+                            border: "1px solid #fde68a",
+                            borderRadius: "12px",
+                            padding: "14px",
+                            marginTop: "8px"
+                          }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                              <label style={{ margin: 0, fontWeight: "800", color: "#92400e", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                                🏪 Offline Settlement Method
+                              </label>
+                              <span style={{
+                                fontSize: "10px",
+                                fontWeight: "800",
+                                padding: "2px 7px",
+                                borderRadius: "4px",
+                                background: ((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "#fef3c7" : "#166534",
+                                color: ((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "#92400e" : "#ffffff",
+                                border: "1px solid rgba(0,0,0,0.1)"
+                              }}>
+                                {((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "⏳ Payment Due / Pending" : "✅ Payment Collected"}
                               </span>
-                            ) : "Save"}
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "6px" }}>
+                              {[
+                                { id: "Cash", label: "💵 Cash", status: "Paid" },
+                                { id: "Online UPI", label: "📱 Online UPI", status: "Paid" },
+                                { id: "Corporate Due", label: "⏳ Pending / Due", status: "Pending" },
+                                { id: "Card", label: "💳 Card / POS", status: "Paid" }
+                              ].map((pm) => {
+                                const isSelected = (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === pm.id;
+                                return (
+                                  <button
+                                    key={pm.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setQueueDeliveryPaymentMethod(pm.id);
+                                      setQueueDeliveryPaymentStatus(pm.status);
+                                      setSelectedQueueOrder(prev => prev ? { ...prev, paymentMethod: pm.id, paymentStatus: pm.status } : null);
+                                      updateOrder(selectedQueueOrder.id, {
+                                        paymentMethod: pm.id,
+                                        paymentStatus: pm.status
+                                      });
+                                      setToastMsg(`Offline payment marked as ${pm.id}!`);
+                                      setTimeout(() => setToastMsg(""), 2000);
+                                    }}
+                                    style={{
+                                      padding: "9px 8px",
+                                      borderRadius: "8px",
+                                      fontSize: "12px",
+                                      fontWeight: "800",
+                                      border: isSelected ? "2px solid #2c1b0d" : "1px solid #e2e8f0",
+                                      background: isSelected ? "#2c1b0d" : "#ffffff",
+                                      color: isSelected ? "#ffffff" : "#2c1b0d",
+                                      cursor: "pointer",
+                                      transition: "all 0.15s ease",
+                                      textAlign: "center"
+                                    }}
+                                  >
+                                    {pm.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="sidebar-detail-group">
+                          <label>Set Delivery Time</label>
+                          <div style={{ display: "flex", gap: "10px" }}>
+                            <input
+                              type="text"
+                              className="sidebar-input"
+                              value={deliveryTimeInput}
+                              onChange={(e) => setDeliveryTimeInput(e.target.value)}
+                              placeholder="e.g. 15 mins"
+                            />
+                            <button
+                              className="sidebar-save-btn"
+                              onClick={() => {
+                                const updatedStatus = selectedQueueOrder.status || "Received";
+                                const updates = {
+                                  allocatedTime: deliveryTimeInput,
+                                  status: updatedStatus
+                                };
+
+                                if (isOffline) {
+                                  const paymentMethodToSave = queueDeliveryPaymentMethod || selectedQueueOrder.paymentMethod || "Cash";
+                                  const paymentStatusToSave = queueDeliveryPaymentStatus || selectedQueueOrder.paymentStatus || (paymentMethodToSave === "Corporate Due" ? "Pending" : "Paid");
+                                  updates.paymentMethod = paymentMethodToSave;
+                                  updates.paymentStatus = paymentStatusToSave;
+                                }
+                                
+                                updateOrder(selectedQueueOrder.id, updates);
+
+                                if (selectedQueueOrder.userId || selectedQueueOrder.userId === undefined) {
+                                  // Assume userId exists in real data. If so, fetch token and notify
+                                  const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
+                                  if (uid) {
+                                    getDoc(doc(db, "users", uid)).then(userSnap => {
+                                      if (userSnap.exists() && userSnap.data().fcmToken) {
+                                        fetch("/api/notify", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            token: userSnap.data().fcmToken,
+                                            title: "Order Update",
+                                            body: `Your order is now ${updatedStatus}`,
+                                            orderId: selectedQueueOrder.id,
+                                            userId: uid
+                                          })
+                                        });
+                                      }
+                                    }).catch(e => console.error("Error fetching user for push:", e));
+                                  }
+                                }
+
+                                setToastMsg("Order details updated successfully!");
+                                setSaveAnimation(true);
+                                setTimeout(() => {
+                                  setToastMsg("");
+                                  setSaveAnimation(false);
+                                }, 2000);
+                              }}
+                              style={{ 
+                                background: saveAnimation ? "#25D366" : "#2c1b0d",
+                                transition: "background 0.3s ease"
+                              }}
+                            >
+                              {saveAnimation ? (
+                                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                    <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425z"/>
+                                  </svg>
+                                  Saved!
+                                </span>
+                              ) : "Save"}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="sidebar-detail-group" style={{ marginTop: "15px" }}>
+                          <button
+                            className="sidebar-save-btn"
+                            style={{ background: "#25D366", color: "#fff", width: "100%", padding: "10px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+                            onClick={() => {
+                              const customerPhone = selectedQueueOrder?.address?.phone || selectedQueueOrder?.phone || "";
+                              if (!customerPhone) {
+                                setToastMsg("No phone number found for this order.");
+                                setTimeout(() => setToastMsg(""), 3000);
+                                return;
+                              }
+                              let cleanPhone = customerPhone.replace(/\D/g, "");
+                              if (cleanPhone.length === 10) cleanPhone = "91" + cleanPhone;
+                              
+                              const customerName = selectedQueueOrder?.address?.firstName || selectedQueueOrder?.address?.name || selectedQueueOrder?.customer || "Customer";
+                              const orderIdText = selectedQueueOrder?.orderId || selectedQueueOrder?.id || "";
+                              const currentStatus = selectedQueueOrder?.status || "Received";
+                              
+                              const message = `Hi ${customerName},\n\nYour Chai Chaska order #${orderIdText.slice(-6).toUpperCase()} status is now: *${currentStatus}*.\n\nThank you for choosing Chai Chaska!\nVisit: https://www.chaichaska.co.in/`;
+                              
+                              const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+                              window.open(url, '_blank');
+                            }}
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                              <path d="M13.601 2.326A7.854 7.854 0 0 0 7.994 0C3.627 0 .068 3.558.064 7.926c0 1.399.366 2.76 1.057 3.965L0 16l4.204-1.102a7.933 7.933 0 0 0 3.79.965h.004c4.368 0 7.926-3.558 7.93-7.93A7.898 7.898 0 0 0 13.6 2.326zM7.994 14.521a6.573 6.573 0 0 1-3.356-.92l-.24-.144-2.494.654.666-2.433-.156-.251a6.56 6.56 0 0 1-1.007-3.505c0-3.626 2.957-6.584 6.591-6.584a6.56 6.56 0 0 1 4.66 1.931 6.557 6.557 0 0 1 1.928 4.66c-.004 3.639-2.961 6.592-6.592 6.592zm3.615-4.934c-.197-.099-1.17-.578-1.353-.646-.182-.065-.315-.099-.445.099-.133.197-.513.646-.627.775-.114.133-.232.148-.43.05-.197-.1-.836-.308-1.592-.985-.59-.525-.985-1.175-1.103-1.372-.114-.198-.011-.304.088-.403.087-.088.197-.232.296-.346.1-.114.133-.198.198-.33.065-.134.034-.248-.015-.347-.05-.099-.445-1.076-.612-1.47-.16-.389-.323-.335-.445-.34-.114-.007-.247-.007-.38-.007a.729.729 0 0 0-.529.247c-.182.198-.691.677-.691 1.654 0 .977.71 1.916.81 2.049.098.133 1.394 2.132 3.383 2.992.47.205.84.326 1.129.418.475.152.904.129 1.246.08.38-.058 1.171-.48 1.338-.943.164-.464.164-.86.114-.943-.049-.084-.182-.133-.38-.232z"/>
+                            </svg>
+                            Send Message on WhatsApp
                           </button>
                         </div>
+
                       </div>
-
-                      <div className="sidebar-detail-group" style={{ marginTop: "15px" }}>
-                        <button
-                          className="sidebar-save-btn"
-                          style={{ background: "#25D366", color: "#fff", width: "100%", padding: "10px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
-                          onClick={() => {
-                            const customerPhone = selectedQueueOrder?.address?.phone || selectedQueueOrder?.phone || "";
-                            if (!customerPhone) {
-                              setToastMsg("No phone number found for this order.");
-                              setTimeout(() => setToastMsg(""), 3000);
-                              return;
-                            }
-                            let cleanPhone = customerPhone.replace(/\D/g, "");
-                            if (cleanPhone.length === 10) cleanPhone = "91" + cleanPhone;
-                            
-                            const customerName = selectedQueueOrder?.address?.firstName || selectedQueueOrder?.address?.name || selectedQueueOrder?.customer || "Customer";
-                            const orderIdText = selectedQueueOrder?.orderId || selectedQueueOrder?.id || "";
-                            const currentStatus = selectedQueueOrder?.status || "Received";
-                            
-                            const message = `Hi ${customerName},\n\nYour Chai Chaska order #${orderIdText.slice(-6).toUpperCase()} status is now: *${currentStatus}*.\n\nThank you for choosing Chai Chaska!\nVisit: https://www.chaichaska.co.in/`;
-                            
-                            const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-                            window.open(url, '_blank');
-                          }}
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M13.601 2.326A7.854 7.854 0 0 0 7.994 0C3.627 0 .068 3.558.064 7.926c0 1.399.366 2.76 1.057 3.965L0 16l4.204-1.102a7.933 7.933 0 0 0 3.79.965h.004c4.368 0 7.926-3.558 7.93-7.93A7.898 7.898 0 0 0 13.6 2.326zM7.994 14.521a6.573 6.573 0 0 1-3.356-.92l-.24-.144-2.494.654.666-2.433-.156-.251a6.56 6.56 0 0 1-1.007-3.505c0-3.626 2.957-6.584 6.591-6.584a6.56 6.56 0 0 1 4.66 1.931 6.557 6.557 0 0 1 1.928 4.66c-.004 3.639-2.961 6.592-6.592 6.592zm3.615-4.934c-.197-.099-1.17-.578-1.353-.646-.182-.065-.315-.099-.445.099-.133.197-.513.646-.627.775-.114.133-.232.148-.43.05-.197-.1-.836-.308-1.592-.985-.59-.525-.985-1.175-1.103-1.372-.114-.198-.011-.304.088-.403.087-.088.197-.232.296-.346.1-.114.133-.198.198-.33.065-.134.034-.248-.015-.347-.05-.099-.445-1.076-.612-1.47-.16-.389-.323-.335-.445-.34-.114-.007-.247-.007-.38-.007a.729.729 0 0 0-.529.247c-.182.198-.691.677-.691 1.654 0 .977.71 1.916.81 2.049.098.133 1.394 2.132 3.383 2.992.47.205.84.326 1.129.418.475.152.904.129 1.246.08.38-.058 1.171-.48 1.338-.943.164-.464.164-.86.114-.943-.049-.084-.182-.133-.38-.232z"/>
-                          </svg>
-                          Send Message on WhatsApp
-                        </button>
-                      </div>
-
-
-
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
-
 
               </div>
               );
@@ -2602,16 +2512,23 @@ export default function AdminDashboard() {
                             </div>
 
                             {/* Order Details Grid */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1.5fr", gap: "16px", background: "#f8fafc", padding: "16px 20px", borderRadius: "12px", border: "1px solid #e2e8f0", marginBottom: "24px" }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.5fr", gap: "14px", background: "#f8fafc", padding: "16px 20px", borderRadius: "12px", border: "1px solid #e2e8f0", marginBottom: "24px" }}>
                               <div>
                                 <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Order Channel</span>
                                 <span style={{ fontSize: "12px", fontWeight: "850", padding: "3px 8px", borderRadius: "6px", background: activeInvoice.isOffline ? "#09090b" : "#e2e8f0", color: activeInvoice.isOffline ? "#ffffff" : "#09090b", display: "inline-block" }}>
-                                  {activeInvoice.isOffline ? "🏪 Offline Counter Walk-in" : "🏢 Online Desk Delivery"}
+                                  {activeInvoice.isOffline ? "🏪 Offline Counter" : "🏢 Online Desk"}
                                 </span>
                               </div>
                               <div>
+                                <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Payment Method</span>
+                                <strong style={{ fontSize: "12.5px", color: "#09090b", display: "block" }}>
+                                  {activeInvoice.paymentMethod === "Cash" ? "💵 Cash" : activeInvoice.paymentMethod === "Card" ? "💳 Card" : activeInvoice.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${activeInvoice.paymentMethod || "Online UPI"}`}
+                                </strong>
+                                <span style={{ fontSize: "10.5px", color: "#16a34a", fontWeight: "750" }}>{activeInvoice.paymentStatus || "Paid"}</span>
+                              </div>
+                              <div>
                                 <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Date & Time</span>
-                                <strong style={{ fontSize: "13px", color: "#09090b" }}>
+                                <strong style={{ fontSize: "12.5px", color: "#09090b" }}>
                                   {activeInvoice.createdAt ? new Date(activeInvoice.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : activeInvoice.date}
                                 </strong>
                               </div>
@@ -2904,7 +2821,7 @@ export default function AdminDashboard() {
                         <div key={i} style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                           <div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", borderBottom: "1px solid #f1f5f9", paddingBottom: "10px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                 <span style={{ fontSize: "12px", fontWeight: "900", color: "#ffffff", background: "#09090b", padding: "2px 7px", borderRadius: "5px" }}>
                                   {h.id}
                                 </span>
@@ -2918,6 +2835,17 @@ export default function AdminDashboard() {
                                   border: "1px solid #e4e4e7"
                                 }}>
                                   {h.isOffline ? "🏪 Offline Walk-in" : "🏢 Desk Delivery"}
+                                </span>
+                                <span style={{
+                                  fontSize: "10.5px",
+                                  fontWeight: "750",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  background: "#f8fafc",
+                                  color: "#52525b",
+                                  border: "1px solid #e2e8f0"
+                                }}>
+                                  {h.paymentMethod === "Cash" ? "💵 Cash" : h.paymentMethod === "Card" ? "💳 Card" : h.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${h.paymentMethod || "Online UPI"}`}
                                 </span>
                               </div>
                               <span style={{ fontSize: "11px", color: "#71717a", fontWeight: "600" }}>{h.date}</span>
@@ -2981,6 +2909,7 @@ export default function AdminDashboard() {
                         <thead>
                           <tr style={{ background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0", fontSize: "11px", textTransform: "uppercase", color: "#52525b", letterSpacing: "0.5px" }}>
                             <th style={{ padding: "16px 20px" }}>Order ID & Channel</th>
+                            <th style={{ padding: "16px 20px" }}>Payment</th>
                             <th style={{ padding: "16px 20px" }}>Customer</th>
                             <th style={{ padding: "16px 20px" }}>Items & Customization</th>
                             <th style={{ padding: "16px 20px" }}>Destination / Desk</th>
@@ -3006,6 +2935,26 @@ export default function AdminDashboard() {
                                     width: "fit-content"
                                   }}>
                                     {h.isOffline ? "🏪 Offline Walk-in" : "🏢 Desk Delivery"}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td style={{ padding: "16px 20px" }}>
+                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                  <span style={{
+                                    fontSize: "11px",
+                                    fontWeight: "800",
+                                    padding: "3px 8px",
+                                    borderRadius: "5px",
+                                    background: "#f4f4f5",
+                                    color: "#09090b",
+                                    border: "1px solid #e4e4e7",
+                                    width: "fit-content"
+                                  }}>
+                                    {h.paymentMethod === "Cash" ? "💵 Cash" : h.paymentMethod === "Card" ? "💳 Card" : h.paymentMethod === "Corporate Due" ? "🏢 Corporate Due" : `📱 ${h.paymentMethod || "Online UPI"}`}
+                                  </span>
+                                  <span style={{ fontSize: "10.5px", color: h.paymentStatus === "Paid" ? "#16a34a" : "#ca8a04", fontWeight: "750" }}>
+                                    ● {h.paymentStatus || "Paid"}
                                   </span>
                                 </div>
                               </td>
@@ -3535,10 +3484,11 @@ export default function AdminDashboard() {
                   <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Create immediate counter orders and monitor recent in-store preparation batches</p>
                 </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "24px" }} className="dashboard-double-row-grid">
-                  {/* Left Column: Offline Order Creation Form */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-                    <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                {/* TOP ROW: 2 COLUMNS (LEFT: Customer & Destination, RIGHT: Kitchen Prep Items) */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }} className="dashboard-double-row-grid">
+                  {/* Left Column: Customer & Destination */}
+                  <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div>
                       <h4 style={{ margin: "0 0 16px 0", fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Customer & Destination</h4>
                       <div style={{ marginBottom: "14px" }}>
                         <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Customer Name</label>
@@ -3578,21 +3528,25 @@ export default function AdminDashboard() {
                             <textarea 
                               value={offlineOrderForm.address}
                               onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
-                              style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", minHeight: "75px", boxSizing: "border-box" }}
+                              style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", minHeight: "85px", boxSizing: "border-box" }}
                               placeholder="e.g. 2nd Floor, Cabin 204 or Desk Bay 4"
                             />
                           </div>
                         </>
                       )}
                     </div>
+                  </div>
 
-                    <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column" }}>
+                  {/* Right Column: Kitchen Prep Items & Order Action */}
+                  <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                    <div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                         <div>
                           <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Kitchen Prep Items</h4>
                           <span style={{ fontSize: "12px", color: "#71717a" }}>Selected Chai & Snacks for brewing</span>
                         </div>
                         <button 
+                          type="button"
                           onClick={() => setIsOfflineItemModalOpen(true)}
                           style={{ background: "#000000", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: "800", fontSize: "12.5px" }}
                         >
@@ -3600,9 +3554,9 @@ export default function AdminDashboard() {
                         </button>
                       </div>
 
-                      <div style={{ flexGrow: 1, maxHeight: "280px", overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: "12px", padding: "12px", marginBottom: "16px", background: "#fafafa" }}>
+                      <div style={{ maxHeight: "200px", minHeight: "130px", overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: "12px", padding: "12px", marginBottom: "16px", background: "#fafafa" }}>
                         {offlineOrderForm.items.length === 0 ? (
-                          <div style={{ textAlign: "center", color: "#71717a", fontSize: "13px", padding: "24px 0" }}>
+                          <div style={{ textAlign: "center", color: "#71717a", fontSize: "13px", padding: "36px 0" }}>
                             No items added yet. Click "+ Add Products" to select.
                           </div>
                         ) : (
@@ -3618,6 +3572,7 @@ export default function AdminDashboard() {
                               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                 <span style={{ fontSize: "12px", background: "#f4f4f5", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", color: "#09090b" }}>{item.qty}x</span>
                                 <button 
+                                  type="button"
                                   onClick={() => setOfflineOrderForm({ ...offlineOrderForm, items: offlineOrderForm.items.filter((_, i) => i !== idx) })}
                                   style={{ background: "#f4f4f5", color: "#09090b", border: "1px solid #e4e4e7", padding: "4px 8px", borderRadius: "6px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}
                                 >✕</button>
@@ -3626,7 +3581,9 @@ export default function AdminDashboard() {
                           ))
                         )}
                       </div>
+                    </div>
 
+                    <div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "12px 16px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #f1f5f9" }}>
                         <span style={{ fontSize: "13.5px", fontWeight: "800", color: "#09090b" }}>Total Items to Prepare:</span>
                         <span style={{ background: "#000000", color: "#ffffff", padding: "5px 14px", borderRadius: "8px", fontWeight: "900", fontSize: "14px" }}>
@@ -3635,6 +3592,7 @@ export default function AdminDashboard() {
                       </div>
 
                       <button 
+                        type="button"
                         onClick={async () => {
                           if (!offlineOrderForm.customerName || offlineOrderForm.items.length === 0) {
                             setToastMsg("❌ Please enter customer name and at least one item!");
@@ -3647,8 +3605,8 @@ export default function AdminDashboard() {
                             address: offlineOrderForm.address || (offlineOrderForm.walkIn ? "Counter Walk-in" : "Direct Pickup"),
                             walkIn: offlineOrderForm.walkIn,
                             isOffline: true,
-                            paymentStatus: "Completed",
-                            paymentMethod: "Counter Order",
+                            paymentStatus: "Pending",
+                            paymentMethod: "Pending Selection",
                             status: "Received",
                             total: "Counter Order",
                             priceNum: 0,
@@ -3659,8 +3617,8 @@ export default function AdminDashboard() {
                           };
                           try {
                             await createOrder(orderData);
-                            setToastMsg("✅ Offline Counter Order Created!");
-                            setOfflineOrderForm({ customerName: "", address: "", phone: "", walkIn: false, items: [], paymentStatus: "Pending" });
+                            setToastMsg("✅ Offline Counter Order Created & Added to Queue!");
+                            setOfflineOrderForm({ customerName: "", address: "", phone: "", walkIn: false, items: [] });
                             setTimeout(() => setToastMsg(""), 3000);
                           } catch (e) {
                             setToastMsg("❌ Error creating order: " + e.message);
@@ -3673,60 +3631,71 @@ export default function AdminDashboard() {
                       </button>
                     </div>
                   </div>
+                </div>
 
-                  {/* Right Column: Recent Offline Orders List with Images (Zero Money) */}
-                  <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", maxHeight: "800px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #f1f5f9", paddingBottom: "12px" }}>
-                      <div>
-                        <h4 style={{ margin: 0, fontSize: "16px", fontWeight: "900", color: "#09090b" }}>Recent Offline Orders</h4>
-                        <span style={{ fontSize: "12px", color: "#71717a" }}>Counter walk-ins and direct kitchen requests</span>
-                      </div>
-                      <span style={{ fontSize: "11px", fontWeight: "800", background: "#f4f4f5", padding: "3px 8px", borderRadius: "6px", border: "1px solid #e4e4e7" }}>
-                        {orders.filter(o => o.isOffline === true).length} Orders
-                      </span>
+                {/* BOTTOM SECTION: RECENT OFFLINE ORDERS */}
+                <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #f1f5f9", paddingBottom: "12px" }}>
+                    <div>
+                      <h4 style={{ margin: 0, fontSize: "16px", fontWeight: "900", color: "#09090b" }}>Recent Offline Orders</h4>
+                      <span style={{ fontSize: "12px", color: "#71717a" }}>Counter walk-ins and direct kitchen requests</span>
                     </div>
+                    <span style={{ fontSize: "11px", fontWeight: "800", background: "#f4f4f5", padding: "4px 10px", borderRadius: "6px", border: "1px solid #e4e4e7" }}>
+                      {orders.filter(o => o.isOffline === true).length} Orders
+                    </span>
+                  </div>
 
-                    <div style={{ flexGrow: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "10px", paddingRight: "4px" }}>
-                      {orders.filter(o => o.isOffline === true).slice(0, 30).map((o, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "12px" }}>
-                          <img 
-                            src={o.img || o.image || "/logo.png"} 
-                            alt={o.item || "Chai"} 
-                            style={{ width: "46px", height: "46px", borderRadius: "8px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }} 
-                          />
-                          <div style={{ flexGrow: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              <span style={{ fontSize: "11px", fontWeight: "900", background: "#000000", color: "#ffffff", padding: "2px 6px", borderRadius: "4px" }}>
-                                #{typeof o.id === "string" ? o.id.slice(-5).toUpperCase() : o.id}
-                              </span>
-                              <strong style={{ fontSize: "13.5px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {o.customer || "Walk-in Guest"}
-                              </strong>
-                            </div>
-                            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#52525b", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.item}</p>
-                            <span style={{ fontSize: "11px", color: "#71717a" }}>📍 {o.address || (o.walkIn ? "Counter Pickup" : "In-store")}</span>
-                          </div>
-                          <div style={{ flexShrink: 0, textAlign: "right" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "12px", maxHeight: "450px", overflowY: "auto", paddingRight: "4px" }}>
+                    {orders.filter(o => o.isOffline === true).slice(0, 30).map((o, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", background: "#fafafa", border: "1px solid #e2e8f0", borderRadius: "12px" }}>
+                        <img 
+                          src={o.img || o.image || "/logo.png"} 
+                          alt={o.item || "Chai"} 
+                          style={{ width: "46px", height: "46px", borderRadius: "8px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }} 
+                        />
+                        <div style={{ flexGrow: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: "11px", fontWeight: "900", background: "#000000", color: "#ffffff", padding: "2px 6px", borderRadius: "4px" }}>
+                              #{typeof o.id === "string" ? o.id.slice(-5).toUpperCase() : o.id}
+                            </span>
+                            <strong style={{ fontSize: "13.5px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {o.customer || "Walk-in Guest"}
+                            </strong>
                             <span style={{
                               fontSize: "10.5px",
-                              fontWeight: "800",
-                              padding: "3px 8px",
-                              borderRadius: "6px",
-                              background: o.status === "Delivered" || o.status === "Completed" ? "#f4f4f5" : "#000000",
-                              color: o.status === "Delivered" || o.status === "Completed" ? "#09090b" : "#ffffff",
+                              fontWeight: "750",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              background: "#f4f4f5",
+                              color: "#09090b",
                               border: "1px solid #e4e4e7"
                             }}>
-                              {o.status || "Received"}
+                              {o.paymentMethod === "Cash" ? "💵 Cash" : o.paymentMethod === "Card" ? "💳 Card" : o.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${o.paymentMethod || "Online UPI"}`}
                             </span>
                           </div>
+                          <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#52525b", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.item}</p>
+                          <span style={{ fontSize: "11px", color: "#71717a" }}>📍 {o.address || (o.walkIn ? "Counter Pickup" : "In-store")}</span>
                         </div>
-                      ))}
-                      {orders.filter(o => o.isOffline === true).length === 0 && (
-                        <div style={{ textAlign: "center", padding: "40px 10px", color: "#71717a", fontSize: "13px" }}>
-                          No offline counter orders recorded yet.
+                        <div style={{ flexShrink: 0, textAlign: "right" }}>
+                          <span style={{
+                            fontSize: "10.5px",
+                            fontWeight: "800",
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            background: o.status === "Delivered" || o.status === "Completed" ? "#e8f5e9" : "#000000",
+                            color: o.status === "Delivered" || o.status === "Completed" ? "#2e7d32" : "#ffffff",
+                            border: "1px solid #e4e4e7"
+                          }}>
+                            {o.status || "Received"}
+                          </span>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    ))}
+                    {orders.filter(o => o.isOffline === true).length === 0 && (
+                      <div style={{ textAlign: "center", padding: "40px 10px", color: "#71717a", fontSize: "13px", gridColumn: "1 / -1" }}>
+                        No offline counter orders recorded yet.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -3734,12 +3703,68 @@ export default function AdminDashboard() {
 
           </div>
 
-          {/* ITEM SELECTION MODAL (ZERO MONEY) */}
+          {/* ITEM SELECTION MODAL (ZERO MONEY - FIXED CENTERED) */}
           {isOfflineItemModalOpen && (
-            <div className="alert-modal-backdrop" style={{ zIndex: 99999 }}>
-              <div className="alert-modal-card" style={{ width: "90%", maxWidth: "600px", padding: "24px", borderRadius: "18px", border: "1px solid #e4e4e7", background: "#ffffff" }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: "18px", fontWeight: "900", color: "#09090b" }}>Select Chai & Products to Prepare</h3>
-                <div style={{ maxHeight: "400px", overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", paddingRight: "10px" }}>
+            <div 
+              onClick={() => setIsOfflineItemModalOpen(false)}
+              style={{ 
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                width: "100vw",
+                height: "100vh",
+                background: "rgba(0, 0, 0, 0.65)",
+                backdropFilter: "blur(6px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 100000,
+                padding: "20px"
+              }}
+            >
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                style={{ 
+                  width: "100%", 
+                  maxWidth: "680px", 
+                  maxHeight: "88vh", 
+                  padding: "24px 28px", 
+                  borderRadius: "20px", 
+                  border: "1px solid #e4e4e7", 
+                  background: "#ffffff",
+                  boxShadow: "0 25px 60px -15px rgba(0,0,0,0.3)",
+                  display: "flex",
+                  flexDirection: "column",
+                  position: "relative"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                  <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "900", color: "#09090b" }}>Select Chai & Products to Prepare</h3>
+                  <button
+                    type="button"
+                    onClick={() => setIsOfflineItemModalOpen(false)}
+                    style={{
+                      background: "#f4f4f5",
+                      border: "none",
+                      width: "32px",
+                      height: "32px",
+                      borderRadius: "50%",
+                      cursor: "pointer",
+                      fontSize: "14px",
+                      fontWeight: "bold",
+                      color: "#52525b",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center"
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div style={{ maxHeight: "420px", overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", paddingRight: "10px" }}>
                   {productsList.length === 0 ? <p style={{ color: "#71717a" }}>Loading menu items...</p> : productsList.map(prod => (
                     <div key={prod.id} style={{ display: "flex", gap: "12px", border: "1px solid #e2e8f0", padding: "10px", borderRadius: "10px", alignItems: "center", background: "#ffffff" }}>
                       <img src={prod.image || "/logo.png"} alt={prod.name} style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "8px", border: "1px solid #e4e4e7" }} />
@@ -3753,6 +3778,7 @@ export default function AdminDashboard() {
                           return (
                             <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f4f4f5", borderRadius: "6px", padding: "3px", border: "1px solid #e4e4e7" }}>
                               <button 
+                                type="button"
                                 onClick={() => {
                                   if (existing.qty > 1) {
                                     setOfflineOrderForm({
@@ -3772,6 +3798,7 @@ export default function AdminDashboard() {
                               </button>
                               <span style={{ fontSize: "12px", fontWeight: "bold", width: "16px", textAlign: "center", color: "#09090b" }}>{existing.qty}</span>
                               <button 
+                                type="button"
                                 onClick={() => {
                                   setOfflineOrderForm({
                                     ...offlineOrderForm, 
@@ -3787,6 +3814,7 @@ export default function AdminDashboard() {
                         } else {
                           return (
                             <button 
+                              type="button"
                               onClick={() => {
                                 setOfflineOrderForm({
                                   ...offlineOrderForm, 
@@ -3812,8 +3840,12 @@ export default function AdminDashboard() {
                     )}
                   </div>
                   <button 
-                    onClick={() => setIsOfflineItemModalOpen(false)}
-                    style={{ background: "#000000", color: "#fff", border: "none", padding: "10px 22px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", whiteSpace: "nowrap" }}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsOfflineItemModalOpen(false);
+                    }}
+                    style={{ background: "#000000", color: "#fff", border: "none", padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", whiteSpace: "nowrap", fontSize: "13px" }}
                   >
                     Done ✓
                   </button>
