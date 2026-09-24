@@ -5,6 +5,16 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    const config = await getWhatsAppConfig();
+    const apiUrl = config?.apiUrl || '';
+
+    // If the user configured an external LIVE API (like bitechez.com),
+    // bypass the local QR code check and just tell the frontend it's connected.
+    if (apiUrl && !apiUrl.includes('127.0.0.1') && !apiUrl.includes('localhost')) {
+      return NextResponse.json({ isReady: true, qr: null, isError: false });
+    }
+
+    // Otherwise, check the local node server for QR/status
     const res = await fetch('http://127.0.0.1:3001/status', { cache: 'no-store' });
     if (!res.ok) {
       return NextResponse.json({ isReady: false, qr: null, isError: true }, { status: 500 });
