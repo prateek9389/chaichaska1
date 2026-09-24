@@ -35,8 +35,13 @@ export async function POST(req) {
     }
 
     const config = await getWhatsAppConfig();
-    if (!config || !config.isEnabled || !config.apiUrl) {
-      return NextResponse.json({ error: 'WhatsApp integration is disabled or not configured' }, { status: 400 });
+    
+    // Default to enabled and local Node.js server if not explicitly configured otherwise
+    const isEnabled = config?.isEnabled !== false; 
+    const apiUrl = config?.apiUrl || 'http://127.0.0.1:3001/send-message';
+
+    if (!isEnabled) {
+      return NextResponse.json({ error: 'WhatsApp integration is disabled' }, { status: 400 });
     }
 
     const headers = {
