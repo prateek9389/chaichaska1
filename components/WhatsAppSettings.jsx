@@ -63,7 +63,13 @@ export default function WhatsAppSettings() {
 
   const handleLogout = async () => {
     setLoading(true);
-    setMsg("Logging out...");
+    setMsg("Logging out & clearing external API...");
+    
+    // If they had an external API, clear it so the local QR code shows up
+    setApiUrl("");
+    setApiKey("");
+    await updateWhatsAppConfig({ isEnabled, apiUrl: "", apiKey: "" });
+
     try {
       await fetch('/api/whatsapp/logout', { method: 'POST' });
       setServerStatus({ isReady: false, qr: null, isError: false });
@@ -105,15 +111,13 @@ export default function WhatsAppSettings() {
                 Your device is successfully linked. The system is ready to send messages.
               </div>
             </div>
-            {(!apiUrl || apiUrl.includes('127.0.0.1') || apiUrl.includes('localhost')) && (
-              <button 
-                onClick={handleLogout}
-                disabled={loading}
-                style={{ background: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
-              >
-                Logout
-              </button>
-            )}
+            <button 
+              onClick={handleLogout}
+              disabled={loading}
+              style={{ background: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+            >
+              Logout / Disconnect
+            </button>
           </div>
         ) : serverStatus.qr ? (
           <div style={{ textAlign: "center", padding: "20px", background: "#f8f9fa", borderRadius: "8px", border: "1px dashed #ccc" }}>
