@@ -1,6 +1,21 @@
 import { NextResponse } from 'next/server';
 import { getWhatsAppConfig } from '@/lib/firestore';
 
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  try {
+    const res = await fetch('http://127.0.0.1:3001/status', { cache: 'no-store' });
+    if (!res.ok) {
+      return NextResponse.json({ isReady: false, qr: null, isError: true }, { status: 500 });
+    }
+    const data = await res.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    return NextResponse.json({ isReady: false, qr: null, isError: true }, { status: 500 });
+  }
+}
+
 export async function POST(req) {
   try {
     const { number, text } = await req.json();

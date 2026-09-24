@@ -30,7 +30,7 @@ export default function WhatsAppSettings() {
     let interval;
     const checkServerStatus = async () => {
       try {
-        const res = await fetch('http://localhost:3001/status');
+        const res = await fetch('/api/whatsapp', { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           setServerStatus({ isReady: data.isReady, qr: data.qr, isError: false });

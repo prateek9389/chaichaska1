@@ -1708,18 +1708,7 @@ export default function AdminDashboard() {
                               setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
                               updateOrder(selectedQueueOrder.id, updates);
                                 
-                                // Send WhatsApp update
-                                const phoneNum = selectedQueueOrder.phone || (selectedQueueOrder.address && selectedQueueOrder.address.phone);
-                                if (phoneNum) {
-                                  let fPhone = String(phoneNum).trim();
-                                  if (fPhone.length === 10) fPhone = '91' + fPhone;
-                                  const msg = `Hello! Your order (${selectedQueueOrder.id.slice(-6).toUpperCase()}) status has been updated to: ${newStatus}.`;
-                                  fetch('/api/whatsapp', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ number: fPhone, text: msg })
-                                  }).catch(err => console.error('WhatsApp failed', err));
-                                }
+                                
                             }}
                           >
                             <option value="Received">Received</option>
