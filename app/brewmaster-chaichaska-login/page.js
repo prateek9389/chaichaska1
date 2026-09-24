@@ -1707,6 +1707,19 @@ export default function AdminDashboard() {
                               }
                               setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
                               updateOrder(selectedQueueOrder.id, updates);
+                                
+                                // Send WhatsApp update
+                                const phoneNum = selectedQueueOrder.phone || (selectedQueueOrder.address && selectedQueueOrder.address.phone);
+                                if (phoneNum) {
+                                  let fPhone = String(phoneNum).trim();
+                                  if (fPhone.length === 10) fPhone = '91' + fPhone;
+                                  const msg = `Hello! Your order (${selectedQueueOrder.id.slice(-6).toUpperCase()}) status has been updated to: ${newStatus}.`;
+                                  fetch('/api/whatsapp', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ number: fPhone, text: msg })
+                                  }).catch(err => console.error('WhatsApp failed', err));
+                                }
                             }}
                           >
                             <option value="Received">Received</option>
@@ -1880,36 +1893,7 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        <div className="sidebar-detail-group" style={{ marginTop: "15px" }}>
-                          <button
-                            className="sidebar-save-btn"
-                            style={{ background: "#25D366", color: "#fff", width: "100%", padding: "10px", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
-                            onClick={() => {
-                              const customerPhone = selectedQueueOrder?.address?.phone || selectedQueueOrder?.phone || "";
-                              if (!customerPhone) {
-                                setToastMsg("No phone number found for this order.");
-                                setTimeout(() => setToastMsg(""), 3000);
-                                return;
-                              }
-                              let cleanPhone = customerPhone.replace(/\D/g, "");
-                              if (cleanPhone.length === 10) cleanPhone = "91" + cleanPhone;
-                              
-                              const customerName = selectedQueueOrder?.address?.firstName || selectedQueueOrder?.address?.name || selectedQueueOrder?.customer || "Customer";
-                              const orderIdText = selectedQueueOrder?.orderId || selectedQueueOrder?.id || "";
-                              const currentStatus = selectedQueueOrder?.status || "Received";
-                              
-                              const message = `Hi ${customerName},\n\nYour Chai Chaska order #${orderIdText.slice(-6).toUpperCase()} status is now: *${currentStatus}*.\n\nThank you for choosing Chai Chaska!\nVisit: https://www.chaichaska.co.in/`;
-                              
-                              const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-                              window.open(url, '_blank');
-                            }}
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                              <path d="M13.601 2.326A7.854 7.854 0 0 0 7.994 0C3.627 0 .068 3.558.064 7.926c0 1.399.366 2.76 1.057 3.965L0 16l4.204-1.102a7.933 7.933 0 0 0 3.79.965h.004c4.368 0 7.926-3.558 7.93-7.93A7.898 7.898 0 0 0 13.6 2.326zM7.994 14.521a6.573 6.573 0 0 1-3.356-.92l-.24-.144-2.494.654.666-2.433-.156-.251a6.56 6.56 0 0 1-1.007-3.505c0-3.626 2.957-6.584 6.591-6.584a6.56 6.56 0 0 1 4.66 1.931 6.557 6.557 0 0 1 1.928 4.66c-.004 3.639-2.961 6.592-6.592 6.592zm3.615-4.934c-.197-.099-1.17-.578-1.353-.646-.182-.065-.315-.099-.445.099-.133.197-.513.646-.627.775-.114.133-.232.148-.43.05-.197-.1-.836-.308-1.592-.985-.59-.525-.985-1.175-1.103-1.372-.114-.198-.011-.304.088-.403.087-.088.197-.232.296-.346.1-.114.133-.198.198-.33.065-.134.034-.248-.015-.347-.05-.099-.445-1.076-.612-1.47-.16-.389-.323-.335-.445-.34-.114-.007-.247-.007-.38-.007a.729.729 0 0 0-.529.247c-.182.198-.691.677-.691 1.654 0 .977.71 1.916.81 2.049.098.133 1.394 2.132 3.383 2.992.47.205.84.326 1.129.418.475.152.904.129 1.246.08.38-.058 1.171-.48 1.338-.943.164-.464.164-.86.114-.943-.049-.084-.182-.133-.38-.232z"/>
-                            </svg>
-                            Send Message on WhatsApp
-                          </button>
-                        </div>
+                        
 
                       </div>
                     );
@@ -3523,8 +3507,38 @@ export default function AdminDashboard() {
                               placeholder="+91 98000 00000"
                             />
                           </div>
-                          <div style={{ marginBottom: "14px" }}>
+                                                    <div style={{ marginBottom: "14px" }}>
                             <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Desk / Office Location</label>
+                            
+                            {(() => {
+                              const recentAddresses = Array.from(new Set(
+                                orders
+                                  .filter(o => typeof o.address === 'string' || (o.address && typeof o.address.addressLine1 === 'string'))
+                                  .map(o => typeof o.address === 'string' ? o.address : o.address.addressLine1)
+                                  .filter(a => a && a.trim() !== "" && a !== "Walk-in Counter")
+                              )).slice(0, 5);
+                              
+                              if (recentAddresses.length > 0) {
+                                return (
+                                  <div style={{ marginBottom: "8px", display: "flex", flexWrap: "wrap" }}>
+                                    {recentAddresses.map((addr, idx) => (
+                                      <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => setOfflineOrderForm({ ...offlineOrderForm, address: addr })}
+                                        style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 8px", fontSize: "11px", marginRight: "6px", marginBottom: "6px", cursor: "pointer", color: "#475569", transition: "all 0.2s ease" }}
+                                        onMouseEnter={(e) => { e.target.style.background = "#e2e8f0"; }}
+                                        onMouseLeave={(e) => { e.target.style.background = "#f1f5f9"; }}
+                                      >
+                                        + {addr}
+                                      </button>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                              return null;
+                            })()}
+
                             <textarea 
                               value={offlineOrderForm.address}
                               onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}

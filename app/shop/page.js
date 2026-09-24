@@ -113,29 +113,21 @@ export default function ShopPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Products from Firestore / Cache
-  const [products, setProducts] = useState(() => {
-    if (typeof window !== "undefined") {
-      const cached = sessionStorage.getItem("chai_products_cache");
-      if (cached) {
-        try {
-          return JSON.parse(cached);
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
-    return [];
-  });
+  const [products, setProducts] = useState([]);
 
-  const [loading, setLoading] = useState(() => {
-    if (typeof window !== "undefined") {
-      return !sessionStorage.getItem("chai_products_cache");
-    }
-    return true;
-  });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const cached = sessionStorage.getItem("chai_products_cache");
+    if (cached) {
+      try {
+        setProducts(JSON.parse(cached));
+        setLoading(false);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
     const unsubscribe = onProductsSnapshot((items) => {
       setProducts(items);
       setLoading(false);

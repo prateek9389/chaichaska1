@@ -180,7 +180,19 @@ function CheckoutPortal() {
 
     try {
       // Cash on Delivery Instant Order
-      const orderId = await createOrder(orderData);
+            const orderId = await createOrder(orderData);
+
+      // WhatsApp Integration: Send Order Confirmation
+      if (phone) {
+        let fPhone = phone.trim();
+        if (fPhone.length === 10) fPhone = '91' + fPhone;
+        const msg = `Hello ${personName || 'Customer'}! Your order (${orderId.slice(-6).toUpperCase()}) at Chai Chaska has been successfully placed. We are processing it now!`;
+        fetch('/api/whatsapp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: fPhone, text: msg })
+        }).catch(err => console.error('WhatsApp notification failed:', err));
+      }
 
       // Save to guest orders
       try {
