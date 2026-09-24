@@ -61,6 +61,20 @@ export default function WhatsAppSettings() {
     setTimeout(() => setMsg(""), 3000);
   };
 
+  const handleLogout = async () => {
+    setLoading(true);
+    setMsg("Logging out...");
+    try {
+      await fetch('/api/whatsapp/logout', { method: 'POST' });
+      setServerStatus({ isReady: false, qr: null, isError: false });
+      setMsg("Logged out successfully. Generating new QR code...");
+    } catch (err) {
+      setMsg("Failed to logout.");
+    }
+    setLoading(false);
+    setTimeout(() => setMsg(""), 3000);
+  };
+
   if (loading && !apiUrl) return <div>Loading settings...</div>;
 
   return (
@@ -83,12 +97,23 @@ export default function WhatsAppSettings() {
             <strong>Local Server Not Running.</strong> Please start the WhatsApp server in your terminal by running <code>node whatsapp-server.js</code>.
           </div>
         ) : serverStatus.isReady ? (
-          <div style={{ padding: "16px", background: "#d4edda", color: "#155724", borderRadius: "8px", display: "flex", alignItems: "center", gap: "12px" }}>
-            <span style={{ fontSize: "24px" }}>✅</span>
-            <div>
-              <strong>WhatsApp is Connected!</strong><br />
-              Your device is successfully linked. The system is ready to send messages.
+          <div style={{ padding: "16px", background: "#d4edda", color: "#155724", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <span style={{ fontSize: "24px" }}>✅</span>
+              <div>
+                <strong>WhatsApp is Connected!</strong><br />
+                Your device is successfully linked. The system is ready to send messages.
+              </div>
             </div>
+            {(!apiUrl || apiUrl.includes('127.0.0.1') || apiUrl.includes('localhost')) && (
+              <button 
+                onClick={handleLogout}
+                disabled={loading}
+                style={{ background: "#dc3545", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
+              >
+                Logout
+              </button>
+            )}
           </div>
         ) : serverStatus.qr ? (
           <div style={{ textAlign: "center", padding: "20px", background: "#f8f9fa", borderRadius: "8px", border: "1px dashed #ccc" }}>
