@@ -79,13 +79,13 @@ client.initialize();
 app.get('/status', (req, res) => {
     res.json({
         isReady,
-        qr: qrCodeData
+        qr: qrCodeString
     });
 });
 
 app.post('/logout', async (req, res) => {
     isReady = false;
-    qrCodeData = null;
+    qrCodeString = null;
     console.log("Logging out local WhatsApp client...");
     try {
         await client.logout();
