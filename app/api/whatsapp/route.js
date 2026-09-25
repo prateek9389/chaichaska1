@@ -5,16 +5,6 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
-    const config = await getWhatsAppConfig();
-    const apiUrl = config?.apiUrl || process.env.WHATSAPP_LIVE_API_URL || '';
-
-    // If the user configured an external LIVE API (like bitechez.com),
-    // bypass the local QR code check and just tell the frontend it's connected.
-    if (apiUrl && !apiUrl.includes('127.0.0.1') && !apiUrl.includes('localhost')) {
-      return NextResponse.json({ isReady: true, qr: null, isError: false });
-    }
-
-    // Otherwise, check the local node server for QR/status
     const res = await fetch('http://127.0.0.1:3001/status', { cache: 'no-store' });
     if (!res.ok) {
       return NextResponse.json({ isReady: false, qr: null, isError: true }, { status: 500 });
@@ -38,24 +28,17 @@ export async function POST(req) {
     
     // Default to enabled and local Node.js server if not explicitly configured otherwise
     const isEnabled = config?.isEnabled !== false; 
-    const apiUrl = config?.apiUrl || process.env.WHATSAPP_LIVE_API_URL || 'http://127.0.0.1:3001/send-message';
-    const apiKey = config?.apiKey || process.env.WHATSAPP_LIVE_API_KEY || '';
 
     if (!isEnabled) {
       return NextResponse.json({ error: 'WhatsApp integration is disabled' }, { status: 400 });
     }
 
-    const headers = {
-      'Content-Type': 'application/json'
-    };
-    if (apiKey) {
-      headers['apikey'] = apiKey;
-    }
-
-    // Call the external API or local server
-    const response = await fetch(config.apiUrl, {
+    // Call local server
+    const response = await fetch('http://127.0.0.1:3001/send-message', {
       method: 'POST',
-      headers: headers,
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({ number, text })
     });
 

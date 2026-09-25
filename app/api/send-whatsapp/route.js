@@ -15,28 +15,14 @@ Check your orders here: https://www.chaichaska.co.in/orders
 Thank you for ordering from Chai Chaska!`;
 
   try {
-    const config = await getWhatsAppConfig();
-    const isEnabled = config?.isEnabled !== false; 
-    const apiUrl = config?.apiUrl || process.env.WHATSAPP_LIVE_API_URL || 'http://127.0.0.1:3001/send-message';
-    const apiKey = config?.apiKey || process.env.WHATSAPP_LIVE_API_KEY || '';
-
-    if (!isEnabled) {
-      return Response.json({ error: 'WhatsApp integration is disabled' }, { status: 400 });
-    }
-
-    const headers = {
-      "Content-Type": "application/json"
-    };
-    if (apiKey) {
-      headers["apikey"] = apiKey;
-    }
-
-    const res = await fetch(apiUrl, {
+    const res = await fetch("http://127.0.0.1:3001/send-message", {
       method: "POST",
-      headers: headers,
+      headers: {
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
-        number: to, // Changed to "number" for Bitechez compatibility
-        text: message // Changed to "text" for Bitechez compatibility
+        number: to, 
+        text: message 
       }),
     });
 
