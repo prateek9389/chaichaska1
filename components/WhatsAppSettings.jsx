@@ -133,6 +133,7 @@ export default function WhatsAppSettings() {
           <div style={{ padding: "16px", background: "#fff3cd", color: "#856404", borderRadius: "8px" }}>
             Generating QR Code... Please wait.
           </div>
+        )}
       </div>
     </div>
   );
