@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const config = await getWhatsAppConfig();
-    const apiUrl = config?.apiUrl || '';
+    const apiUrl = config?.apiUrl || process.env.WHATSAPP_LIVE_API_URL || '';
 
     // If the user configured an external LIVE API (like bitechez.com),
     // bypass the local QR code check and just tell the frontend it's connected.
@@ -38,7 +38,8 @@ export async function POST(req) {
     
     // Default to enabled and local Node.js server if not explicitly configured otherwise
     const isEnabled = config?.isEnabled !== false; 
-    const apiUrl = config?.apiUrl || 'http://127.0.0.1:3001/send-message';
+    const apiUrl = config?.apiUrl || process.env.WHATSAPP_LIVE_API_URL || 'http://127.0.0.1:3001/send-message';
+    const apiKey = config?.apiKey || process.env.WHATSAPP_LIVE_API_KEY || '';
 
     if (!isEnabled) {
       return NextResponse.json({ error: 'WhatsApp integration is disabled' }, { status: 400 });
@@ -47,8 +48,8 @@ export async function POST(req) {
     const headers = {
       'Content-Type': 'application/json'
     };
-    if (config.apiKey) {
-      headers['apikey'] = config.apiKey;
+    if (apiKey) {
+      headers['apikey'] = apiKey;
     }
 
     // Call the external API or local server
