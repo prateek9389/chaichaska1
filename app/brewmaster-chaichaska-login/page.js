@@ -258,6 +258,14 @@ export default function AdminDashboard() {
   const filteredOrders = orders.filter(o => {
     if (timeFilter === "All" || !timeFilter) return true;
     if (!o.createdAt) return true;
+    
+    // Handle specific date string (YYYY-MM-DD) from the calendar
+    if (timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const orderDate = new Date(o.createdAt);
+      const orderDateString = orderDate.toLocaleDateString('en-CA'); 
+      return orderDateString === timeFilter;
+    }
+    
     const now = Date.now();
     const diff = now - o.createdAt;
     if (timeFilter === "Daily") return diff <= 24 * 60 * 60 * 1000;
@@ -265,6 +273,39 @@ export default function AdminDashboard() {
     if (timeFilter === "Monthly") return diff <= 30 * 24 * 60 * 60 * 1000;
     return true;
   });
+
+  const selectedDateTotalSales = filteredOrders.reduce((acc, o) => {
+    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+    return acc + (isNaN(val) ? 0 : val);
+  }, 0);
+
+  const handleDownloadCSV = () => {
+    if (!filteredOrders || !filteredOrders.length) return;
+    
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
+    
+    filteredOrders.forEach(o => {
+      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
+      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
+      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
+      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
+      
+      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
+    });
+    
+    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
+    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const totalOrdersCount = filteredOrders.length;
   const completedOrdersCount = filteredOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
@@ -1279,6 +1320,21 @@ export default function AdminDashboard() {
                           {tf.label}
                         </button>
                       ))}
+                      <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
+                      <input 
+                        type="date"
+                        value={(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? timeFilter : ""}
+                        onChange={(e) => setTimeFilter(e.target.value || "All")}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "6px",
+                          border: "1px solid #ddd",
+                          fontSize: "12px",
+                          color: "#333",
+                          cursor: "pointer",
+                          outline: "none"
+                        }}
+                      />
                     </div>
                   </div>
 
@@ -2720,6 +2776,21 @@ export default function AdminDashboard() {
                           {item.label}
                         </button>
                       ))}
+                      <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
+                      <input 
+                        type="date"
+                        value={(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? timeFilter : ""}
+                        onChange={(e) => setTimeFilter(e.target.value || "All")}
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "6px",
+                          border: "1px solid #ddd",
+                          fontSize: "12px",
+                          color: "#333",
+                          cursor: "pointer",
+                          outline: "none"
+                        }}
+                      />
                     </div>
 
                     {/* Format Layout Toggle */}
@@ -4153,6 +4224,34 @@ export default function AdminDashboard() {
           const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
           return acc + (isNaN(val) ? 0 : val);
         }, 0);
+
+  const handleDownloadCSV = () => {
+    if (!filteredOrders || !filteredOrders.length) return;
+    
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
+    
+    filteredOrders.forEach(o => {
+      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
+      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
+      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
+      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
+      
+      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
+    });
+    
+    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
+    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
         const groupedByCustomer = allPendingOrders.reduce((acc, o) => {
           const custName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : "Walk-in Customer");
