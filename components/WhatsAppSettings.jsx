@@ -135,6 +135,56 @@ export default function WhatsAppSettings() {
           </div>
         )}
       </div>
+
+      <div style={{ background: "#fff", padding: "30px", borderRadius: "16px", border: "1px solid #e4e4e7" }}>
+        <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#2c1b0d", margin: "0 0 16px", borderBottom: "1px solid #eee", paddingBottom: "12px" }}>
+          External API Configuration (Live Vercel Setup)
+        </h2>
+
+        <div style={{ marginBottom: "20px", display: "flex", alignItems: "center", gap: "10px" }}>
+          <input 
+            type="checkbox" 
+            id="wa-enable" 
+            checked={isEnabled}
+            onChange={(e) => setIsEnabled(e.target.checked)}
+            style={{ width: "18px", height: "18px" }}
+          />
+          <label htmlFor="wa-enable" style={{ fontSize: "15px", fontWeight: "bold", color: "#2c1b0d", cursor: "pointer" }}>
+            Enable WhatsApp Integration (Order confirmations & Status updates)
+          </label>
+        </div>
+
+        <div style={{ marginBottom: "20px" }}>
+          <label style={{ display: "block", fontSize: "14px", fontWeight: "bold", marginBottom: "8px", color: "#2c1b0d" }}>API URL (e.g. Bitechez URL)</label>
+          <input 
+            type="text" 
+            value={apiUrl}
+            onChange={(e) => setApiUrl(e.target.value)}
+            placeholder="https://www.bitechez.com/message/sendText/..." 
+            style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ddd", fontSize: "14px" }} 
+          />
+          <p style={{ fontSize: "12px", color: "#666", marginTop: "8px" }}>Leave this blank if you are running the local Node.js server.</p>
+        </div>
+
+        <div style={{ marginBottom: "24px" }}>
+          <label style={{ display: "block", fontSize: "14px", fontWeight: "bold", marginBottom: "8px", color: "#2c1b0d" }}>API Key (For External APIs)</label>
+          <input 
+            type="text" 
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Enter your API Key here" 
+            style={{ width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ddd", fontSize: "14px" }} 
+          />
+        </div>
+
+        <button 
+          onClick={handleSave}
+          disabled={loading}
+          style={{ background: "#25D366", color: "#fff", padding: "12px 24px", borderRadius: "8px", fontWeight: "bold", border: "none", cursor: "pointer", fontSize: "15px", opacity: loading ? 0.7 : 1 }}
+        >
+          {loading ? "Saving..." : "Save Settings"}
+        </button>
+      </div>
     </div>
   );
 }
