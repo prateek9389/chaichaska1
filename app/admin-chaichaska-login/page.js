@@ -40,7 +40,6 @@ export default function AdminDashboard() {
     setIsWiping(false);
   };
 
-
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
@@ -228,6 +227,34 @@ export default function AdminDashboard() {
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("All");
   const [inventorySelectedDate, setInventorySelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Robust Price Parsing & Formatting Helpers
+  const parseOrderPrice = (o) => {
+    if (!o) return 0;
+    if (typeof o.priceNum === "number" && !isNaN(o.priceNum) && o.priceNum > 0) return o.priceNum;
+    const raw = o.total || o.price || o.amount || o.totalPrice || 0;
+    if (typeof raw === "number" && !isNaN(raw)) return raw;
+    if (typeof raw === "string") {
+      const num = parseFloat(raw.replace(/[^\d.]/g, ""));
+      if (!isNaN(num) && num > 0) return num;
+    }
+    if (Array.isArray(o.items) && o.items.length > 0) {
+      const sum = o.items.reduce((acc, it) => {
+        const p = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
+        const q = parseInt(it.quantity || it.qty) || 1;
+        return acc + (p * q);
+      }, 0);
+      if (sum > 0) return sum;
+    }
+    return 0;
+  };
+
+  const formatOrderTotal = (o) => {
+    const num = parseOrderPrice(o);
+    if (num > 0) return `₹${num.toLocaleString("en-IN")}`;
+    if (typeof o?.total === "string" && o.total.includes("₹") && /\d/.test(o.total)) return o.total;
+    return "₹0";
+  };
+
   // Customer Management Table — dynamically derived from live orders
   const customerManagement = (() => {
     const map = {};
@@ -235,7 +262,7 @@ export default function AdminDashboard() {
       const name = o.customer || o.address?.firstName || "Customer";
       if (!map[name]) map[name] = { name, orders: 0, totalVal: 0, lastOrder: 0 };
       map[name].orders++;
-      const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      const val = parseOrderPrice(o);
       map[name].totalVal += isNaN(val) ? 0 : val;
       map[name].lastOrder = Math.max(map[name].lastOrder, o.createdAt || 0);
     });
@@ -285,105 +312,21 @@ export default function AdminDashboard() {
   });
 
   const selectedDateTotalSales = filteredOrders.reduce((acc, o) => {
-    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+    const val = parseOrderPrice(o);
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
-
-  const handleDownloadCSV = () => {
-    if (!filteredOrders || !filteredOrders.length) return;
-    
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
-    
-    filteredOrders.forEach(o => {
-      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
-      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
-      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
-      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
-      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
-      
-      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
-    });
-    
-    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
-    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   const validOrders = filteredOrders.filter(o => o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
 
   const totalSalesVal = validOrders.reduce((acc, o) => {
-    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+    const val = parseOrderPrice(o);
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
-
-  const handleDownloadCSV = () => {
-    if (!filteredOrders || !filteredOrders.length) return;
-    
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
-    
-    filteredOrders.forEach(o => {
-      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
-      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
-      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
-      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
-      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
-      
-      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
-    });
-    
-    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
-    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   const pendingAmountVal = filteredOrders.filter(isOrderPendingPayment).reduce((acc, o) => {
-    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+    const val = parseOrderPrice(o);
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
-
-  const handleDownloadCSV = () => {
-    if (!filteredOrders || !filteredOrders.length) return;
-    
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
-    
-    filteredOrders.forEach(o => {
-      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
-      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
-      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
-      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
-      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
-      
-      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
-    });
-    
-    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
-    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   const totalOrdersCount = validOrders.length;
   const completedOrdersCount = validOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
@@ -432,7 +375,8 @@ export default function AdminDashboard() {
         monthIndex = d.getMonth();
       }
     }
-    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+    const rawVal = o.total || o.price || o.amount || 0;
+    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
     if (monthIndex >= 0 && monthIndex < 12 && !isNaN(val)) {
       monthSales[monthIndex] += val;
     }
@@ -468,7 +412,8 @@ export default function AdminDashboard() {
       const key = o.item || "Chai Selection";
       if (!itemMap[key]) itemMap[key] = { count: 0, value: 0 };
       itemMap[key].count++;
-      const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      const rawVal = o.total || o.price || o.amount || 0;
+    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
       itemMap[key].value += isNaN(val) ? 0 : val;
     });
     return Object.entries(itemMap).map(([k, v]) => ({
@@ -478,20 +423,31 @@ export default function AdminDashboard() {
   })();
 
   const historyOrders = orders.map((o, idx) => {
-    const totalStr = typeof o.total === "string" && o.total.includes("₹") ? o.total : `₹${o.total}`;
+    const totalStr = formatOrderTotal(o);
     const customizations = [];
     if (o.sugar) customizations.push(`Sugar: ${o.sugar}`);
     if (o.milk) customizations.push(`Milk: ${o.milk}`);
+    if (o.addons && o.addons !== "None") customizations.push(`Add-ons: ${o.addons}`);
 
     return {
-      id: o.id.startsWith("#") ? o.id : `#${o.id.replace("CHAI-ORD-", "")}`,
-      customer: o.customer || "Loyal Customer",
+      id: o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.replace("CHAI-ORD-", "").slice(-6).toUpperCase() : idx + 1001}`),
+      originalId: o.id,
+      customer: o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (o.walkIn ? "Counter Walk-in" : "Corporate Partner")),
       status: o.status || "Received",
-      date: o.date || "Just now",
+      date: o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString("en-IN") : "Just now"),
+      createdAt: o.createdAt || 0,
       total: totalStr,
-      items: o.item || "Chai Selection",
-      customization: customizations.join(", ") || "Standard Recipe",
-      office: o.office || "General Area"
+      numericTotal: parseOrderPrice(o),
+      items: o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || it.qty || 1}`).join(", ") : "Chai Selection"),
+      itemsList: Array.isArray(o.items) ? o.items : [],
+      customization: customizations.join(", ") || (o.walkIn ? "Counter Fresh Brew" : "Standard Recipe"),
+      office: o.office || o.address || (o.walkIn ? "Counter Pickup" : "Desk Delivery"),
+      phone: o.phone || (typeof o.address === "object" ? o.address?.phone : "") || "",
+      isOffline: Boolean(o.isOffline || o.walkIn),
+      walkIn: Boolean(o.walkIn),
+      paymentMethod: o.paymentMethod || (o.isOffline || o.walkIn ? "Cash / Counter" : "Online UPI"),
+      paymentStatus: o.paymentStatus || "Paid",
+      rawOrder: o
     };
   });
 
@@ -513,6 +469,9 @@ export default function AdminDashboard() {
   const [newMenuVeg, setNewMenuVeg] = useState(true);
   const [historyViewMode, setHistoryViewMode] = useState("grid");
   const [historyDateFilter, setHistoryDateFilter] = useState("all");
+  const [historySearchTerm, setHistorySearchTerm] = useState("");
+  const [historyTypeFilter, setHistoryTypeFilter] = useState("all");
+  const [queueStatusFilter, setQueueStatusFilter] = useState("all");
   const [activeInvoice, setActiveInvoice] = useState(null);
 
   useEffect(() => {
@@ -622,7 +581,6 @@ export default function AdminDashboard() {
   const countdownIntervalRef = useRef(null);
 
   const [timeTick, setTimeTick] = useState(0);
-
 
   useEffect(() => {
     const unsubAuth = onAuthStateChange((user) => {
@@ -1681,7 +1639,59 @@ export default function AdminDashboard() {
                   ))}
                 </div>
 
-                {/* MIDDLE ROW: SPLIT COLUMNS */}
+                
+                  {/* DAILY SALES REPORT TABLE (VISIBLE WHEN DATE OR DAILY FILTER IS SELECTED) */}
+                  {(timeFilter === "Daily" || (typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/))) && (
+                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "16px", border: "1px solid #eaeaea", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "24px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+                        <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "800", color: "#2c1b0d" }}>
+                          Sales Report: {timeFilter === "Daily" ? "Today" : new Date(timeFilter).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </h3>
+                        <div style={{ background: "#e8f5e9", color: "#2e7d32", padding: "8px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "16px" }}>
+                          Total: ₹{(typeof selectedDateTotalSales !== 'undefined' ? selectedDateTotalSales : (typeof totalSalesVal !== 'undefined' ? totalSalesVal : 0)).toFixed(2)}
+                        </div>
+                      </div>
+                      
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "500px" }}>
+                          <thead>
+                            <tr style={{ background: "#f8f9fa", borderBottom: "2px solid #eee", textAlign: "left" }}>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Order ID</th>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Items</th>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Type</th>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700", textAlign: "right" }}>Amount (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredOrders.length > 0 ? filteredOrders.map((o) => {
+                              const rawAmt = o.total || o.price || o.amount || 0;
+                              const amt = typeof rawAmt === "string" ? parseFloat(rawAmt.replace(/[^\d\.]/g, "")) : parseFloat(rawAmt);
+                              const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
+                              const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
+                              const itemName = o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection");
+                              
+                              return (
+                                <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
+                                  <td style={{ padding: "12px", fontSize: "14px", fontWeight: "600", color: "#2c1b0d" }}>{idStr}</td>
+                                  <td style={{ padding: "12px", fontSize: "14px", color: "#444" }}>{itemName}</td>
+                                  <td style={{ padding: "12px", fontSize: "14px", color: "#666" }}>{o.isOffline || o.walkIn ? "Offline / Counter" : "Online"}</td>
+                                  <td style={{ padding: "12px", fontSize: "14px", fontWeight: "700", color: "#2e7d32", textAlign: "right" }}>₹{amtStr}</td>
+                                </tr>
+                              );
+                            }) : (
+                              <tr>
+                                <td colSpan="4" style={{ padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
+                                  No sales found for this date.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* MIDDLE ROW: SPLIT COLUMNS */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
                   
                   {/* LEFT: High Demanding Products */}
@@ -1827,199 +1837,292 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* TAB: ORDER QUEUE */}
-            {activeTab === "queue" && (
-              <div className="tab-body-wrapper">
-                <div className="queue-header-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3 className="section-title">Order Queue (List View)</h3>
-                </div>
+                        {/* TAB: ORDER QUEUE */}
+            {activeTab === "queue" && (() => {
+              const activeQueueOrders = orders.filter(o => o.priority !== "Subscription" && o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
+              const receivedCount = activeQueueOrders.filter(o => (o.status || "Received") === "Received").length;
+              const prepCount = activeQueueOrders.filter(o => o.status === "Preparing" || o.status === "Pending").length;
+              const outCount = activeQueueOrders.filter(o => o.status === "Out for Delivery" || o.status === "Shipped").length;
+              const offlineQueueCount = activeQueueOrders.filter(o => o.isOffline || o.walkIn).length;
+              const onlineQueueCount = activeQueueOrders.filter(o => !o.isOffline && !o.walkIn).length;
+              const queueTotalValue = activeQueueOrders.reduce((sum, o) => sum + parseOrderPrice(o), 0);
 
-                <div className="queue-list-container">
-                  {orders.filter(o => o.priority !== "Subscription").length === 0 ? (
-                    <div className="empty-column-msg">No active one-time orders found.</div>
-                  ) : (
-                    orders
-                      .filter(o => o.priority !== "Subscription")
-                      .sort((a, b) => b.createdAt - a.createdAt)
-                      .map((o) => (
-                        <div
-                          key={o.id}
-                          className="queue-list-item"
-                          onClick={() => {
-                            setSelectedQueueOrder(o);
-                            setDeliveryTimeInput(o.allocatedTime || "");
-                            setIsQueueSidebarOpen(true);
+              const filteredQueue = activeQueueOrders.filter(o => {
+                if (queueStatusFilter === "Received") return (o.status || "Received") === "Received";
+                if (queueStatusFilter === "Preparing") return o.status === "Preparing" || o.status === "Pending";
+                if (queueStatusFilter === "Out for Delivery") return o.status === "Out for Delivery" || o.status === "Shipped";
+                if (queueStatusFilter === "Offline") return o.isOffline || o.walkIn;
+                if (queueStatusFilter === "Online") return !o.isOffline && !o.walkIn;
+                return true;
+              }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+              return (
+                <div className="tab-body-wrapper">
+                  {/* Top Queue Stats Header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '24px' }}>
+                    <div style={{ background: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid rgba(44, 27, 13, 0.08)', boxShadow: '0 4px 16px rgba(0,0,0,0.02)' }}>
+                      <span style={{ fontSize: '11px', color: '#8a583c', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>📋 Active in Queue</span>
+                      <strong style={{ fontSize: '22px', color: '#2c1b0d' }}>{activeQueueOrders.length} Orders</strong>
+                    </div>
+                    <div style={{ background: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid rgba(44, 27, 13, 0.08)', boxShadow: '0 4px 16px rgba(0,0,0,0.02)' }}>
+                      <span style={{ fontSize: '11px', color: '#27ae60', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>💰 Total Queue Value</span>
+                      <strong style={{ fontSize: '22px', color: '#27ae60' }}>₹{queueTotalValue.toLocaleString('en-IN')}</strong>
+                    </div>
+                    <div style={{ background: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid rgba(44, 27, 13, 0.08)', boxShadow: '0 4px 16px rgba(0,0,0,0.02)' }}>
+                      <span style={{ fontSize: '11px', color: '#e67e22', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>⏳ Received / New</span>
+                      <strong style={{ fontSize: '22px', color: '#e67e22' }}>{receivedCount} Orders</strong>
+                    </div>
+                    <div style={{ background: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid rgba(44, 27, 13, 0.08)', boxShadow: '0 4px 16px rgba(0,0,0,0.02)' }}>
+                      <span style={{ fontSize: '11px', color: '#8a583c', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>☕ In Brewing / Prep</span>
+                      <strong style={{ fontSize: '22px', color: '#2c1b0d' }}>{prepCount} Orders</strong>
+                    </div>
+                    <div style={{ background: '#ffffff', padding: '16px 20px', borderRadius: '16px', border: '1px solid rgba(44, 27, 13, 0.08)', boxShadow: '0 4px 16px rgba(0,0,0,0.02)' }}>
+                      <span style={{ fontSize: '11px', color: '#2980b9', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>🚀 Out for Delivery</span>
+                      <strong style={{ fontSize: '22px', color: '#2980b9' }}>{outCount} Orders</strong>
+                    </div>
+                  </div>
+
+                  {/* Filter Pills Bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {[
+                        { key: 'all', label: `☕ All Active (${activeQueueOrders.length})` },
+                        { key: 'Received', label: `⏳ Received (${receivedCount})` },
+                        { key: 'Preparing', label: `⚡ Preparing (${prepCount})` },
+                        { key: 'Out for Delivery', label: `🚀 Out for Delivery (${outCount})` },
+                        { key: 'Offline', label: `🏪 Counter / Offline (${offlineQueueCount})` },
+                        { key: 'Online', label: `🌐 Online App (${onlineQueueCount})` }
+                      ].map(f => (
+                        <button
+                          key={f.key}
+                          type="button"
+                          onClick={() => setQueueStatusFilter(f.key)}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: '10px',
+                            border: '1px solid ' + (queueStatusFilter === f.key ? '#2c1b0d' : 'rgba(44,27,13,0.1)'),
+                            background: queueStatusFilter === f.key ? '#2c1b0d' : '#ffffff',
+                            color: queueStatusFilter === f.key ? '#ffffff' : '#2c1b0d',
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
                           }}
                         >
-                          <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" style={{ objectFit: 'cover' }} />
-                          <div className="queue-list-info">
-                            <h4 style={{ fontSize: '14px', marginBottom: '4px' }}>
-                              <span style={{ color: '#8a583c', fontWeight: '800' }}>{o.orderId || (o.id && o.id.length > 8 ? o.id.substring(0,8) : o.id)}</span> - {o.customer || "Guest"}
-                            </h4>
-                            <p style={{ fontWeight: 'bold', color: '#2c1b0d', fontSize: '13px', marginBottom: '2px' }}>{o.item}</p>
-                            <p style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>📍 {o.office || o.address || (o.walkIn ? "Counter Pickup" : "No Address Provided")}</p>
-                            <span className="time-elapsed" style={{ fontSize: '10px', fontWeight: 'bold', color: '#e74c3c' }}>
-                              {(() => {
-                                const diffMs = Date.now() - o.createdAt;
-                                const diffMins = Math.floor(diffMs / 60000);
-                                if (diffMins < 60) return `${diffMins}m ago`;
-                                if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
-                                return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', year: 'numeric' });
-                              })()}
-                            </span>
-                          </div>
-                          <div className="queue-list-status">
-                            <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
-                              {o.status || "Received"}
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                  )}
-                </div>
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-                {/* SLIDING SIDEBAR FOR ORDER DETAILS */}
-                <div className={`queue-sidebar-overlay ${isQueueSidebarOpen ? "open" : ""}`} onClick={() => setIsQueueSidebarOpen(false)}></div>
-                <div className={`queue-sidebar-panel ${isQueueSidebarOpen ? "open" : ""}`}>
-                  {selectedQueueOrder && (
-                    <div className="queue-sidebar-content">
-                      <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
-
-                      <h2>Order {selectedQueueOrder.id}</h2>
-                      <div className="sidebar-detail-group">
-                        <label>Customer</label>
-                        <p>{selectedQueueOrder.customer}</p>
-                        <label>Office</label>
-                        <p>{selectedQueueOrder.office}</p>
-                        <label>Phone</label>
-                        <p>{selectedQueueOrder.phone || "N/A"}</p>
+                  {/* Queue Items List */}
+                  <div className="queue-list-container">
+                    {filteredQueue.length === 0 ? (
+                      <div className="empty-column-msg" style={{ background: '#ffffff', padding: '40px', borderRadius: '16px', textAlign: 'center', color: '#888' }}>
+                        No orders currently matching this queue filter.
                       </div>
-
-                      <div className="sidebar-detail-group">
-                        <label>Items</label>
-                        <p><strong>{selectedQueueOrder.item}</strong></p>
-                        <label>Add-ons</label>
-                        <p>{selectedQueueOrder.addons || "None"}</p>
-                        <label>Preferences</label>
-                        <p>{selectedQueueOrder.sugar} | {selectedQueueOrder.milk}</p>
-                        <label>Total</label>
-                        <p>{selectedQueueOrder.total}</p>
-                      </div>
-
-                      <div className="sidebar-detail-group">
-                        <label>Update Status</label>
-                        <select
-                          className="sidebar-select"
-                          value={selectedQueueOrder.status || "Received"}
-                          onChange={(e) => {
-                            const newStatus = e.target.value;
-                            setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
-                            updateOrder(selectedQueueOrder.id, { status: newStatus });
-                          }}
-                        >
-                          <option value="Received">Received</option>
-                          <option value="Preparing">Preparing</option>
-                          <option value="Out for Delivery">Out for Delivery</option>
-                          <option value="Delivered">Delivered</option>
-                          <option value="Cancelled">Cancelled</option>
-                        </select>
-                        
-                        {(selectedQueueOrder.status === "Cancelled" || selectedQueueOrder.status === "Cancelled by User") && (
-                          <div style={{ marginTop: "12px" }}>
-                            <button
-                              onClick={() => {
-                                handleRefund(selectedQueueOrder);
-                                setSelectedQueueOrder(null);
-                              }}
-                              style={{ width: "100%", background: "#3498db", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" }}
-                            >
-                              Refund to Coin Wallet
-                            </button>
-                          </div>
-                        )}
-                        {selectedQueueOrder.status === "Refunded" && (
-                          <div style={{ marginTop: "12px", background: "rgba(52, 152, 219, 0.1)", color: "#3498db", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: "bold", textAlign: "center" }}>
-                            💰 Refunded
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="sidebar-detail-group">
-                        <label>Set Delivery Time</label>
-                        <div style={{ display: "flex", gap: "10px" }}>
-                          <input
-                            type="text"
-                            className="sidebar-input"
-                            value={deliveryTimeInput}
-                            onChange={(e) => setDeliveryTimeInput(e.target.value)}
-                            placeholder="e.g. 15 mins"
-                          />
-                          <button
-                            className="sidebar-save-btn"
+                    ) : (
+                      filteredQueue.map((o) => {
+                        const priceFormatted = formatOrderTotal(o);
+                        const isOfflineOrder = o.isOffline || o.walkIn;
+                        return (
+                          <div
+                            key={o.id}
+                            className="queue-list-item"
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', background: '#ffffff', borderRadius: '14px', border: '1px solid rgba(44,27,13,0.06)', marginBottom: '12px', cursor: 'pointer', transition: 'box-shadow 0.2s ease' }}
                             onClick={() => {
-                              const updatedStatus = selectedQueueOrder.status || "Received";
-                              updateOrder(selectedQueueOrder.id, {
-                                allocatedTime: deliveryTimeInput,
-                                status: updatedStatus
-                              });
-
-                              if (selectedQueueOrder.userId || selectedQueueOrder.userId === undefined) {
-                                // Assume userId exists in real data. If so, fetch token and notify
-                                const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
-                                if (uid) {
-                                  getDoc(doc(db, "users", uid)).then(userSnap => {
-                                    if (userSnap.exists() && userSnap.data().fcmToken) {
-                                      fetch("/api/notify", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                          token: userSnap.data().fcmToken,
-                                          title: "Order Update",
-                                          body: `Your order is now ${updatedStatus}`,
-                                          orderId: selectedQueueOrder.id,
-                                          userId: uid
-                                        })
-                                      });
-                                    }
-                                  }).catch(e => console.error("Error fetching user for push:", e));
-                                }
-                              }
-
-                              setToastMsg("Order details updated successfully!");
-                              setSaveAnimation(true);
-                              setTimeout(() => {
-                                setToastMsg("");
-                                setSaveAnimation(false);
-                              }, 2000);
-                            }}
-                            style={{ 
-                              background: saveAnimation ? "#25D366" : "#2c1b0d",
-                              transition: "background 0.3s ease"
+                              setSelectedQueueOrder(o);
+                              setDeliveryTimeInput(o.allocatedTime || "");
+                              setIsQueueSidebarOpen(true);
                             }}
                           >
-                            {saveAnimation ? (
-                              <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                  <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425z"/>
-                                </svg>
-                                Saved!
-                              </span>
-                            ) : "Save"}
-                          </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                              <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }} />
+                              <div className="queue-list-info" style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                  <span style={{ color: '#8a583c', fontWeight: '900', fontSize: '14px' }}>
+                                    {o.orderId || (o.id && o.id.length > 8 ? `#${o.id.slice(-6).toUpperCase()}` : o.id)}
+                                  </span>
+                                  <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#2c1b0d' }}>
+                                    • {o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (isOfflineOrder ? "Counter Guest" : "Customer"))}
+                                  </span>
+                                  <span style={{ fontSize: '10.5px', padding: '2px 8px', borderRadius: '6px', background: isOfflineOrder ? '#f0e6d2' : '#e3f2fd', color: isOfflineOrder ? '#8a583c' : '#1976d2', fontWeight: 'bold' }}>
+                                    {isOfflineOrder ? "🏪 Counter" : "🌐 Online"}
+                                  </span>
+                                </div>
+                                <p style={{ fontWeight: '600', color: '#2c1b0d', fontSize: '13px', margin: '2px 0' }}>
+                                  {o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection")}
+                                </p>
+                                <p style={{ fontSize: '11px', color: '#666', margin: '2px 0' }}>
+                                  📍 {o.office || o.address || (isOfflineOrder ? "Counter Pickup" : "Desk Delivery")}
+                                </p>
+                                <span className="time-elapsed" style={{ fontSize: '10px', fontWeight: 'bold', color: '#e74c3c' }}>
+                                  {(() => {
+                                    const diffMs = Date.now() - (o.createdAt || Date.now());
+                                    const diffMins = Math.floor(diffMs / 60000);
+                                    if (diffMins < 60) return `${diffMins}m ago`;
+                                    if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+                                    return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', year: 'numeric' });
+                                  })()}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                              {/* Prominent Price Tag */}
+                              <div style={{ textAlign: 'right' }}>
+                                <span style={{ fontSize: '10px', color: '#888', display: 'block', textTransform: 'uppercase' }}>Amount</span>
+                                <strong style={{ fontSize: '16px', color: '#27ae60', background: 'rgba(39, 174, 96, 0.08)', padding: '4px 10px', borderRadius: '8px', display: 'inline-block' }}>
+                                  {priceFormatted}
+                                </strong>
+                              </div>
+
+                              <div className="queue-list-status">
+                                <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
+                                  {o.status || "Received"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* SLIDING SIDEBAR FOR ORDER DETAILS */}
+                  <div className={`queue-sidebar-overlay ${isQueueSidebarOpen ? "open" : ""}`} onClick={() => setIsQueueSidebarOpen(false)}></div>
+                  <div className={`queue-sidebar-panel ${isQueueSidebarOpen ? "open" : ""}`}>
+                    {selectedQueueOrder && (() => {
+                      const selTotal = formatOrderTotal(selectedQueueOrder);
+                      const isOffline = selectedQueueOrder.isOffline || selectedQueueOrder.walkIn;
+                      return (
+                        <div className="queue-sidebar-content">
+                          <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
+
+                          <h2>Order {selectedQueueOrder.orderId || selectedQueueOrder.id}</h2>
+                          <div className="sidebar-detail-group">
+                            <label>Customer</label>
+                            <p><strong>{selectedQueueOrder.customer || (isOffline ? "Walk-in Customer" : "Corporate Partner")}</strong></p>
+                            <label>Delivery Destination / Desk</label>
+                            <p>{selectedQueueOrder.office || selectedQueueOrder.address || (isOffline ? "Counter Pickup" : "Desk Delivery")}</p>
+                            <label>Phone Number</label>
+                            <p>{selectedQueueOrder.phone || (typeof selectedQueueOrder.address === "object" ? selectedQueueOrder.address?.phone : "") || "N/A"}</p>
+                            <label>Order Channel</label>
+                            <p>{isOffline ? "🏪 Offline Counter Order" : "🌐 Online App Order"}</p>
+                          </div>
+
+                          <div className="sidebar-detail-group">
+                            <label>Items</label>
+                            <p><strong>{selectedQueueOrder.item || (Array.isArray(selectedQueueOrder.items) ? selectedQueueOrder.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection")}</strong></p>
+                            <label>Add-ons & Customizations</label>
+                            <p>{selectedQueueOrder.addons || (selectedQueueOrder.sugar ? `Sugar: ${selectedQueueOrder.sugar}` : "Standard Recipe")}</p>
+                            <label>Total Order Value</label>
+                            <p style={{ fontSize: '18px', fontWeight: 'bold', color: '#27ae60' }}>{selTotal}</p>
+                            <label>Payment Method & Status</label>
+                            <p>{selectedQueueOrder.paymentMethod || (isOffline ? "Cash" : "UPI")} • <span style={{ color: '#27ae60', fontWeight: 'bold' }}>{selectedQueueOrder.paymentStatus || "Paid"}</span></p>
+                          </div>
+
+                          <div className="sidebar-detail-group">
+                            <label>Update Status</label>
+                            <select
+                              className="sidebar-select"
+                              value={selectedQueueOrder.status || "Received"}
+                              onChange={(e) => {
+                                const newStatus = e.target.value;
+                                setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
+                                updateOrder(selectedQueueOrder.id, { status: newStatus });
+                              }}
+                            >
+                              <option value="Received">Received</option>
+                              <option value="Preparing">Preparing</option>
+                              <option value="Out for Delivery">Out for Delivery</option>
+                              <option value="Delivered">Delivered</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
+                            
+                            {(selectedQueueOrder.status === "Cancelled" || selectedQueueOrder.status === "Cancelled by User") && (
+                              <div style={{ marginTop: "12px" }}>
+                                <button
+                                  onClick={() => {
+                                    handleRefund(selectedQueueOrder);
+                                    setSelectedQueueOrder(null);
+                                  }}
+                                  style={{ width: "100%", background: "#3498db", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: "bold", cursor: "pointer" }}
+                                >
+                                  Refund to Coin Wallet
+                                </button>
+                              </div>
+                            )}
+                            {selectedQueueOrder.status === "Refunded" && (
+                              <div style={{ marginTop: "12px", background: "rgba(52, 152, 219, 0.1)", color: "#3498db", padding: "10px", borderRadius: "8px", fontSize: "13px", fontWeight: "bold", textAlign: "center" }}>
+                                💰 Refunded
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="sidebar-detail-group">
+                            <label>Set Preparation & Delivery Window</label>
+                            <div style={{ display: "flex", gap: "10px" }}>
+                              <input
+                                type="text"
+                                className="sidebar-input"
+                                value={deliveryTimeInput}
+                                onChange={(e) => setDeliveryTimeInput(e.target.value)}
+                                placeholder="e.g. 15 mins"
+                              />
+                              <button
+                                className="sidebar-save-btn"
+                                onClick={() => {
+                                  const updatedStatus = selectedQueueOrder.status || "Received";
+                                  updateOrder(selectedQueueOrder.id, {
+                                    allocatedTime: deliveryTimeInput,
+                                    status: updatedStatus
+                                  });
+
+                                  const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
+                                  if (uid) {
+                                    getDoc(doc(db, "users", uid)).then(userSnap => {
+                                      if (userSnap.exists() && userSnap.data().fcmToken) {
+                                        fetch("/api/notify", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            token: userSnap.data().fcmToken,
+                                            title: "Order Update",
+                                            body: `Your order is now ${updatedStatus}`,
+                                            orderId: selectedQueueOrder.id,
+                                            userId: uid
+                                          })
+                                        });
+                                      }
+                                    }).catch(e => console.error("Error fetching user for push:", e));
+                                  }
+
+                                  setToastMsg("Order details updated successfully!");
+                                  setSaveAnimation(true);
+                                  setTimeout(() => {
+                                    setToastMsg("");
+                                    setSaveAnimation(false);
+                                  }, 2000);
+                                }}
+                                style={{ 
+                                  background: saveAnimation ? "#25D366" : "#2c1b0d",
+                                  transition: "background 0.3s ease"
+                                }}
+                              >
+                                {saveAnimation ? "Saved!" : "Save"}
+                              </button>
+                            </div>
+                          </div>
+
                         </div>
-                      </div>
-
-                      
-
-
-
-                    </div>
-                  )}
+                      );
+                    })()}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
-            {/* OTHER OPERATIONAL TABS */}
             {activeTab === "prep" && false && (
               <div className="tab-body-wrapper">
 
@@ -2261,52 +2364,27 @@ export default function AdminDashboard() {
               )
             })()}
 
-            {activeTab === "earnings" && (() => {
+                        {activeTab === "earnings" && (() => {
               const totalGross = totalSalesVal;
               const pendingPayoutVal = orders.filter(o => o.status === "Received" || o.status === "Pending").reduce((acc, o) => {
-                const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+                const val = parseOrderPrice(o);
                 return acc + (isNaN(val) ? 0 : val);
               }, 0);
 
-  const handleDownloadCSV = () => {
-    if (!filteredOrders || !filteredOrders.length) return;
-    
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
-    
-    filteredOrders.forEach(o => {
-      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
-      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
-      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
-      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
-      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
-      
-      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
-    });
-    
-    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
-    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
               const settledTransactionsVal = orders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
 
               const transactions = orders.map((o, idx) => {
+                const totalFormatted = formatOrderTotal(o);
+                const methodStr = o.paymentMethod || (o.isOffline || o.walkIn ? "Counter Cash" : "UPI Merchant Pay");
                 return {
-                  id: `TXN-${o.id.replace(/[^\d]/g, "") || idx + 1001}`,
-                  name: o.customer || "Loyal Customer",
-                  method: o.paymentMethod || "UPI Payment",
-                  amount: typeof o.total === "string" && o.total.includes("₹") ? o.total : `₹${o.total}`,
-                  time: o.date || "Just now",
-                  status: o.status === "Delivered" || o.status === "Completed" ? "Successful" : "Processing"
+                  id: o.orderId || `TXN-${o.id ? o.id.replace(/[^\w]/g, "").slice(-6).toUpperCase() : (idx + 1001)}`,
+                  name: o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (o.walkIn ? "Counter Customer" : "Corporate Client")),
+                  method: methodStr,
+                  amount: totalFormatted,
+                  time: o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString("en-IN") : "Just now"),
+                  status: o.status === "Delivered" || o.status === "Completed" ? "Successful" : (o.status === "Cancelled" || o.status === "Refunded" ? "Cancelled" : "Processing")
                 };
-              }).slice(0, 10);
+              }).slice(0, 15);
 
               const weekdaySales = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
               orders.forEach(o => {
@@ -2315,7 +2393,7 @@ export default function AdminDashboard() {
                 if (!isNaN(d.getTime())) {
                   const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
                   const dayName = days[d.getDay()];
-                  const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+                  const val = parseOrderPrice(o);
                   if (!isNaN(val)) {
                     weekdaySales[dayName] = (weekdaySales[dayName] || 0) + val;
                   }
@@ -2438,28 +2516,72 @@ export default function AdminDashboard() {
             })()}
 
             {activeTab === "history" && (() => {
+              const deliveredCount = orders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
+              const cancelledCount = orders.filter(o => o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded").length;
+              const totalSettled = deliveredCount + cancelledCount;
+              const successRate = totalSettled === 0 ? 100 : ((deliveredCount / totalSettled) * 100).toFixed(1);
+              const offlineHistoryCount = historyOrders.filter(h => h.isOffline).length;
+              const onlineHistoryCount = historyOrders.filter(h => !h.isOffline).length;
+
               const filteredHistory = historyOrders.filter((h) => {
+                // Search Filter
+                if (historySearchTerm && historySearchTerm.trim() !== "") {
+                  const term = historySearchTerm.toLowerCase().trim();
+                  const matchId = (h.id || "").toLowerCase().includes(term);
+                  const matchCust = (h.customer || "").toLowerCase().includes(term);
+                  const matchItems = (h.items || "").toLowerCase().includes(term);
+                  const matchOffice = (h.office || "").toLowerCase().includes(term);
+                  const matchPhone = (h.phone || "").toLowerCase().includes(term);
+                  if (!matchId && !matchCust && !matchItems && !matchOffice && !matchPhone) return false;
+                }
+
+                // Type Filter: all, offline, online
+                if (historyTypeFilter === "offline" && !h.isOffline) return false;
+                if (historyTypeFilter === "online" && h.isOffline) return false;
+
+                // Date Filter
                 if (historyDateFilter === "today") {
-                  return h.date.includes("09/12/2026");
+                  if (h.createdAt) {
+                    const orderDate = new Date(h.createdAt);
+                    const today = new Date();
+                    return orderDate.toDateString() === today.toDateString();
+                  }
+                  const todayStr = new Date().toLocaleDateString("en-IN");
+                  return h.date === todayStr || h.date === "Just now";
                 }
                 if (historyDateFilter === "7days") {
-                  return h.date.includes("09/12/2026") || h.date.includes("09/11/2026");
+                  if (h.createdAt) {
+                    return (Date.now() - h.createdAt) <= 7 * 24 * 60 * 60 * 1000;
+                  }
+                  return true;
+                }
+                if (historyDateFilter && historyDateFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                  if (h.createdAt) {
+                    const orderDate = new Date(h.createdAt);
+                    return orderDate.toLocaleDateString('en-CA') === historyDateFilter;
+                  }
+                  return true;
                 }
                 return true;
               });
 
+              const totalFilteredValue = filteredHistory.reduce((sum, h) => sum + (h.numericTotal || 0), 0);
+
               return (
                 <div className="tab-body-wrapper">
 
-                  {/* Invoice Modal Overlay */}
+                  {/* Complete Official Invoice Modal Overlay */}
                   {activeInvoice && (() => {
-                    const cleanId = activeInvoice.id.replace("#", "");
-                    const priceVal = parseFloat(activeInvoice.total.replace("₹", "")) || 0;
+                    const cleanId = String(activeInvoice.id || "").replace("#", "");
+                    const priceVal = activeInvoice.numericTotal || parseOrderPrice(activeInvoice) || (parseFloat(String(activeInvoice.total || 0).replace(/[^\d.]/g, "")) || 0);
                     const subTotal = (priceVal / 1.05).toFixed(2);
-                    const taxVal = (priceVal - subTotal).toFixed(2);
+                    const taxVal = (priceVal - parseFloat(subTotal)).toFixed(2);
+                    const invoiceDateFormatted = activeInvoice.createdAt
+                      ? new Date(activeInvoice.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                      : activeInvoice.date || "Today";
 
                     return (
-                      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, overflowY: "auto", padding: "20px" }}>
+                      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, overflowY: "auto", padding: "20px" }}>
                         <style dangerouslySetInnerHTML={{
                           __html: `
                           @media print {
@@ -2467,11 +2589,9 @@ export default function AdminDashboard() {
                               size: auto;
                               margin: 0mm;
                             }
-                            /* Hide all elements except the invoice lineage and its descendants */
                             body *:not(#printable-invoice-card):not(:has(#printable-invoice-card)):not(#printable-invoice-card *) {
                               display: none !important;
                             }
-                            /* Strip layout from the lineage ancestors to avoid extra spacing/scrollbars */
                             body *:has(#printable-invoice-card) {
                               margin: 0 !important;
                               padding: 0 !important;
@@ -2490,7 +2610,7 @@ export default function AdminDashboard() {
                               max-width: 100% !important;
                               border: none !important;
                               box-shadow: none !important;
-                              padding: 20px !important;
+                              padding: 30px !important;
                               margin: 0 !important;
                             }
                             .no-print {
@@ -2499,131 +2619,165 @@ export default function AdminDashboard() {
                           }
                         `}} />
                         {/* Wrapper for Printable card and control buttons */}
-                        <div style={{ width: "100%", maxWidth: "800px", margin: "0 auto" }}>
+                        <div style={{ width: "100%", maxWidth: "840px", margin: "0 auto" }}>
 
                           {/* Close & Print Buttons Panel */}
-                          <div className="no-print" style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px" }}>
+                          <div className="no-print" style={{ display: "flex", justifyContent: "space-between", marginBottom: "14px", alignItems: "center" }}>
                             <button
                               type="button"
                               onClick={() => setActiveInvoice(null)}
-                              style={{ padding: "8px 16px", background: "#fdf5e9", border: "1px solid rgba(44,27,13,0.2)", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "13px", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "6px" }}
+                              style={{ padding: "10px 18px", background: "#fdf5e9", border: "1px solid rgba(44,27,13,0.2)", borderRadius: "10px", fontWeight: "bold", cursor: "pointer", fontSize: "13px", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "6px" }}
                             >
                               <span>←</span> Back to Order History
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => window.print()}
-                              style={{ padding: "8px 20px", background: "#2c1b0d", color: "#fff", border: "none", borderRadius: "8px", fontWeight: "bold", cursor: "pointer", fontSize: "12px" }}
-                            >
-                              🖨️ Print or Download PDF
-                            </button>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                              <button
+                                type="button"
+                                onClick={() => window.print()}
+                                style={{ padding: "10px 24px", background: "#2c1b0d", color: "#fff", border: "none", borderRadius: "10px", fontWeight: "bold", cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", gap: "8px" }}
+                              >
+                                <span>🖨️</span> Print / Save PDF Invoice
+                              </button>
+                            </div>
                           </div>
 
-                          {/* INVOICE CARD (replicates corporate template layout) */}
-                          <div id="printable-invoice-card" style={{ background: "#ffffff", padding: "48px", borderRadius: "8px", boxShadow: "0 10px 40px rgba(0,0,0,0.15)", border: "1px solid rgba(0,0,0,0.08)", color: "#2c1b0d", fontFamily: "Arial, sans-serif" }}>
+                          {/* INVOICE CARD */}
+                          <div id="printable-invoice-card" style={{ background: "#ffffff", padding: "44px", borderRadius: "16px", boxShadow: "0 10px 40px rgba(0,0,0,0.18)", border: "1px solid rgba(0,0,0,0.08)", color: "#2c1b0d", fontFamily: "Arial, sans-serif" }}>
 
-                            {/* Row 1: Logo & INVOICE header */}
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "32px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                                <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "50%" }} />
+                            {/* Row 1: Header */}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #2c1b0d", paddingBottom: "24px", marginBottom: "28px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                                <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "54px", height: "54px", objectFit: "cover", borderRadius: "12px", border: "1px solid #eaeaea" }} />
                                 <div>
-                                  <strong style={{ fontSize: "20px", color: "#2c1b0d", letterSpacing: "0.5px" }}>CHAI CHASKA</strong>
+                                  <strong style={{ fontSize: "22px", color: "#2c1b0d", letterSpacing: "0.5px", display: "block" }}>CHAI CHASKA</strong>
+                                  <span style={{ fontSize: "12px", color: "#8a583c", fontWeight: "bold" }}>Artisanal Tea House & Express Deliveries</span>
                                 </div>
                               </div>
-                              <h1 style={{ fontSize: "28px", color: "#2c1b0d", letterSpacing: "2px", margin: 0, fontWeight: "300", textTransform: "uppercase" }}>INVOICE</h1>
-                            </div>
-
-                            {/* Row 2: Details Columns */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 2fr", gap: "16px", borderBottom: "1px solid #eee", paddingBottom: "20px", marginBottom: "20px" }}>
-                              <div>
-                                <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Invoice no.</span>
-                                <strong style={{ fontSize: "13px" }}>#CH-{cleanId}</strong>
-                              </div>
-                              <div>
-                                <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Date</span>
-                                <strong style={{ fontSize: "13px" }}>{new Date(activeInvoice.createdAt || Date.now()).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</strong>
-                              </div>
-                              <div>
-                                <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>Invoice to:</span>
-                                <strong style={{ fontSize: "13.5px", display: "block" }}>{activeInvoice.customer}</strong>
-                                <span style={{ fontSize: "11px", color: "#666" }}>Corporate Desk Partner</span>
+                              <div style={{ textAlign: "right" }}>
+                                <span style={{ fontSize: "10.5px", fontWeight: "900", color: "#888", letterSpacing: "1.5px", textTransform: "uppercase", display: "block" }}>TAX INVOICE</span>
+                                <strong style={{ fontSize: "22px", color: "#2c1b0d" }}>#CH-{cleanId}</strong>
                               </div>
                             </div>
 
-                            {/* Row 3: Total Due block */}
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fbf9f6", padding: "20px 24px", borderRadius: "6px", marginBottom: "28px", border: "1px solid rgba(44,27,13,0.03)" }}>
+                            {/* Row 2: Customer & Order Metadata Columns */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.2fr 1.6fr", gap: "20px", background: "#fbf9f6", padding: "18px 20px", borderRadius: "12px", border: "1px solid rgba(44,27,13,0.05)", marginBottom: "28px" }}>
                               <div>
-                                <span style={{ fontSize: "10px", color: "#8a583c", textTransform: "uppercase", display: "block", fontWeight: "bold", letterSpacing: "0.5px" }}>TOTAL DUE</span>
-                                <strong style={{ fontSize: "24px", color: "#2c1b0d" }}>{activeInvoice.total}</strong>
+                                <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", fontWeight: "bold", marginBottom: "4px" }}>Date & Time</span>
+                                <strong style={{ fontSize: "13px", color: "#2c1b0d", display: "block" }}>{invoiceDateFormatted}</strong>
+                                <span style={{ fontSize: "11px", color: "#666" }}>Order ID: #{cleanId}</span>
                               </div>
-                              <div style={{ textAlign: "right", fontSize: "11.5px", color: "#555" }}>
-                                <span style={{ display: "block", fontWeight: "bold", color: "#2c1b0d" }}>📍 Delivery Destination</span>
-                                <span>{activeInvoice.office}</span>
+                              <div>
+                                <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", fontWeight: "bold", marginBottom: "4px" }}>Order Channel & Payment</span>
+                                <strong style={{ fontSize: "13px", color: "#2c1b0d", display: "block" }}>
+                                  {activeInvoice.isOffline ? "🏪 Offline Counter" : "🌐 Online App Delivery"}
+                                </strong>
+                                <span style={{ fontSize: "11.5px", color: "#27ae60", fontWeight: "bold" }}>
+                                  {activeInvoice.paymentMethod || (activeInvoice.isOffline ? "Cash" : "UPI")} ({activeInvoice.paymentStatus || "Paid"})
+                                </span>
+                              </div>
+                              <div>
+                                <span style={{ fontSize: "10.5px", color: "#888", display: "block", textTransform: "uppercase", fontWeight: "bold", marginBottom: "4px" }}>Billed To:</span>
+                                <strong style={{ fontSize: "14px", display: "block", color: "#2c1b0d" }}>{activeInvoice.customer || (activeInvoice.isOffline ? "Counter Guest" : "Corporate Client")}</strong>
+                                <span style={{ fontSize: "11.5px", color: "#555", display: "block" }}>📍 {activeInvoice.office || (activeInvoice.isOffline ? "Counter Pickup" : "Desk Delivery")}</span>
+                                {activeInvoice.phone && <span style={{ fontSize: "11px", color: "#777" }}>📞 {activeInvoice.phone}</span>}
                               </div>
                             </div>
 
-                            {/* Row 4: Main Itemized Table */}
-                            <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "28px" }}>
-                              <thead>
-                                <tr style={{ background: "#2c1b0d", color: "#ffffff", fontSize: "12px", textTransform: "uppercase" }}>
-                                  <th style={{ padding: "10px 16px", textAlign: "left", borderRadius: "4px 0 0 4px" }}>Item Description</th>
-                                  <th style={{ padding: "10px 16px", textAlign: "right" }}>Unit Price</th>
-                                  <th style={{ padding: "10px 16px", textAlign: "center" }}>Qty</th>
-                                  <th style={{ padding: "10px 16px", textAlign: "right", borderRadius: "0 4px 4px 0" }}>Total</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                <tr style={{ borderBottom: "1px solid #eee", fontSize: "13px" }}>
-                                  <td style={{ padding: "16px" }}>
-                                    <strong style={{ display: "block" }}>{activeInvoice.items}</strong>
-                                    <span style={{ fontSize: "11px", color: "#666" }}>Pref: {activeInvoice.customization}</span>
-                                  </td>
-                                  <td style={{ padding: "16px", textAlign: "right" }}>₹{subTotal}</td>
-                                  <td style={{ padding: "16px", textAlign: "center" }}>1</td>
-                                  <td style={{ padding: "16px", textAlign: "right", fontWeight: "bold" }}>₹{subTotal}</td>
-                                </tr>
-                              </tbody>
-                            </table>
+                            {/* Row 3: Itemized Table */}
+                            <div style={{ marginBottom: "28px" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                                <thead>
+                                  <tr style={{ background: "#2c1b0d", color: "#ffffff", fontSize: "11.5px", textTransform: "uppercase" }}>
+                                    <th style={{ padding: "12px 16px", textAlign: "left", borderRadius: "6px 0 0 6px" }}>Item Description</th>
+                                    <th style={{ padding: "12px 16px", textAlign: "left" }}>Customization / Notes</th>
+                                    <th style={{ padding: "12px 16px", textAlign: "center" }}>Qty</th>
+                                    <th style={{ padding: "12px 16px", textAlign: "right" }}>Unit Price</th>
+                                    <th style={{ padding: "12px 16px", textAlign: "right", borderRadius: "0 6px 6px 0" }}>Total</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {Array.isArray(activeInvoice.itemsList) && activeInvoice.itemsList.length > 0 ? (
+                                    activeInvoice.itemsList.map((it, idx) => {
+                                      const itQty = parseInt(it.quantity || it.qty) || 1;
+                                      const itUnit = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || (priceVal / activeInvoice.itemsList.length)).replace(/[^\d.]/g, "")) || (priceVal / activeInvoice.itemsList.length);
+                                      const itTotal = itUnit * itQty;
+                                      return (
+                                        <tr key={idx} style={{ borderBottom: "1px solid #eee", fontSize: "13px" }}>
+                                          <td style={{ padding: "14px 16px" }}>
+                                            <strong style={{ display: "block", color: "#2c1b0d" }}>{it.name || it.item || "Chai Selection"}</strong>
+                                          </td>
+                                          <td style={{ padding: "14px 16px", fontSize: "11.5px", color: "#666" }}>
+                                            {it.sugar ? `Sugar: ${it.sugar}` : (activeInvoice.customization || "Standard Recipe")}
+                                          </td>
+                                          <td style={{ padding: "14px 16px", textAlign: "center", fontWeight: "bold" }}>{itQty}</td>
+                                          <td style={{ padding: "14px 16px", textAlign: "right" }}>₹{itUnit.toFixed(2)}</td>
+                                          <td style={{ padding: "14px 16px", textAlign: "right", fontWeight: "bold" }}>₹{itTotal.toFixed(2)}</td>
+                                        </tr>
+                                      );
+                                    })
+                                  ) : (
+                                    <tr style={{ borderBottom: "1px solid #eee", fontSize: "13px" }}>
+                                      <td style={{ padding: "16px" }}>
+                                        <strong style={{ display: "block", color: "#2c1b0d" }}>{activeInvoice.items || "Chai Chaska Signature Order"}</strong>
+                                      </td>
+                                      <td style={{ padding: "16px", fontSize: "11.5px", color: "#666" }}>
+                                        {activeInvoice.customization || "Standard Recipe"}
+                                      </td>
+                                      <td style={{ padding: "16px", textAlign: "center", fontWeight: "bold" }}>1</td>
+                                      <td style={{ padding: "16px", textAlign: "right" }}>₹{subTotal}</td>
+                                      <td style={{ padding: "16px", textAlign: "right", fontWeight: "bold" }}>₹{subTotal}</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
 
-                            {/* Row 5: Payout acceptance & totals */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "40px", marginBottom: "40px" }}>
+                            {/* Row 4: Summary Totals */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "40px", marginBottom: "36px" }}>
                               <div>
-                                <strong style={{ fontSize: "11px", textTransform: "uppercase", display: "block", color: "#666", marginBottom: "8px" }}>Payment Method We Accept</strong>
-                                <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                                  <span style={{ fontSize: "12px", background: "rgba(44,27,13,0.05)", padding: "4px 8px", borderRadius: "4px", fontWeight: "bold" }}>UPI (Instant)</span>
-                                  <span style={{ fontSize: "12px", background: "rgba(44,27,13,0.05)", padding: "4px 8px", borderRadius: "4px", fontWeight: "bold" }}>Corporate Wallet</span>
+                                <strong style={{ fontSize: "11px", textTransform: "uppercase", display: "block", color: "#666", marginBottom: "8px" }}>Payment Status</strong>
+                                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                                  <span style={{ fontSize: "12px", background: "rgba(39, 174, 96, 0.1)", color: "#27ae60", padding: "6px 12px", borderRadius: "6px", fontWeight: "bold" }}>
+                                    ✓ Settled & Paid
+                                  </span>
+                                  <span style={{ fontSize: "12px", background: "rgba(44,27,13,0.05)", padding: "6px 12px", borderRadius: "6px", fontWeight: "bold" }}>
+                                    {activeInvoice.paymentMethod || "Verified Payment"}
+                                  </span>
                                 </div>
                               </div>
 
-                              <div style={{ fontSize: "12.5px" }}>
+                              <div style={{ fontSize: "13px" }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", color: "#666" }}>
                                   <span>Sub Total:</span>
                                   <span>₹{subTotal}</span>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", color: "#666", borderBottom: "1px solid #eee", paddingBottom: "10px" }}>
-                                  <span>Tax (GST 5%):</span>
+                                  <span>GST / Tax (5%):</span>
                                   <span>₹{taxVal}</span>
                                 </div>
-                                <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", background: "#2c1b0d", color: "#ffffff", borderRadius: "4px", marginTop: "10px", fontWeight: "bold" }}>
-                                  <span>Grand Total:</span>
-                                  <span>{activeInvoice.total}</span>
+                                <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 16px", background: "#2c1b0d", color: "#ffffff", borderRadius: "8px", marginTop: "12px", fontWeight: "bold", fontSize: "15px" }}>
+                                  <span>Total Order Value:</span>
+                                  <span>₹{priceVal.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                                 </div>
                               </div>
                             </div>
 
                             {/* Signature element */}
-                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "40px" }}>
-                              <div style={{ textAlign: "center", width: "160px" }}>
-                                <span style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: "16px", color: "#8a583c", display: "block", marginBottom: "4px" }}>Brewmaster Admin</span>
-                                <div style={{ borderTop: "1px solid #ccc", paddingTop: "6px", fontSize: "10.5px", color: "#888", textTransform: "uppercase", fontWeight: "bold" }}>Accounts Manager</div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: "32px", borderTop: "1px solid #eee", paddingTop: "20px" }}>
+                              <div style={{ fontSize: "10.5px", color: "#888" }}>
+                                <span>Authorized Electronic GST Bill • Thank you for choosing Chai Chaska!</span>
+                              </div>
+                              <div style={{ textAlign: "center", width: "180px" }}>
+                                <span style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: "16px", color: "#8a583c", display: "block", marginBottom: "4px" }}>Chai Chaska Admin</span>
+                                <div style={{ borderTop: "1px solid #ccc", paddingTop: "6px", fontSize: "10.5px", color: "#888", textTransform: "uppercase", fontWeight: "bold" }}>Authorized Signatory</div>
                               </div>
                             </div>
 
                             {/* Bottom Info bar */}
-                            <div style={{ borderTop: "1px solid #eee", marginTop: "40px", paddingTop: "16px", display: "flex", justifyContent: "space-between", fontSize: "9.5px", color: "#999" }}>
-                              <span style={{ maxWidth: "200px" }}>🏢 TF-57, 3rd floor, Gaur City Center, Near Gaur Chowk, Greater Noida West (UP)</span>
+                            <div style={{ borderTop: "1px solid #eee", marginTop: "24px", paddingTop: "14px", display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#999", flexWrap: "wrap", gap: "10px" }}>
+                              <span>🏢 TF-57, 3rd floor, Gaur City Center, Greater Noida West (UP)</span>
                               <span>📞 +91 96676-23-123</span>
-                              <span>✉️ chaichaska.support@gmail.com</span>
+                              <span>✉️ support@chaichaska.com</span>
                             </div>
 
                           </div>
@@ -2634,40 +2788,97 @@ export default function AdminDashboard() {
                   })()}
 
                   {/* Stats Info Cards */}
-                  {(() => {
-                    const deliveredCount = orders.filter(o => o.status === "Delivered").length;
-                    const cancelledCount = orders.filter(o => o.status === "Cancelled").length;
-                    const totalSettled = deliveredCount + cancelledCount;
-                    const successRate = totalSettled === 0 ? 100 : ((deliveredCount / totalSettled) * 100).toFixed(1);
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "28px" }}>
+                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.06)", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "11px", color: "#666", display: "block", textTransform: "uppercase" }}>☕ Total Orders Shown</span>
+                      <strong style={{ fontSize: "22px", color: "#2c1b0d" }}>{filteredHistory.length} Orders</strong>
+                    </div>
+                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.06)", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "11px", color: "#27ae60", display: "block", textTransform: "uppercase" }}>💰 Total Orders Value</span>
+                      <strong style={{ fontSize: "22px", color: "#27ae60" }}>₹{totalFilteredValue.toLocaleString("en-IN")}</strong>
+                    </div>
+                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.06)", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "11px", color: "#8a583c", display: "block", textTransform: "uppercase" }}>🏪 Counter / Offline</span>
+                      <strong style={{ fontSize: "22px", color: "#8a583c" }}>{offlineHistoryCount} Orders</strong>
+                    </div>
+                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.06)", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "11px", color: "#2980b9", display: "block", textTransform: "uppercase" }}>🌐 Online Desk App</span>
+                      <strong style={{ fontSize: "22px", color: "#2980b9" }}>{onlineHistoryCount} Orders</strong>
+                    </div>
+                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.06)", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "11px", color: "#27ae60", display: "block", textTransform: "uppercase" }}>📈 Success Rate</span>
+                      <strong style={{ fontSize: "22px", color: "#27ae60" }}>{successRate}%</strong>
+                    </div>
+                  </div>
 
-                    return (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "28px" }}>
-                        <div style={{ background: "#ffffff", padding: "18px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                          <span style={{ fontSize: "11px", color: "#666", display: "block" }}>☕ Total Served Brews</span>
-                          <strong style={{ fontSize: "20px", color: "#2c1b0d" }}>{deliveredCount} Completed</strong>
-                        </div>
-                        <div style={{ background: "#ffffff", padding: "18px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                          <span style={{ fontSize: "11px", color: "#666", display: "block" }}>📈 Settlement Success Rate</span>
-                          <strong style={{ fontSize: "20px", color: "#27ae60" }}>{successRate}% Successful</strong>
-                        </div>
-                        <div style={{ background: "#ffffff", padding: "18px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                          <span style={{ fontSize: "11px", color: "#666", display: "block" }}>🛑 Cancelled / Refunded</span>
-                          <strong style={{ fontSize: "20px", color: "#e74c3c" }}>{cancelledCount} Invoices</strong>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* View Toggles & Filters Row */}
+                  {/* View Toggles, Search & Date Filters Row */}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", flexWrap: "wrap", gap: "16px" }}>
 
+                    {/* Search Field */}
+                    <div style={{ flex: "1 1 260px", maxWidth: "340px", position: "relative" }}>
+                      <input
+                        type="text"
+                        placeholder="🔍 Search ID, Customer, Desk, Item..."
+                        value={historySearchTerm}
+                        onChange={(e) => setHistorySearchTerm(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "10px 14px",
+                          borderRadius: "10px",
+                          border: "1px solid rgba(44, 27, 13, 0.15)",
+                          fontSize: "12.5px",
+                          outline: "none",
+                          background: "#ffffff"
+                        }}
+                      />
+                      {historySearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => setHistorySearchTerm("")}
+                          style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", color: "#999", fontWeight: "bold" }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Type Filter Buttons */}
+                    <div style={{ display: "flex", background: "rgba(44,27,13,0.05)", padding: "4px", borderRadius: "10px" }}>
+                      {[
+                        { key: "all", label: "☕ All" },
+                        { key: "online", label: "🌐 Online" },
+                        { key: "offline", label: "🏪 Counter" }
+                      ].map(t => (
+                        <button
+                          key={t.key}
+                          type="button"
+                          onClick={() => setHistoryTypeFilter(t.key)}
+                          style={{
+                            padding: "6px 14px",
+                            border: "none",
+                            background: historyTypeFilter === t.key ? "#2c1b0d" : "transparent",
+                            color: historyTypeFilter === t.key ? "#ffffff" : "#2c1b0d",
+                            borderRadius: "6px",
+                            fontSize: "11px",
+                            fontWeight: "bold",
+                            cursor: "pointer"
+                          }}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+
                     {/* Date Filters */}
-                    <div style={{ display: "flex", background: "rgba(44,27,13,0.05)", padding: "4px", borderRadius: "8px" }}>
+                    <div style={{ display: "flex", background: "rgba(44,27,13,0.05)", padding: "4px", borderRadius: "10px", alignItems: "center" }}>
                       {["today", "7days", "all"].map((filter) => (
                         <button
                           key={filter}
                           type="button"
-                          onClick={() => setHistoryDateFilter(filter)}
+                          onClick={() => {
+                            setHistoryDateFilter(filter);
+                            setTimeFilter(filter === "all" ? "All" : filter === "today" ? "Daily" : "Weekly");
+                          }}
                           style={{
                             padding: "6px 14px",
                             border: "none",
@@ -2683,25 +2894,30 @@ export default function AdminDashboard() {
                           {filter === "7days" ? "Last 7 Days" : filter}
                         </button>
                       ))}
-                      <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
+                      <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 6px" }}></div>
                       <input 
                         type="date"
-                        value={(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? timeFilter : ""}
-                        onChange={(e) => setTimeFilter(e.target.value || "All")}
+                        value={(typeof historyDateFilter === 'string' && historyDateFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? historyDateFilter : ""}
+                        onChange={(e) => {
+                          const dt = e.target.value;
+                          setHistoryDateFilter(dt || "all");
+                          setTimeFilter(dt || "All");
+                        }}
                         style={{
-                          padding: "4px 8px",
+                          padding: "5px 8px",
                           borderRadius: "6px",
                           border: "1px solid #ddd",
-                          fontSize: "12px",
+                          fontSize: "11.5px",
                           color: "#333",
                           cursor: "pointer",
-                          outline: "none"
+                          outline: "none",
+                          background: "#ffffff"
                         }}
                       />
                     </div>
 
                     {/* Format Layout Toggle */}
-                    <div style={{ display: "flex", background: "rgba(44,27,13,0.05)", padding: "4px", borderRadius: "8px" }}>
+                    <div style={{ display: "flex", background: "rgba(44,27,13,0.05)", padding: "4px", borderRadius: "10px" }}>
                       <button
                         type="button"
                         onClick={() => setHistoryViewMode("grid")}
@@ -2745,46 +2961,70 @@ export default function AdminDashboard() {
                     </div>
                   )}
 
-                  {/* Render List or Grid */}
-                  {historyViewMode === "grid" ? (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px" }}>
+                  {/* Empty state or Items List/Grid */}
+                  {filteredHistory.length === 0 ? (
+                    <div style={{ background: "#ffffff", padding: "48px 20px", borderRadius: "20px", textAlign: "center", border: "1px solid rgba(44, 27, 13, 0.08)" }}>
+                      <div style={{ fontSize: "36px", marginBottom: "12px" }}>🔍</div>
+                      <h3 style={{ fontSize: "16px", color: "#2c1b0d", fontWeight: "bold", marginBottom: "6px" }}>No Orders Found</h3>
+                      <p style={{ fontSize: "12.5px", color: "#777", maxWidth: "400px", margin: "0 auto 16px" }}>
+                        No orders match your selected search or date filter. Try clearing filters or picking another date.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistoryDateFilter("all");
+                          setHistorySearchTerm("");
+                          setHistoryTypeFilter("all");
+                        }}
+                        style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 18px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}
+                      >
+                        Clear All Filters
+                      </button>
+                    </div>
+                  ) : historyViewMode === "grid" ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: "16px" }}>
                       {filteredHistory.map((h, i) => (
-                        <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "12px", borderBottom: "1px solid rgba(0,0,0,0.03)", paddingBottom: "8px" }}>
-                            <span style={{ fontSize: "13px", fontWeight: "800", color: "#8a583c" }}>{h.id}</span>
+                        <div key={i} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid rgba(44, 27, 13, 0.08)", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", borderBottom: "1px solid rgba(0,0,0,0.04)", paddingBottom: "10px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span style={{ fontSize: "13px", fontWeight: "900", color: "#8a583c" }}>{h.id}</span>
+                              <span style={{ fontSize: "10.5px", padding: "2px 8px", borderRadius: "6px", background: h.isOffline ? "#f0e6d2" : "#e3f2fd", color: h.isOffline ? "#8a583c" : "#1976d2", fontWeight: "bold" }}>
+                                {h.isOffline ? "🏪 Counter" : "🌐 Online"}
+                              </span>
+                            </div>
                             <span style={{ fontSize: "11px", color: "#888" }}>{h.date}</span>
                           </div>
 
-                          <div style={{ marginBottom: "14px" }}>
-                            <span style={{ fontSize: "14px", display: "block", fontWeight: "bold" }}>👤 {h.customer}</span>
-                            <span style={{ fontSize: "12px", color: "#555", display: "block", margin: "4px 0" }}>📦 {h.items}</span>
-                            <span style={{ fontSize: "11px", color: "#888", display: "block" }}>⚙️ Add-ons: {h.customization}</span>
-                            <span style={{ fontSize: "11px", color: "#888", display: "block" }}>🏢 Desk: {h.office}</span>
+                          <div style={{ marginBottom: "16px" }}>
+                            <span style={{ fontSize: "14px", display: "block", fontWeight: "bold", color: "#2c1b0d" }}>👤 {h.customer}</span>
+                            <span style={{ fontSize: "13px", color: "#333", display: "block", margin: "6px 0", fontWeight: "600" }}>📦 {h.items}</span>
+                            <span style={{ fontSize: "11px", color: "#777", display: "block" }}>⚙️ Recipe: {h.customization}</span>
+                            <span style={{ fontSize: "11.5px", color: "#555", display: "block", marginTop: "4px" }}>📍 {h.office}</span>
                           </div>
 
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid rgba(0,0,0,0.04)", paddingTop: "12px" }}>
                             <div>
-                              <span style={{ fontSize: "10.5px", background: h.status === "Delivered" ? "rgba(39, 174, 96, 0.1)" : "rgba(231, 76, 60, 0.1)", color: h.status === "Delivered" ? "#27ae60" : "#e74c3c", padding: "4px 8px", borderRadius: "6px", fontWeight: "bold", marginRight: "6px" }}>
+                              <span style={{ fontSize: "10.5px", background: h.status === "Delivered" || h.status === "Completed" ? "rgba(39, 174, 96, 0.1)" : "rgba(231, 76, 60, 0.1)", color: h.status === "Delivered" || h.status === "Completed" ? "#27ae60" : "#e74c3c", padding: "4px 8px", borderRadius: "6px", fontWeight: "bold", marginRight: "8px" }}>
                                 ● {h.status}
                               </span>
-                              <strong style={{ fontSize: "14px", color: "#2c1b0d" }}>{h.total}</strong>
+                              <strong style={{ fontSize: "16px", color: "#27ae60" }}>{h.total}</strong>
                             </div>
 
                             <div style={{ display: "flex", gap: "8px" }}>
                               <button
                                 type="button"
                                 onClick={() => setActiveInvoice(h)}
-                                style={{ background: "transparent", border: "1px solid rgba(0,0,0,0.1)", padding: "4px 8px", borderRadius: "6px", fontSize: "11px", cursor: "pointer" }}
+                                style={{ background: "#f8f9fa", border: "1px solid #ddd", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", color: "#2c1b0d", fontWeight: "bold" }}
                               >
-                                Print Invoice
+                                📄 Invoice
                               </button>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setToastMsg(`🔄 Re-opened order ${h.id} as active brewing request!`);
+                                  setToastMsg(`🔄 Order ${h.id} re-opened in active queue!`);
                                   setTimeout(() => setToastMsg(""), 3000);
                                 }}
-                                style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "4px 8px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontWeight: "bold" }}
+                                style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", fontWeight: "bold" }}
                               >
                                 Re-open
                               </button>
@@ -2799,48 +3039,58 @@ export default function AdminDashboard() {
                       <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
                         <thead>
                           <tr style={{ background: "linear-gradient(to right, #fbf9f6, #ffffff)", borderBottom: "2px solid rgba(44, 27, 13, 0.08)", fontSize: "11px", textTransform: "uppercase", color: "#8a583c", letterSpacing: "0.5px" }}>
-                            <th style={{ padding: "20px" }}>Order ID</th>
-                            <th style={{ padding: "20px" }}>Customer</th>
-                            <th style={{ padding: "20px" }}>Items & Details</th>
-                            <th style={{ padding: "20px" }}>Delivery Desk</th>
-                            <th style={{ padding: "20px" }}>Date</th>
-                            <th style={{ padding: "20px" }}>Total</th>
-                            <th style={{ padding: "20px", textAlign: "center" }}>Status</th>
-                            <th style={{ padding: "20px", textAlign: "right" }}>Actions</th>
+                            <th style={{ padding: "18px 20px" }}>Order ID & Channel</th>
+                            <th style={{ padding: "18px 20px" }}>Customer</th>
+                            <th style={{ padding: "18px 20px" }}>Items & Details</th>
+                            <th style={{ padding: "18px 20px" }}>Delivery Location</th>
+                            <th style={{ padding: "18px 20px" }}>Date</th>
+                            <th style={{ padding: "18px 20px" }}>Total Value</th>
+                            <th style={{ padding: "18px 20px", textAlign: "center" }}>Status</th>
+                            <th style={{ padding: "18px 20px", textAlign: "right" }}>Actions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredHistory.map((h, i) => (
                             <tr key={i} className="history-list-row" style={{ borderBottom: i === filteredHistory.length - 1 ? "none" : "1px solid rgba(0,0,0,0.04)", fontSize: "13px", transition: "all 0.2s ease" }} onMouseOver={e => e.currentTarget.style.backgroundColor = '#fdfbf9'} onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                              <td style={{ padding: "18px 20px", fontWeight: "800", color: "#8a583c", fontSize: "14px" }}>#{h.id.slice(-6).toUpperCase()}</td>
-                              <td style={{ padding: "18px 20px", fontWeight: "bold", color: "#2c1b0d" }}>
+                              <td style={{ padding: "16px 20px" }}>
+                                <strong style={{ color: "#8a583c", fontSize: "13.5px", display: "block" }}>{h.id}</strong>
+                                <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", background: h.isOffline ? "#f0e6d2" : "#e3f2fd", color: h.isOffline ? "#8a583c" : "#1976d2", fontWeight: "bold", display: "inline-block", marginTop: "2px" }}>
+                                  {h.isOffline ? "🏪 Counter" : "🌐 Online"}
+                                </span>
+                              </td>
+                              <td style={{ padding: "16px 20px", fontWeight: "bold", color: "#2c1b0d" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                                  <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#f0e6d2", display: "flex", alignItems: "center", justifyContent: "center", color: "#8a583c", fontSize: "14px", flexShrink: 0 }}>{h.customer ? h.customer.charAt(0).toUpperCase() : "G"}</div>
-                                  <span>{h.customer}</span>
+                                  <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#f0e6d2", display: "flex", alignItems: "center", justifyContent: "center", color: "#8a583c", fontSize: "13px", flexShrink: 0 }}>
+                                    {h.customer ? h.customer.charAt(0).toUpperCase() : "C"}
+                                  </div>
+                                  <div>
+                                    <span>{h.customer}</span>
+                                    {h.phone && <span style={{ fontSize: "10.5px", color: "#888", display: "block" }}>{h.phone}</span>}
+                                  </div>
                                 </div>
                               </td>
-                              <td style={{ padding: "18px 20px" }}>
+                              <td style={{ padding: "16px 20px" }}>
                                 <span style={{ display: "block", color: "#2c1b0d", fontWeight: "600" }}>{h.items}</span>
                                 <span style={{ fontSize: "11px", color: "#888", background: "#f8f9fa", padding: "2px 6px", borderRadius: "4px", marginTop: "4px", display: "inline-block" }}>{h.customization}</span>
                               </td>
-                              <td style={{ padding: "18px 20px", color: "#555", fontWeight: "500" }}>📍 {h.office}</td>
-                              <td style={{ padding: "18px 20px", color: "#777" }}>📅 {h.date}</td>
-                              <td style={{ padding: "18px 20px", fontWeight: "800", color: "#2c1b0d", fontSize: "15px" }}>{h.total}</td>
-                              <td style={{ padding: "18px 20px", textAlign: "center" }}>
-                                <span style={{ fontSize: "11px", background: h.status === "Delivered" ? "#e8f5e9" : "#ffebee", color: h.status === "Delivered" ? "#2e7d32" : "#c62828", padding: "6px 12px", borderRadius: "20px", fontWeight: "bold", display: "inline-block", border: h.status === "Delivered" ? "1px solid #a5d6a7" : "1px solid #ffcdd2" }}>
-                                  {h.status === "Delivered" ? "✓" : "×"} {h.status}
+                              <td style={{ padding: "16px 20px", color: "#555", fontWeight: "500" }}>📍 {h.office}</td>
+                              <td style={{ padding: "16px 20px", color: "#777" }}>📅 {h.date}</td>
+                              <td style={{ padding: "16px 20px", fontWeight: "900", color: "#27ae60", fontSize: "15px" }}>{h.total}</td>
+                              <td style={{ padding: "16px 20px", textAlign: "center" }}>
+                                <span style={{ fontSize: "11px", background: h.status === "Delivered" || h.status === "Completed" ? "#e8f5e9" : "#ffebee", color: h.status === "Delivered" || h.status === "Completed" ? "#2e7d32" : "#c62828", padding: "6px 12px", borderRadius: "20px", fontWeight: "bold", display: "inline-block", border: h.status === "Delivered" || h.status === "Completed" ? "1px solid #a5d6a7" : "1px solid #ffcdd2" }}>
+                                  {h.status === "Delivered" || h.status === "Completed" ? "✓" : "×"} {h.status}
                                 </span>
                               </td>
-                              <td style={{ padding: "18px 20px", textAlign: "right" }}>
+                              <td style={{ padding: "16px 20px", textAlign: "right" }}>
                                 <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                                   <button
                                     type="button"
                                     onClick={() => setActiveInvoice(h)}
-                                    style={{ background: "#f8f9fa", border: "1px solid #ddd", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", color: "#2c1b0d", fontWeight: "600", transition: "background 0.2s" }}
+                                    style={{ background: "#f8f9fa", border: "1px solid #ddd", padding: "6px 12px", borderRadius: "8px", fontSize: "12px", cursor: "pointer", color: "#2c1b0d", fontWeight: "bold", transition: "background 0.2s" }}
                                     onMouseOver={e => e.currentTarget.style.background = '#e9ecef'}
                                     onMouseOut={e => e.currentTarget.style.background = '#f8f9fa'}
                                   >
-                                    Invoice
+                                    📄 Invoice
                                   </button>
                                   <button
                                     type="button"
@@ -3264,8 +3514,6 @@ export default function AdminDashboard() {
                           <input name="comboItems" type="text" placeholder="e.g. Ginger Chai + Biscuits" required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
                         </div>
 
-
-
                         <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}>
                           CREATE & REGISTER COMBO
                         </button>
@@ -3284,7 +3532,6 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 )}
-
 
               </div>
             )}
@@ -3368,9 +3615,6 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                 )}
-
-
-
 
                 <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
 
@@ -3567,7 +3811,6 @@ export default function AdminDashboard() {
                         </div>
                       </div>
 
-
                       <div className="form-group" style={{ marginBottom: "16px" }}>
                         <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Description</label>
                         <textarea rows="2" value={newProdDesc} onChange={(e) => setNewProdDesc(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px", resize: "none" }} />
@@ -3582,7 +3825,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
             )}
-
 
             {activeTab === "shop" && (
               <div className="tab-body-wrapper">
@@ -3756,7 +3998,6 @@ export default function AdminDashboard() {
               </div>
             )}
 
-
             {/* Feedback Tab */}
             {activeTab === "feedback" && (
               <div className="tab-fade-in" style={{ padding: "30px", maxWidth: "1000px", margin: "0 auto" }}>
@@ -3889,7 +4130,6 @@ export default function AdminDashboard() {
               )}
               {activeTab === "contact" && (() => {
 
-
               return (
                 <div className="tab-fade-in" style={{ padding: "30px", maxWidth: "800px", margin: "0 auto" }}>
                   <h1 style={{ fontSize: "28px", fontWeight: 800, color: "#2c1b0d", margin: "0 0 20px" }}>Footer Settings</h1>
@@ -3977,10 +4217,6 @@ export default function AdminDashboard() {
                 </div>
               );
             })()}
-
-
-
-
 
             {activeTab === "leave" && (
               <div className="tab-body-wrapper">
@@ -4530,37 +4766,10 @@ export default function AdminDashboard() {
         });
 
         const totalPendingSum = allPendingOrders.reduce((acc, o) => {
-          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+          const rawVal = o.total || o.price || o.amount || 0;
+    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
           return acc + (isNaN(val) ? 0 : val);
         }, 0);
-
-  const handleDownloadCSV = () => {
-    if (!filteredOrders || !filteredOrders.length) return;
-    
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
-    
-    filteredOrders.forEach(o => {
-      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
-      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
-      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
-      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
-      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
-      
-      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
-    });
-    
-    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
-    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
         const groupedByCustomer = allPendingOrders.reduce((acc, o) => {
           const custName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : "Walk-in Customer");
@@ -4574,7 +4783,8 @@ export default function AdminDashboard() {
               lastDate: o.createdAt || 0
             };
           }
-          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+          const rawVal = o.total || o.price || o.amount || 0;
+    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
           acc[custName].totalAmount += (isNaN(val) ? 0 : val);
           acc[custName].count += 1;
           acc[custName].orders.push(o);
@@ -6362,5 +6572,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
-
 

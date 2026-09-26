@@ -222,6 +222,34 @@ export default function AdminDashboard() {
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("All");
   const [inventorySelectedDate, setInventorySelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Robust Price Parsing & Formatting Helpers
+  const parseOrderPrice = (o) => {
+    if (!o) return 0;
+    if (typeof o.priceNum === "number" && !isNaN(o.priceNum) && o.priceNum > 0) return o.priceNum;
+    const raw = o.total || o.price || o.amount || o.totalPrice || 0;
+    if (typeof raw === "number" && !isNaN(raw)) return raw;
+    if (typeof raw === "string") {
+      const num = parseFloat(raw.replace(/[^\d.]/g, ""));
+      if (!isNaN(num) && num > 0) return num;
+    }
+    if (Array.isArray(o.items) && o.items.length > 0) {
+      const sum = o.items.reduce((acc, it) => {
+        const p = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
+        const q = parseInt(it.quantity || it.qty) || 1;
+        return acc + (p * q);
+      }, 0);
+      if (sum > 0) return sum;
+    }
+    return 0;
+  };
+
+  const formatOrderTotal = (o) => {
+    const num = parseOrderPrice(o);
+    if (num > 0) return `₹${num.toLocaleString("en-IN")}`;
+    if (typeof o?.total === "string" && o.total.includes("₹") && /\d/.test(o.total)) return o.total;
+    return "₹0";
+  };
+
   // Customer Management Table — dynamically derived from live database orders
   const customerManagement = (() => {
     const map = {};
@@ -275,7 +303,8 @@ export default function AdminDashboard() {
   });
 
   const selectedDateTotalSales = filteredOrders.reduce((acc, o) => {
-    const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+    const rawVal = o.total || o.price || o.amount || 0;
+    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
     return acc + (isNaN(val) ? 0 : val);
   }, 0);
 
@@ -286,7 +315,8 @@ export default function AdminDashboard() {
     csvContent += "Order ID,Items,Type,Amount (Rs)\n";
     
     filteredOrders.forEach(o => {
-      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      const rawAmt = o.total || o.price || o.amount || 0;
+                              const amt = typeof rawAmt === "string" ? parseFloat(rawAmt.replace(/[^\d\.]/g, "")) : parseFloat(rawAmt);
       const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
       const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
       const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
@@ -344,30 +374,35 @@ export default function AdminDashboard() {
       const key = o.item || "Chai Selection";
       if (!itemMap[key]) itemMap[key] = { count: 0, value: 0 };
       itemMap[key].count++;
-      const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
+      const val = parseOrderPrice(o);
       itemMap[key].value += isNaN(val) ? 0 : val;
     });
     return Object.entries(itemMap).map(([k, v]) => ({
       item: `${k} (${v.count} units)`,
-      value: `${v.count} ${v.count === 1 ? 'Cup' : 'Cups'}`
+      value: `₹${v.value.toLocaleString("en-IN")}`
     }));
   })();
 
-  const historyOrders = orders.map((o) => {
+  const historyOrders = orders.map((o, idx) => {
     const customizations = [];
     if (o.sugar) customizations.push(`Sugar: ${o.sugar}`);
     if (o.milk) customizations.push(`Milk: ${o.milk}`);
+    if (o.addons && o.addons !== "None") customizations.push(`Add-ons: ${o.addons}`);
 
     return {
-      id: o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.replace("CHAI-ORD-", "").slice(-6).toUpperCase() : "LIVE"}`),
+      id: o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.replace("CHAI-ORD-", "").slice(-6).toUpperCase() : (idx + 1001)}`),
       originalId: o.id,
-      customer: o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (o.walkIn ? "Walk-in Customer" : "Corporate Client")),
+      customer: o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (o.walkIn ? "Counter Walk-in Customer" : "Corporate Desk Partner")),
       status: o.status || "Received",
       date: o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString("en-IN") : "Just now"),
       createdAt: o.createdAt || 0,
+      total: formatOrderTotal(o),
+      numericTotal: parseOrderPrice(o),
       items: o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection"),
-      customization: customizations.join(", ") || (o.walkIn ? "Counter Order" : "Standard Recipe"),
+      itemsList: Array.isArray(o.items) ? o.items : [],
+      customization: customizations.join(", ") || (o.walkIn ? "Fresh Counter Brew" : "Standard Recipe"),
       office: o.office || o.address || (o.walkIn ? "Counter Pickup" : "Desk Delivery"),
+      phone: o.phone || (typeof o.address === "object" ? o.address?.phone : "") || "",
       isOffline: Boolean(o.isOffline || o.walkIn),
       walkIn: Boolean(o.walkIn),
       paymentMethod: o.paymentMethod || (o.isOffline || o.walkIn ? "Cash" : "Online UPI"),
@@ -1376,6 +1411,58 @@ export default function AdminDashboard() {
                     ))}
                   </div>
 
+                  
+                  {/* DAILY SALES REPORT TABLE (VISIBLE WHEN DATE OR DAILY FILTER IS SELECTED) */}
+                  {(timeFilter === "Daily" || (typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/))) && (
+                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "16px", border: "1px solid #eaeaea", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "24px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+                        <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "800", color: "#2c1b0d" }}>
+                          Sales Report: {timeFilter === "Daily" ? "Today" : new Date(timeFilter).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        </h3>
+                        <div style={{ background: "#e8f5e9", color: "#2e7d32", padding: "8px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "16px" }}>
+                          Total: ₹{(typeof selectedDateTotalSales !== 'undefined' ? selectedDateTotalSales : (typeof totalSalesVal !== 'undefined' ? totalSalesVal : 0)).toFixed(2)}
+                        </div>
+                      </div>
+                      
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "500px" }}>
+                          <thead>
+                            <tr style={{ background: "#f8f9fa", borderBottom: "2px solid #eee", textAlign: "left" }}>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Order ID</th>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Items</th>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Type</th>
+                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700", textAlign: "right" }}>Amount (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredOrders.length > 0 ? filteredOrders.map((o) => {
+                              const rawAmt = o.total || o.price || o.amount || 0;
+                              const amt = typeof rawAmt === "string" ? parseFloat(rawAmt.replace(/[^\d\.]/g, "")) : parseFloat(rawAmt);
+                              const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
+                              const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
+                              const itemName = o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection");
+                              
+                              return (
+                                <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
+                                  <td style={{ padding: "12px", fontSize: "14px", fontWeight: "600", color: "#2c1b0d" }}>{idStr}</td>
+                                  <td style={{ padding: "12px", fontSize: "14px", color: "#444" }}>{itemName}</td>
+                                  <td style={{ padding: "12px", fontSize: "14px", color: "#666" }}>{o.isOffline || o.walkIn ? "Offline / Counter" : "Online"}</td>
+                                  <td style={{ padding: "12px", fontSize: "14px", fontWeight: "700", color: "#2e7d32", textAlign: "right" }}>₹{amtStr}</td>
+                                </tr>
+                              );
+                            }) : (
+                              <tr>
+                                <td colSpan="4" style={{ padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
+                                  No sales found for this date.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                   {/* MIDDLE ROW: SPLIT COLUMNS (MATCHING ADMIN DASHBOARD 1:1) */}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
                     
@@ -1536,7 +1623,6 @@ export default function AdminDashboard() {
                 </div>
               );
             })()}
-
 
             {/* TAB: ORDER QUEUE (ALL ACTIVE ONLINE & OFFLINE PREPARATION ORDERS) */}
             {activeTab === "queue" && (() => {
@@ -1763,8 +1849,7 @@ export default function AdminDashboard() {
                               }
                               setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
                               updateOrder(selectedQueueOrder.id, updates);
-                                
-                                
+
                             }}
                           >
                             <option value="Received">Received</option>
@@ -1937,8 +2022,6 @@ export default function AdminDashboard() {
                             </button>
                           </div>
                         </div>
-
-                        
 
                       </div>
                     );
@@ -3229,7 +3312,6 @@ export default function AdminDashboard() {
               );
             })()}
 
-
             {activeTab === "leave" && (
               <div className="tab-body-wrapper">
                 <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "28px" }}>
@@ -3520,413 +3602,392 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* TAB: OFFLINE & WALK-IN ORDERS (BLACK & WHITE THEME - ZERO MONEY) */}
-            {activeTab === "offline" && (
-              <div className="tab-body-wrapper" style={{ padding: "28px 32px" }}>
-                <div style={{ marginBottom: "20px" }}>
-                  <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b" }}>Offline & Counter Walk-in Orders</h3>
-                  <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Create immediate counter orders and monitor recent in-store preparation batches</p>
-                </div>
+            {/* TAB: OFFLINE & WALK-IN ORDERS (AUTOMATIC PRICE CALCULATION) */}
+            {activeTab === "offline" && (() => {
+              const calculatedTotal = offlineOrderForm.items.reduce((sum, it) => sum + (it.priceNum || 40) * it.qty, 0);
+              const totalItemsCount = offlineOrderForm.items.reduce((acc, item) => acc + item.qty, 0);
 
-                {/* TOP ROW: 2 COLUMNS (LEFT: Customer & Destination, RIGHT: Kitchen Prep Items) */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }} className="dashboard-double-row-grid">
-                  {/* Left Column: Customer & Destination */}
-                  <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                    <div>
-                      <h4 style={{ margin: "0 0 16px 0", fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Customer & Destination</h4>
-                      <div style={{ marginBottom: "14px" }}>
-                        <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Customer Name</label>
-                        <input 
-                          type="text"
-                          value={offlineOrderForm.customerName}
-                          onChange={e => setOfflineOrderForm({ ...offlineOrderForm, customerName: e.target.value })}
-                          style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
-                          placeholder="e.g. Rahul Sharma"
-                        />
-                      </div>
-                      <div style={{ marginBottom: "16px" }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", cursor: "pointer", fontWeight: "750", color: "#09090b" }}>
+              return (
+                <div className="tab-body-wrapper" style={{ padding: "28px 32px" }}>
+                  <div style={{ marginBottom: "20px" }}>
+                    <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b" }}>Offline & Counter Walk-in Orders</h3>
+                    <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Create immediate counter orders with automatic price calculation per selected item</p>
+                  </div>
+
+                  {/* TOP ROW: 2 COLUMNS (LEFT: Customer & Auto Price, RIGHT: Kitchen Prep Items) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }} className="dashboard-double-row-grid">
+                    {/* Left Column: Customer & Destination */}
+                    <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                      <div>
+                        <h4 style={{ margin: "0 0 16px 0", fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Customer & Destination</h4>
+                        
+                        <div style={{ marginBottom: "14px" }}>
+                          <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Customer Name</label>
                           <input 
-                            type="checkbox"
-                            checked={offlineOrderForm.walkIn}
-                            onChange={e => setOfflineOrderForm({ ...offlineOrderForm, walkIn: e.target.checked, address: e.target.checked ? "Walk-in Counter" : "", phone: e.target.checked ? "Walk-in" : "" })}
-                            style={{ width: "16px", height: "16px", accentColor: "#000000" }}
+                            type="text"
+                            value={offlineOrderForm.customerName}
+                            onChange={e => setOfflineOrderForm({ ...offlineOrderForm, customerName: e.target.value })}
+                            style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
+                            placeholder="e.g. Rahul Sharma"
                           />
-                          Walk-in In-Store Customer (Immediate Counter Pickup)
-                        </label>
-                      </div>
-                      {!offlineOrderForm.walkIn && (
-                        <>
-                          <div style={{ marginBottom: "14px" }}>
-                            <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Mobile Number</label>
+                        </div>
+
+                        <div style={{ marginBottom: "16px" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", cursor: "pointer", fontWeight: "750", color: "#09090b" }}>
                             <input 
-                              type="text"
-                              value={offlineOrderForm.phone}
-                              onChange={e => setOfflineOrderForm({ ...offlineOrderForm, phone: e.target.value })}
-                              style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
-                              placeholder="+91 98000 00000"
+                              type="checkbox"
+                              checked={offlineOrderForm.walkIn}
+                              onChange={e => setOfflineOrderForm({ ...offlineOrderForm, walkIn: e.target.checked, address: e.target.checked ? "Walk-in Counter" : "", phone: e.target.checked ? "Walk-in" : "" })}
+                              style={{ width: "16px", height: "16px", accentColor: "#000000" }}
                             />
-                          </div>
-                                                    <div style={{ marginBottom: "14px" }}>
-                            <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Desk / Office Location</label>
-                            
-                            {(() => {
-                              const recentAddresses = Array.from(new Set(
-                                orders
-                                  .filter(o => typeof o.address === 'string' || (o.address && typeof o.address.addressLine1 === 'string'))
-                                  .map(o => typeof o.address === 'string' ? o.address : o.address.addressLine1)
-                                  .filter(a => a && a.trim() !== "" && a !== "Walk-in Counter")
-                              )).slice(0, 5);
-                              
-                              if (recentAddresses.length > 0) {
-                                return (
-                                  <div style={{ marginBottom: "8px", display: "flex", flexWrap: "wrap" }}>
-                                    {recentAddresses.map((addr, idx) => (
-                                      <button
-                                        key={idx}
-                                        type="button"
-                                        onClick={() => setOfflineOrderForm({ ...offlineOrderForm, address: addr })}
-                                        style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 8px", fontSize: "11px", marginRight: "6px", marginBottom: "6px", cursor: "pointer", color: "#475569", transition: "all 0.2s ease" }}
-                                        onMouseEnter={(e) => { e.target.style.background = "#e2e8f0"; }}
-                                        onMouseLeave={(e) => { e.target.style.background = "#f1f5f9"; }}
-                                      >
-                                        + {addr}
-                                      </button>
-                                    ))}
-                                  </div>
-                                );
-                              }
-                              return null;
-                            })()}
-
-                            <textarea 
-                              value={offlineOrderForm.address}
-                              onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
-                              style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", minHeight: "85px", boxSizing: "border-box" }}
-                              placeholder="e.g. 2nd Floor, Cabin 204 or Desk Bay 4"
-                            />
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Right Column: Kitchen Prep Items & Order Action */}
-                  <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                        <div>
-                          <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Kitchen Prep Items</h4>
-                          <span style={{ fontSize: "12px", color: "#71717a" }}>Selected Chai & Snacks for brewing</span>
+                            Walk-in In-Store Customer (Immediate Counter Pickup)
+                          </label>
                         </div>
-                        <button 
-                          type="button"
-                          onClick={() => setIsOfflineItemModalOpen(true)}
-                          style={{ background: "#000000", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: "800", fontSize: "12.5px" }}
-                        >
-                          + Add Products
-                        </button>
-                      </div>
 
-                      <div style={{ maxHeight: "200px", minHeight: "130px", overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: "12px", padding: "12px", marginBottom: "16px", background: "#fafafa" }}>
-                        {offlineOrderForm.items.length === 0 ? (
-                          <div style={{ textAlign: "center", color: "#71717a", fontSize: "13px", padding: "36px 0" }}>
-                            No items added yet. Click "+ Add Products" to select.
-                          </div>
-                        ) : (
-                          offlineOrderForm.items.map((item, idx) => (
-                            <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px 14px", marginBottom: "8px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                                <img src={item.image || "/logo.png"} alt={item.name} style={{ width: "36px", height: "36px", borderRadius: "8px", objectFit: "cover" }} />
-                                <div>
-                                  <strong style={{ display: "block", fontSize: "13.5px", color: "#09090b" }}>{item.name}</strong>
-                                  <span style={{ color: "#71717a", fontSize: "11.5px" }}>Quantity: {item.qty} {item.qty === 1 ? "Cup/Unit" : "Cups/Units"}</span>
-                                </div>
-                              </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                                <span style={{ fontSize: "12px", background: "#f4f4f5", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", color: "#09090b" }}>{item.qty}x</span>
-                                <button 
-                                  type="button"
-                                  onClick={() => setOfflineOrderForm({ ...offlineOrderForm, items: offlineOrderForm.items.filter((_, i) => i !== idx) })}
-                                  style={{ background: "#f4f4f5", color: "#09090b", border: "1px solid #e4e4e7", padding: "4px 8px", borderRadius: "6px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}
-                                >✕</button>
-                              </div>
+                        {!offlineOrderForm.walkIn && (
+                          <>
+                            <div style={{ marginBottom: "14px" }}>
+                              <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Mobile Number</label>
+                              <input 
+                                type="text"
+                                value={offlineOrderForm.phone}
+                                onChange={e => setOfflineOrderForm({ ...offlineOrderForm, phone: e.target.value })}
+                                style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
+                                placeholder="+91 98000 00000"
+                              />
                             </div>
-                          ))
+
+                            <div style={{ marginBottom: "14px" }}>
+                              <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Desk / Office Location</label>
+                              
+                              {(() => {
+                                const recentAddresses = Array.from(new Set(
+                                  orders
+                                    .filter(o => typeof o.address === 'string' || (o.address && typeof o.address.addressLine1 === 'string'))
+                                    .map(o => typeof o.address === 'string' ? o.address : o.address.addressLine1)
+                                    .filter(a => a && a.trim() !== "" && a !== "Walk-in Counter")
+                                )).slice(0, 5);
+                                
+                                if (recentAddresses.length > 0) {
+                                  return (
+                                    <div style={{ marginBottom: "8px", display: "flex", flexWrap: "wrap" }}>
+                                      {recentAddresses.map((addr, idx) => (
+                                        <button
+                                          key={idx}
+                                          type="button"
+                                          onClick={() => setOfflineOrderForm({ ...offlineOrderForm, address: addr })}
+                                          style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 8px", fontSize: "11px", marginRight: "6px", marginBottom: "6px", cursor: "pointer", color: "#475569", transition: "all 0.2s ease" }}
+                                          onMouseEnter={(e) => { e.target.style.background = "#e2e8f0"; }}
+                                          onMouseLeave={(e) => { e.target.style.background = "#f1f5f9"; }}
+                                        >
+                                          + {addr}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
+
+                              <textarea 
+                                value={offlineOrderForm.address}
+                                onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
+                                style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", minHeight: "75px", boxSizing: "border-box" }}
+                                placeholder="e.g. 2nd Floor, Cabin 204 or Desk Bay 4"
+                              />
+                            </div>
+                          </>
                         )}
-                      </div>
-                    </div>
 
-                    <div>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "12px 16px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #f1f5f9" }}>
-                        <span style={{ fontSize: "13.5px", fontWeight: "800", color: "#09090b" }}>Total Items to Prepare:</span>
-                        <span style={{ background: "#000000", color: "#ffffff", padding: "5px 14px", borderRadius: "8px", fontWeight: "900", fontSize: "14px" }}>
-                          {offlineOrderForm.items.reduce((acc, item) => acc + item.qty, 0)} Items
-                        </span>
-                      </div>
-
-                      <button 
-                        type="button"
-                        onClick={async () => {
-                          if (!offlineOrderForm.customerName || offlineOrderForm.items.length === 0) {
-                            setToastMsg("❌ Please enter customer name and at least one item!");
-                            setTimeout(() => setToastMsg(""), 3000);
-                            return;
-                          }
-                          const orderData = {
-                            customer: offlineOrderForm.customerName,
-                            phone: offlineOrderForm.phone || "",
-                            address: offlineOrderForm.address || (offlineOrderForm.walkIn ? "Counter Walk-in" : "Direct Pickup"),
-                            walkIn: offlineOrderForm.walkIn,
-                            isOffline: true,
-                            paymentStatus: "Pending",
-                            paymentMethod: "Pending Selection",
-                            status: "Received",
-                            total: "Counter Order",
-                            priceNum: 0,
-                            createdAt: Date.now(),
-                            date: new Date().toLocaleDateString('en-GB'),
-                            item: offlineOrderForm.items.map(i => `${i.name} x${i.qty}`).join(", "),
-                            img: offlineOrderForm.items[0]?.image || "/logo.png"
-                          };
-                          try {
-                            await createOrder(orderData);
-                            setToastMsg("✅ Offline Counter Order Created & Added to Queue!");
-                            setOfflineOrderForm({ customerName: "", address: "", phone: "", walkIn: false, items: [] });
-                            setTimeout(() => setToastMsg(""), 3000);
-                          } catch (e) {
-                            setToastMsg("❌ Error creating order: " + e.message);
-                            setTimeout(() => setToastMsg(""), 3000);
-                          }
-                        }}
-                        style={{ background: "#000000", color: "#ffffff", border: "none", padding: "14px", borderRadius: "10px", fontWeight: "900", cursor: "pointer", width: "100%", fontSize: "14px", letterSpacing: "0.5px" }}
-                      >
-                        CREATE COUNTER ORDER ☕
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* BOTTOM SECTION: RECENT OFFLINE ORDERS */}
-                <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", borderBottom: "1px solid #f1f5f9", paddingBottom: "12px" }}>
-                    <div>
-                      <h4 style={{ margin: 0, fontSize: "16px", fontWeight: "900", color: "#09090b" }}>Recent Offline Orders</h4>
-                      <span style={{ fontSize: "12px", color: "#71717a" }}>Counter walk-ins and direct kitchen requests</span>
-                    </div>
-                    <span style={{ fontSize: "11px", fontWeight: "800", background: "#f4f4f5", padding: "4px 10px", borderRadius: "6px", border: "1px solid #e4e4e7" }}>
-                      {orders.filter(o => o.isOffline === true).length} Orders
-                    </span>
-                  </div>
-
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "12px", maxHeight: "450px", overflowY: "auto", paddingRight: "4px" }}>
-                    {orders.filter(o => o.isOffline === true).slice(0, 30).map((o, i) => (
-                      <div key={i} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", background: "#fafafa", border: "1px solid #e2e8f0", borderRadius: "12px" }}>
-                        <img 
-                          src={o.img || o.image || "/logo.png"} 
-                          alt={o.item || "Chai"} 
-                          style={{ width: "46px", height: "46px", borderRadius: "8px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }} 
-                        />
-                        <div style={{ flexGrow: 1, minWidth: 0 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                            <span style={{ fontSize: "11px", fontWeight: "900", background: "#000000", color: "#ffffff", padding: "2px 6px", borderRadius: "4px" }}>
-                              #{typeof o.id === "string" ? o.id.slice(-5).toUpperCase() : o.id}
-                            </span>
-                            <strong style={{ fontSize: "13.5px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {o.customer || "Walk-in Guest"}
-                            </strong>
-                            <span style={{
-                              fontSize: "10.5px",
-                              fontWeight: "750",
-                              padding: "2px 6px",
-                              borderRadius: "4px",
-                              background: "#f4f4f5",
-                              color: "#09090b",
-                              border: "1px solid #e4e4e7"
-                            }}>
-                              {o.paymentMethod === "Cash" ? "💵 Cash" : o.paymentMethod === "Card" ? "💳 Card" : o.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${o.paymentMethod || "Online UPI"}`}
+                        {/* Automatic Price Box (No Manual Entry Required) */}
+                        <div style={{ marginTop: "16px", padding: "16px", borderRadius: "12px", background: "#f0fdf4", border: "1.5px solid #bbf7d0" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "12px", color: "#15803d", fontWeight: "bold", textTransform: "uppercase" }}>⚡ Auto-Calculated Price</span>
+                            <span style={{ fontSize: "11px", color: "#166534", background: "#dcfce7", padding: "2px 8px", borderRadius: "4px", fontWeight: "bold" }}>
+                              {totalItemsCount} {totalItemsCount === 1 ? "Item" : "Items"}
                             </span>
                           </div>
-                          <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#52525b", fontWeight: "600", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.item}</p>
-                          <span style={{ fontSize: "11px", color: "#71717a" }}>📍 {o.address || (o.walkIn ? "Counter Pickup" : "In-store")}</span>
-                        </div>
-                        <div style={{ flexShrink: 0, textAlign: "right" }}>
-                          <span style={{
-                            fontSize: "10.5px",
-                            fontWeight: "800",
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            background: o.status === "Delivered" || o.status === "Completed" ? "#e8f5e9" : "#000000",
-                            color: o.status === "Delivered" || o.status === "Completed" ? "#2e7d32" : "#ffffff",
-                            border: "1px solid #e4e4e7"
-                          }}>
-                            {o.status || "Received"}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                            <span style={{ fontSize: "13px", color: "#166534", fontWeight: "600" }}>Total Order Value:</span>
+                            <strong style={{ fontSize: "24px", color: "#15803d", fontWeight: "900" }}>
+                              ₹{calculatedTotal}
+                            </strong>
+                          </div>
+                          <span style={{ fontSize: "11px", color: "#16a34a", display: "block", marginTop: "4px" }}>
+                            ✓ Sums automatically as you select products
                           </span>
                         </div>
+
                       </div>
-                    ))}
-                    {orders.filter(o => o.isOffline === true).length === 0 && (
-                      <div style={{ textAlign: "center", padding: "40px 10px", color: "#71717a", fontSize: "13px", gridColumn: "1 / -1" }}>
-                        No offline counter orders recorded yet.
+                    </div>
+
+                    {/* Right Column: Kitchen Prep Items & Order Action */}
+                    <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Kitchen Prep Items</h4>
+                            <span style={{ fontSize: "12px", color: "#71717a" }}>Selected Chai & Snacks for brewing</span>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={() => setIsOfflineItemModalOpen(true)}
+                            style={{ background: "#000000", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: "800", fontSize: "12.5px" }}
+                          >
+                            + Select Products
+                          </button>
+                        </div>
+
+                        <div style={{ maxHeight: "230px", minHeight: "150px", overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: "12px", padding: "12px", marginBottom: "16px", background: "#fafafa" }}>
+                          {offlineOrderForm.items.length === 0 ? (
+                            <div style={{ textAlign: "center", color: "#71717a", fontSize: "13px", padding: "40px 0" }}>
+                              No items selected yet. Click "+ Select Products" to add items and see price automatically.
+                            </div>
+                          ) : (
+                            offlineOrderForm.items.map((item, idx) => {
+                              const unitPrice = item.priceNum || 40;
+                              const lineTotal = unitPrice * item.qty;
+                              return (
+                                <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px 14px", marginBottom: "8px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                    <img src={item.image || "/logo.png"} alt={item.name} style={{ width: "38px", height: "38px", borderRadius: "8px", objectFit: "cover" }} />
+                                    <div>
+                                      <strong style={{ display: "block", fontSize: "13.5px", color: "#09090b" }}>{item.name}</strong>
+                                      <span style={{ color: "#166534", fontSize: "12px", fontWeight: "bold" }}>
+                                        ₹{unitPrice} × {item.qty} = ₹{lineTotal}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <span style={{ fontSize: "12px", background: "#f4f4f5", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", color: "#09090b" }}>{item.qty}x</span>
+                                    <button 
+                                      type="button"
+                                      onClick={() => {
+                                        const updated = offlineOrderForm.items.filter((_, i) => i !== idx);
+                                        const newTotal = updated.reduce((s, it) => s + (it.priceNum || 40) * it.qty, 0);
+                                        setOfflineOrderForm({ ...offlineOrderForm, items: updated, totalPrice: String(newTotal) });
+                                      }}
+                                      style={{ background: "#f4f4f5", color: "#e11d48", border: "1px solid #e4e4e7", padding: "4px 8px", borderRadius: "6px", cursor: "pointer", fontSize: "11px", fontWeight: "bold" }}
+                                    >✕</button>
+                                  </div>
+                                </div>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    )}
+
+                      <div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "12px 16px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #f1f5f9" }}>
+                          <div>
+                            <span style={{ fontSize: "13px", fontWeight: "800", color: "#09090b", display: "block" }}>Total Order Summary:</span>
+                            <span style={{ fontSize: "11.5px", color: "#71717a" }}>{totalItemsCount} items selected</span>
+                          </div>
+                          <span style={{ background: "#16a34a", color: "#ffffff", padding: "6px 16px", borderRadius: "8px", fontWeight: "900", fontSize: "16px" }}>
+                            ₹{calculatedTotal}
+                          </span>
+                        </div>
+
+                        <button 
+                          type="button"
+                          onClick={async () => {
+                            if (!offlineOrderForm.customerName || offlineOrderForm.items.length === 0) {
+                              setToastMsg("❌ Please enter customer name and select at least one product!");
+                              setTimeout(() => setToastMsg(""), 3000);
+                              return;
+                            }
+                            const orderData = {
+                              customer: offlineOrderForm.customerName,
+                              phone: offlineOrderForm.phone || "",
+                              address: offlineOrderForm.address || (offlineOrderForm.walkIn ? "Counter Walk-in" : "Direct Pickup"),
+                              walkIn: offlineOrderForm.walkIn,
+                              isOffline: true,
+                              paymentStatus: "Paid",
+                              paymentMethod: "Cash",
+                              status: "Received",
+                              total: `₹${calculatedTotal}`,
+                              priceNum: calculatedTotal,
+                              createdAt: Date.now(),
+                              date: new Date().toLocaleDateString('en-GB'),
+                              item: offlineOrderForm.items.map(i => `${i.name} x${i.qty}`).join(", "),
+                              items: offlineOrderForm.items.map(i => ({ name: i.name, quantity: i.qty, price: i.priceNum || 40 })),
+                              img: offlineOrderForm.items[0]?.image || "/logo.png"
+                            };
+                            try {
+                              await createOrder(orderData);
+                              setToastMsg("✅ Offline Counter Order Created (₹" + calculatedTotal + ") & Added to Queue!");
+                              setOfflineOrderForm({ customerName: "", address: "", phone: "", walkIn: false, totalPrice: "", items: [] });
+                              setTimeout(() => setToastMsg(""), 3000);
+                            } catch (e) {
+                              setToastMsg("❌ Error creating order: " + e.message);
+                              setTimeout(() => setToastMsg(""), 3000);
+                            }
+                          }}
+                          style={{ background: "#000000", color: "#ffffff", border: "none", padding: "14px", borderRadius: "10px", fontWeight: "900", cursor: "pointer", width: "100%", fontSize: "14px", letterSpacing: "0.5px" }}
+                        >
+                          CREATE COUNTER ORDER (₹{calculatedTotal}) ☕
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })()}
+
+            {/* MODAL: SELECT CHAI & PRODUCTS FOR OFFLINE COUNTER (AUTO PRICE) */}
+            {isOfflineItemModalOpen && (
+              <div 
+                style={{
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  background: "rgba(0,0,0,0.6)",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  zIndex: 9999,
+                  backdropFilter: "blur(4px)"
+                }}
+                onClick={() => setIsOfflineItemModalOpen(false)}
+              >
+                <div 
+                  onClick={e => e.stopPropagation()}
+                  style={{
+                    width: "100%", 
+                    maxWidth: "700px", 
+                    maxHeight: "88vh", 
+                    padding: "24px 28px", 
+                    borderRadius: "20px", 
+                    border: "1px solid #e4e4e7", 
+                    background: "#ffffff",
+                    boxShadow: "0 25px 60px -15px rgba(0,0,0,0.3)",
+                    display: "flex",
+                    flexDirection: "column",
+                    position: "relative"
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "900", color: "#09090b" }}>Select Products (Price Auto-Added)</h3>
+                      <span style={{ fontSize: "12px", color: "#71717a" }}>Tap items to add into order with automatic price calculation</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsOfflineItemModalOpen(false)}
+                      style={{
+                        background: "#f4f4f5",
+                        border: "none",
+                        width: "32px",
+                        height: "32px",
+                        borderRadius: "50%",
+                        cursor: "pointer",
+                        fontSize: "14px",
+                        fontWeight: "bold",
+                        color: "#52525b",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center"
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div style={{ maxHeight: "440px", overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", paddingRight: "10px" }}>
+                    {productsList.length === 0 ? <p style={{ color: "#71717a" }}>Loading menu items...</p> : productsList.map(prod => {
+                      const prodPrice = typeof prod.price === "number" ? prod.price : parseFloat(String(prod.price || prod.basePrice || 40).replace(/[^\d.]/g, "")) || 40;
+                      const existing = offlineOrderForm.items.find(i => i.id === prod.id);
+
+                      return (
+                        <div key={prod.id} style={{ display: "flex", gap: "12px", border: "1px solid #e2e8f0", padding: "12px", borderRadius: "12px", alignItems: "center", background: existing ? "#f0fdf4" : "#ffffff", borderColor: existing ? "#86efac" : "#e2e8f0", transition: "all 0.2s ease" }}>
+                          <img src={prod.image || prod.imagePath || prod.img || "/logo.png"} alt={prod.name} style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "10px", border: "1px solid #e4e4e7" }} />
+                          <div style={{ flexGrow: 1, minWidth: 0 }}>
+                            <strong style={{ display: "block", fontSize: "13.5px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prod.name}</strong>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
+                              <span style={{ fontSize: "13px", fontWeight: "900", color: "#16a34a" }}>₹{prodPrice}</span>
+                              <span style={{ fontSize: "11px", color: "#71717a" }}>• {prod.category || "Chai"}</span>
+                            </div>
+                          </div>
+                          {existing ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#ffffff", borderRadius: "8px", padding: "4px", border: "1px solid #86efac" }}>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  let updated;
+                                  if (existing.qty > 1) {
+                                    updated = offlineOrderForm.items.map(i => i.id === prod.id ? { ...i, qty: i.qty - 1 } : i);
+                                  } else {
+                                    updated = offlineOrderForm.items.filter(i => i.id !== prod.id);
+                                  }
+                                  const newSum = updated.reduce((s, it) => s + (it.priceNum || 40) * it.qty, 0);
+                                  setOfflineOrderForm({ ...offlineOrderForm, items: updated, totalPrice: String(newSum) });
+                                }}
+                                style={{ background: "#000000", color: "#fff", border: "none", width: "24px", height: "24px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center" }}
+                              >
+                                -
+                              </button>
+                              <span style={{ fontSize: "13px", fontWeight: "900", width: "20px", textAlign: "center", color: "#09090b" }}>{existing.qty}</span>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const updated = offlineOrderForm.items.map(i => i.id === prod.id ? { ...i, qty: i.qty + 1 } : i);
+                                  const newSum = updated.reduce((s, it) => s + (it.priceNum || 40) * it.qty, 0);
+                                  setOfflineOrderForm({ ...offlineOrderForm, items: updated, totalPrice: String(newSum) });
+                                }}
+                                style={{ background: "#000000", color: "#fff", border: "none", width: "24px", height: "24px", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center" }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const updated = [...offlineOrderForm.items, { id: prod.id, name: prod.name, priceNum: prodPrice, image: prod.image || prod.imagePath || prod.img || "/logo.png", qty: 1 }];
+                                const newSum = updated.reduce((s, it) => s + (it.priceNum || 40) * it.qty, 0);
+                                setOfflineOrderForm({ ...offlineOrderForm, items: updated, totalPrice: String(newSum) });
+                              }}
+                              style={{ background: "#000000", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
+                            >
+                              + Add
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ marginTop: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
+                    <div style={{ fontSize: "13px", color: "#09090b", flexGrow: 1, paddingRight: "20px" }}>
+                      {offlineOrderForm.items.length > 0 ? (
+                        <span>
+                          <strong>Selected: </strong> 
+                          {offlineOrderForm.items.map(i => `${i.qty}x ${i.name} (₹${(i.priceNum || 40) * i.qty})`).join(", ")}
+                          <strong style={{ marginLeft: "8px", color: "#16a34a" }}>• Total: ₹{offlineOrderForm.items.reduce((s, it) => s + (it.priceNum || 40) * it.qty, 0)}</strong>
+                        </span>
+                      ) : (
+                        <span style={{ color: "#71717a" }}>No items selected yet. Tap '+ Add' to select.</span>
+                      )}
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsOfflineItemModalOpen(false);
+                      }}
+                      style={{ background: "#000000", color: "#fff", border: "none", padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", whiteSpace: "nowrap", fontSize: "13px" }}
+                    >
+                      Done ✓
+                    </button>
                   </div>
                 </div>
               </div>
             )}
 
           </div>
-
-          {/* ITEM SELECTION MODAL (ZERO MONEY - FIXED CENTERED) */}
-          {isOfflineItemModalOpen && (
-            <div 
-              onClick={() => setIsOfflineItemModalOpen(false)}
-              style={{ 
-                position: "fixed",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                width: "100vw",
-                height: "100vh",
-                background: "rgba(0, 0, 0, 0.65)",
-                backdropFilter: "blur(6px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                zIndex: 100000,
-                padding: "20px"
-              }}
-            >
-              <div 
-                onClick={(e) => e.stopPropagation()}
-                style={{ 
-                  width: "100%", 
-                  maxWidth: "680px", 
-                  maxHeight: "88vh", 
-                  padding: "24px 28px", 
-                  borderRadius: "20px", 
-                  border: "1px solid #e4e4e7", 
-                  background: "#ffffff",
-                  boxShadow: "0 25px 60px -15px rgba(0,0,0,0.3)",
-                  display: "flex",
-                  flexDirection: "column",
-                  position: "relative"
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                  <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "900", color: "#09090b" }}>Select Chai & Products to Prepare</h3>
-                  <button
-                    type="button"
-                    onClick={() => setIsOfflineItemModalOpen(false)}
-                    style={{
-                      background: "#f4f4f5",
-                      border: "none",
-                      width: "32px",
-                      height: "32px",
-                      borderRadius: "50%",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      fontWeight: "bold",
-                      color: "#52525b",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center"
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div style={{ maxHeight: "420px", overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", paddingRight: "10px" }}>
-                  {productsList.length === 0 ? <p style={{ color: "#71717a" }}>Loading menu items...</p> : productsList.map(prod => (
-                    <div key={prod.id} style={{ display: "flex", gap: "12px", border: "1px solid #e2e8f0", padding: "10px", borderRadius: "10px", alignItems: "center", background: "#ffffff" }}>
-                      <img src={prod.image || "/logo.png"} alt={prod.name} style={{ width: "48px", height: "48px", objectFit: "cover", borderRadius: "8px", border: "1px solid #e4e4e7" }} />
-                      <div style={{ flexGrow: 1, minWidth: 0 }}>
-                        <strong style={{ display: "block", fontSize: "13px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prod.name}</strong>
-                        <span style={{ fontSize: "11px", color: "#71717a" }}>{prod.category || "Beverage Item"}</span>
-                      </div>
-                      {(() => {
-                        const existing = offlineOrderForm.items.find(i => i.id === prod.id);
-                        if (existing) {
-                          return (
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f4f4f5", borderRadius: "6px", padding: "3px", border: "1px solid #e4e4e7" }}>
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  if (existing.qty > 1) {
-                                    setOfflineOrderForm({
-                                      ...offlineOrderForm, 
-                                      items: offlineOrderForm.items.map(i => i.id === prod.id ? { ...i, qty: i.qty - 1 } : i)
-                                    });
-                                  } else {
-                                    setOfflineOrderForm({
-                                      ...offlineOrderForm, 
-                                      items: offlineOrderForm.items.filter(i => i.id !== prod.id)
-                                    });
-                                  }
-                                }}
-                                style={{ background: "#000000", color: "#fff", border: "none", width: "22px", height: "22px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center" }}
-                              >
-                                -
-                              </button>
-                              <span style={{ fontSize: "12px", fontWeight: "bold", width: "16px", textAlign: "center", color: "#09090b" }}>{existing.qty}</span>
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  setOfflineOrderForm({
-                                    ...offlineOrderForm, 
-                                    items: offlineOrderForm.items.map(i => i.id === prod.id ? { ...i, qty: i.qty + 1 } : i)
-                                  });
-                                }}
-                                style={{ background: "#000000", color: "#fff", border: "none", width: "22px", height: "22px", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", display: "flex", alignItems: "center", justifyContent: "center" }}
-                              >
-                                +
-                              </button>
-                            </div>
-                          );
-                        } else {
-                          return (
-                            <button 
-                              type="button"
-                              onClick={() => {
-                                setOfflineOrderForm({
-                                  ...offlineOrderForm, 
-                                  items: [...offlineOrderForm.items, { id: prod.id, name: prod.name, priceNum: 0, image: prod.image || prod.imagePath || prod.img || "/logo.png", qty: 1 }]
-                                });
-                              }}
-                              style={{ background: "#000000", color: "#fff", border: "none", padding: "6px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}
-                            >
-                              Add
-                            </button>
-                          );
-                        }
-                      })()}
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginTop: "20px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
-                  <div style={{ fontSize: "12.5px", color: "#09090b", flexGrow: 1, paddingRight: "20px" }}>
-                    {offlineOrderForm.items.length > 0 ? (
-                      <span><strong>Added: </strong> {offlineOrderForm.items.map(i => `${i.qty}x ${i.name}`).join(", ")}</span>
-                    ) : (
-                      <span style={{ color: "#71717a" }}>No items added yet. Click 'Add' to choose.</span>
-                    )}
-                  </div>
-                  <button 
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsOfflineItemModalOpen(false);
-                    }}
-                    style={{ background: "#000000", color: "#fff", border: "none", padding: "10px 24px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", whiteSpace: "nowrap", fontSize: "13px" }}
-                  >
-                    Done ✓
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* FIXED RIGHT SIDEBAR (PENDING ORDERS WITH PRODUCT IMAGE & ALL DETAILS) */}
           <aside
@@ -4221,37 +4282,10 @@ export default function AdminDashboard() {
         });
 
         const totalPendingSum = allPendingOrders.reduce((acc, o) => {
-          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+          const rawVal = o.total || o.price || o.amount || 0;
+    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
           return acc + (isNaN(val) ? 0 : val);
         }, 0);
-
-  const handleDownloadCSV = () => {
-    if (!filteredOrders || !filteredOrders.length) return;
-    
-    let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Order ID,Items,Type,Amount (Rs)\n";
-    
-    filteredOrders.forEach(o => {
-      const amt = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total);
-      const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
-      const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
-      const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
-      const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
-      
-      csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
-    });
-    
-    csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
-    
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    const dateStr = timeFilter === "Daily" ? "Today" : timeFilter;
-    link.setAttribute("download", `Sales_Report_${dateStr}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
         const groupedByCustomer = allPendingOrders.reduce((acc, o) => {
           const custName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : "Walk-in Customer");
@@ -4265,7 +4299,8 @@ export default function AdminDashboard() {
               lastDate: o.createdAt || 0
             };
           }
-          const val = typeof o.total === "string" ? parseFloat(o.total.replace(/[^\d\.]/g, "")) : parseFloat(o.total || o.price || 0);
+          const rawVal = o.total || o.price || o.amount || 0;
+    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
           acc[custName].totalAmount += (isNaN(val) ? 0 : val);
           acc[custName].count += 1;
           acc[custName].orders.push(o);
@@ -6286,5 +6321,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
-
 
