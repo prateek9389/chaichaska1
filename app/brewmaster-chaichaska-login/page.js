@@ -84,6 +84,13 @@ export default function AdminDashboard() {
   const [queueDeliveryPaymentStatus, setQueueDeliveryPaymentStatus] = useState("Paid");
   const [isOnline, setIsOnline] = useState(true);
   const [saveAnimation, setSaveAnimation] = useState(false);
+  const [showTodayStatsSidebar, setShowTodayStatsSidebar] = useState(false);
+  const [tallyDateFilter, setTallyDateFilter] = useState("today");
+  const [customTallyDate, setCustomTallyDate] = useState(new Date().toISOString().split('T')[0]);
+  const [tallySearchTerm, setTallySearchTerm] = useState("");
+  const [queuePaymentFilter, setQueuePaymentFilter] = useState("all");
+  const [queueDeliveryStatusFilter, setQueueDeliveryStatusFilter] = useState("all");
+  const [queueSearchTerm, setQueueSearchTerm] = useState("");
 
   // Active Orders Queue with detailed fields (including office number, product image, details, priority, createdAt, allocatedTime)
   const [orders, setOrders] = useState([]);
@@ -117,6 +124,198 @@ export default function AdminDashboard() {
       return st;
     }));
   };
+
+  // Robust Price Parsing & Formatting Helpers
+  const parseOrderPrice = (o) => {
+    if (!o) return 0;
+    if (typeof o.priceNum === "number" && !isNaN(o.priceNum) && o.priceNum > 0) return o.priceNum;
+    const raw = o.total || o.price || o.amount || o.totalPrice || 0;
+    if (typeof raw === "number" && !isNaN(raw)) return raw;
+    if (typeof raw === "string") {
+      const num = parseFloat(raw.replace(/[^\d.]/g, ""));
+      if (!isNaN(num) && num > 0) return num;
+    }
+    if (Array.isArray(o.items) && o.items.length > 0) {
+      const sum = o.items.reduce((acc, it) => {
+        const p = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
+        const q = parseInt(it.quantity || it.qty) || 1;
+        return acc + (p * q);
+      }, 0);
+      if (sum > 0) return sum;
+    }
+    return 0;
+  };
+
+  const formatOrderTotal = (o) => {
+    const num = parseOrderPrice(o);
+    if (num > 0) return `₹${num.toLocaleString("en-IN")}`;
+    if (typeof o?.total === "string" && o.total.includes("₹") && /\d/.test(o.total)) return o.total;
+    return "₹0";
+  };
+
+  // Helper to determine if an order has pending payment
+  const isOrderPendingPayment = (o) => {
+    if (!o) return false;
+    if (o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
+    const ps = String(o.paymentStatus || "").trim().toLowerCase();
+    const pm = String(o.paymentMethod || "").trim().toLowerCase();
+    const st = String(o.status || "").trim().toLowerCase();
+    if (ps === "paid" || ps === "completed" || ps === "success" || ps === "successful") return false;
+    if (ps === "pending" || ps.includes("cod") || ps.includes("unpaid") || ps.includes("due") || ps === "pending payment") return true;
+    if (st === "pending payment") return true;
+    if (pm.includes("cod") || pm.includes("cash on delivery")) {
+      return o.status !== "Delivered" && o.status !== "Completed";
+    }
+    return false;
+  };
+
+  // Detailed Product Delivery & Orders Tally for Sidebar Drawer
+  const dailyStatsAndProductTally = (() => {
+    const selectedFilter = tallyDateFilter;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const filteredOrdersForDate = orders.filter(o => {
+      if (!o.createdAt) return false;
+      const d = new Date(o.createdAt);
+      if (selectedFilter === "today") {
+        return d.toDateString() === new Date().toDateString();
+      }
+      if (selectedFilter === "yesterday") {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        return d.toDateString() === y.toDateString();
+      }
+      if (selectedFilter === "7days") {
+        return (Date.now() - o.createdAt) <= 7 * 24 * 60 * 60 * 1000;
+      }
+      if (selectedFilter === "custom" && customTallyDate) {
+        return d.toLocaleDateString('en-CA') === customTallyDate;
+      }
+      if (selectedFilter && selectedFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        return d.toLocaleDateString('en-CA') === selectedFilter;
+      }
+      if (selectedFilter === "all") {
+        return true;
+      }
+      return d.toDateString() === new Date().toDateString();
+    });
+
+    const nonCancelledOrders = filteredOrdersForDate.filter(o => o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
+
+    let totalRevenue = 0;
+    let totalOrders = nonCancelledOrders.length;
+    let deliveredOrdersCount = 0;
+    let preparingOrdersCount = 0;
+    let receivedOrdersCount = 0;
+    let onlineOrdersCount = 0;
+    let offlineOrdersCount = 0;
+
+    const productMap = {};
+
+    nonCancelledOrders.forEach(o => {
+      const price = parseOrderPrice(o);
+      totalRevenue += price;
+
+      const isDelivered = o.status === "Delivered" || o.status === "Completed";
+      const isPreparing = o.status === "Preparing" || o.status === "Out for Delivery" || o.status === "Ready" || o.status === "Shipped";
+      const isReceived = o.status === "Received" || o.status === "Pending";
+      const isOffline = Boolean(o.isOffline || o.walkIn);
+
+      if (isDelivered) deliveredOrdersCount++;
+      if (isPreparing) preparingOrdersCount++;
+      if (isReceived) receivedOrdersCount++;
+      if (isOffline) offlineOrdersCount++;
+      else onlineOrdersCount++;
+
+      if (Array.isArray(o.items) && o.items.length > 0) {
+        o.items.forEach(it => {
+          const name = it.name || it.item || "Chai Item";
+          const qty = parseInt(it.quantity || it.qty) || 1;
+          const unitP = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
+          const img = it.image || it.img || o.image || o.img || "/logo.png";
+          const cat = it.category || "Beverages";
+          const key = name.trim().toLowerCase();
+
+          if (!productMap[key]) {
+            productMap[key] = {
+              name,
+              image: img,
+              category: cat,
+              totalQty: 0,
+              deliveredQty: 0,
+              preparingQty: 0,
+              receivedQty: 0,
+              unitPrice: unitP,
+              revenue: 0
+            };
+          }
+
+          productMap[key].totalQty += qty;
+          if (isDelivered) {
+            productMap[key].deliveredQty += qty;
+          } else if (isPreparing) {
+            productMap[key].preparingQty += qty;
+          } else {
+            productMap[key].receivedQty += qty;
+          }
+          productMap[key].revenue += (unitP > 0 ? unitP * qty : (price / Math.max(o.items.length, 1)));
+          if (img && img !== "/logo.png") productMap[key].image = img;
+        });
+      } else if (o.item) {
+        const itemStr = o.item;
+        const parts = itemStr.split("+");
+        parts.forEach(part => {
+          const match = part.trim().match(/^(.*?)(?:\s*x\s*(\d+))?$/);
+          const name = match && match[1] ? match[1].trim() : part.trim();
+          const qty = match && match[2] ? parseInt(match[2]) : 1;
+          const key = name.toLowerCase();
+          const img = o.image || o.img || "/logo.png";
+
+          if (!productMap[key]) {
+            productMap[key] = {
+              name,
+              image: img,
+              category: "Beverages",
+              totalQty: 0,
+              deliveredQty: 0,
+              preparingQty: 0,
+              receivedQty: 0,
+              unitPrice: 0,
+              revenue: 0
+            };
+          }
+
+          productMap[key].totalQty += qty;
+          if (isDelivered) {
+            productMap[key].deliveredQty += qty;
+          } else if (isPreparing) {
+            productMap[key].preparingQty += qty;
+          } else {
+            productMap[key].receivedQty += qty;
+          }
+          productMap[key].revenue += price / Math.max(parts.length, 1);
+        });
+      }
+    });
+
+    const productList = Object.values(productMap).sort((a, b) => b.totalQty - a.totalQty);
+
+    return {
+      totalOrders,
+      totalRevenue,
+      deliveredOrdersCount,
+      preparingOrdersCount,
+      receivedOrdersCount,
+      onlineOrdersCount,
+      offlineOrdersCount,
+      productList,
+      totalUnitsOrdered: productList.reduce((sum, p) => sum + p.totalQty, 0),
+      totalUnitsDelivered: productList.reduce((sum, p) => sum + p.deliveredQty, 0),
+      totalUnitsPreparing: productList.reduce((sum, p) => sum + (p.preparingQty + p.receivedQty), 0),
+      rawOrders: filteredOrdersForDate
+    };
+  })();
 
   // Today's Prep Tally — dynamically derived from today's orders
   const todayTally = (() => {
@@ -222,33 +421,7 @@ export default function AdminDashboard() {
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("All");
   const [inventorySelectedDate, setInventorySelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Robust Price Parsing & Formatting Helpers
-  const parseOrderPrice = (o) => {
-    if (!o) return 0;
-    if (typeof o.priceNum === "number" && !isNaN(o.priceNum) && o.priceNum > 0) return o.priceNum;
-    const raw = o.total || o.price || o.amount || o.totalPrice || 0;
-    if (typeof raw === "number" && !isNaN(raw)) return raw;
-    if (typeof raw === "string") {
-      const num = parseFloat(raw.replace(/[^\d.]/g, ""));
-      if (!isNaN(num) && num > 0) return num;
-    }
-    if (Array.isArray(o.items) && o.items.length > 0) {
-      const sum = o.items.reduce((acc, it) => {
-        const p = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
-        const q = parseInt(it.quantity || it.qty) || 1;
-        return acc + (p * q);
-      }, 0);
-      if (sum > 0) return sum;
-    }
-    return 0;
-  };
-
-  const formatOrderTotal = (o) => {
-    const num = parseOrderPrice(o);
-    if (num > 0) return `₹${num.toLocaleString("en-IN")}`;
-    if (typeof o?.total === "string" && o.total.includes("₹") && /\d/.test(o.total)) return o.total;
-    return "₹0";
-  };
+// (Price helpers relocated above)
 
   // Customer Management Table — dynamically derived from live database orders
   const customerManagement = (() => {
@@ -267,21 +440,7 @@ export default function AdminDashboard() {
     })).sort((a, b) => b.orders - a.orders);
   })();
 
-  // Helper to determine if an order has pending payment
-  const isOrderPendingPayment = (o) => {
-    if (!o) return false;
-    if (o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
-    const ps = String(o.paymentStatus || "").trim().toLowerCase();
-    const pm = String(o.paymentMethod || "").trim().toLowerCase();
-    const st = String(o.status || "").trim().toLowerCase();
-    if (ps === "paid" || ps === "completed" || ps === "success" || ps === "successful") return false;
-    if (ps === "pending" || ps.includes("cod") || ps.includes("unpaid") || ps.includes("due") || ps === "pending payment") return true;
-    if (st === "pending payment") return true;
-    if (pm.includes("cod") || pm.includes("cash on delivery")) {
-      return o.status !== "Delivered" && o.status !== "Completed";
-    }
-    return false;
-  };
+// (isOrderPendingPayment relocated above)
 
   const filteredOrders = orders.filter(o => {
     if (timeFilter === "All" || !timeFilter) return true;
@@ -1232,6 +1391,29 @@ export default function AdminDashboard() {
               </div>
 
               <div className="header-actions-wrap" style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                {/* Today's Orders / Tally Header Trigger Button */}
+                <button
+                  className="btn-today-orders-header"
+                  onClick={() => setShowTodayStatsSidebar(true)}
+                  style={{
+                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    color: "#ffffff",
+                    border: "none",
+                    padding: "9px 16px",
+                    borderRadius: "20px",
+                    fontWeight: "800",
+                    fontSize: "12.5px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "7px",
+                    boxShadow: "0 2px 8px rgba(217, 119, 6, 0.35)",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  <span style={{ fontSize: "14px" }}>📊</span> Today's Orders & Tally
+                </button>
+
                 <button
                   className="btn-pending-requests"
                   onClick={() => setShowPendingSidebar(!showPendingSidebar)}
@@ -1628,78 +1810,279 @@ export default function AdminDashboard() {
             {activeTab === "queue" && (() => {
               const allQueueOrders = orders
                 .filter(o => o.priority !== "Subscription")
-                .sort((a, b) => b.createdAt - a.createdAt);
+                .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
               const onlineQueueCount = allQueueOrders.filter(o => !o.isOffline && !o.walkIn).length;
               const offlineQueueCount = allQueueOrders.filter(o => o.isOffline || o.walkIn).length;
 
               const filteredQueueOrders = allQueueOrders.filter(o => {
-                if (queueFilter === "online") return !o.isOffline && !o.walkIn;
-                if (queueFilter === "offline") return Boolean(o.isOffline || o.walkIn);
+                // 1. Channel Filter
+                if (queueFilter === "online" && (o.isOffline || o.walkIn)) return false;
+                if (queueFilter === "offline" && !o.isOffline && !o.walkIn) return false;
+
+                // 2. Payment Filter
+                if (queuePaymentFilter !== "all") {
+                  const pm = String(o.paymentMethod || "").toLowerCase();
+                  const ps = String(o.paymentStatus || "").toLowerCase();
+                  const isPending = isOrderPendingPayment(o) || ps === "pending" || pm === "corporate due" || pm === "pending selection";
+                  const isPaid = (ps === "paid" || ps === "completed" || ps === "success" || (!isPending && !pm.includes("cod")));
+
+                  if (queuePaymentFilter === "cash") {
+                    if (!pm.includes("cash") && !pm.includes("cod")) return false;
+                  } else if (queuePaymentFilter === "online") {
+                    if (pm.includes("cash") || pm.includes("cod")) return false;
+                  } else if (queuePaymentFilter === "paid") {
+                    if (!isPaid) return false;
+                  } else if (queuePaymentFilter === "pending") {
+                    if (!isPending) return false;
+                  }
+                }
+
+                // 3. Delivery / Order Status Filter
+                if (queueDeliveryStatusFilter !== "all") {
+                  const st = String(o.status || "Received").trim().toLowerCase();
+                  const targetSt = queueDeliveryStatusFilter.toLowerCase();
+                  if (targetSt === "received") {
+                    if (st !== "received" && st !== "pending") return false;
+                  } else if (targetSt === "preparing") {
+                    if (st !== "preparing") return false;
+                  } else if (targetSt === "out for delivery") {
+                    if (st !== "out for delivery" && st !== "ready" && st !== "shipped") return false;
+                  } else if (targetSt === "delivered") {
+                    if (st !== "delivered" && st !== "completed") return false;
+                  } else if (targetSt === "cancelled") {
+                    if (st !== "cancelled" && st !== "cancelled by user" && st !== "refunded") return false;
+                  } else {
+                    if (st !== targetSt) return false;
+                  }
+                }
+
+                // 4. Search Filter
+                if (queueSearchTerm && queueSearchTerm.trim() !== "") {
+                  const term = queueSearchTerm.toLowerCase().trim();
+                  const idStr = String(o.id || o.orderId || "").toLowerCase();
+                  const custStr = String(o.customer || "").toLowerCase();
+                  const itemStr = String(o.item || (Array.isArray(o.items) ? o.items.map(i => i.name).join(" ") : "")).toLowerCase();
+                  const offStr = String(o.office || o.address || "").toLowerCase();
+                  if (!idStr.includes(term) && !custStr.includes(term) && !itemStr.includes(term) && !offStr.includes(term)) {
+                    return false;
+                  }
+                }
+
                 return true;
               });
 
               return (
                 <div className="tab-body-wrapper" style={{ padding: "28px 32px" }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: "wrap", gap: "14px" }}>
+                  {/* Top Bar Header Row */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: "wrap", gap: "14px" }}>
                     <div>
-                      <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b" }}>Live Order Queue</h3>
+                      <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b", display: "flex", alignItems: "center", gap: "10px" }}>
+                        Live Order Queue
+                        <span style={{ fontSize: "12px", background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a", padding: "2px 8px", borderRadius: "12px", fontWeight: "700" }}>
+                          {filteredQueueOrders.length} active
+                        </span>
+                      </h3>
                       <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Real-time preparation queue for online desk delivery orders and in-store counter walk-ins</p>
                     </div>
 
-                    {/* Filter Tabs & Counter */}
-                    <div style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px" }}>
-                      <button
-                        type="button"
-                        onClick={() => setQueueFilter("all")}
-                        style={{
-                          padding: "6px 14px",
-                          border: "none",
-                          background: queueFilter === "all" ? "#09090b" : "transparent",
-                          color: queueFilter === "all" ? "#ffffff" : "#52525b",
-                          borderRadius: "7px",
-                          fontSize: "12px",
-                          fontWeight: "800",
-                          cursor: "pointer",
-                          transition: "all 0.15s ease"
-                        }}
-                      >
-                        ☕ All ({allQueueOrders.length})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setQueueFilter("online")}
-                        style={{
-                          padding: "6px 14px",
-                          border: "none",
-                          background: queueFilter === "online" ? "#09090b" : "transparent",
-                          color: queueFilter === "online" ? "#ffffff" : "#52525b",
-                          borderRadius: "7px",
-                          fontSize: "12px",
-                          fontWeight: "800",
-                          cursor: "pointer",
-                          transition: "all 0.15s ease"
-                        }}
-                      >
-                        🏢 Online Desk ({onlineQueueCount})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setQueueFilter("offline")}
-                        style={{
-                          padding: "6px 14px",
-                          border: "none",
-                          background: queueFilter === "offline" ? "#09090b" : "transparent",
-                          color: queueFilter === "offline" ? "#ffffff" : "#52525b",
-                          borderRadius: "7px",
-                          fontSize: "12px",
-                          fontWeight: "800",
-                          cursor: "pointer",
-                          transition: "all 0.15s ease"
-                        }}
-                      >
-                        🏪 Counter / Offline ({offlineQueueCount})
-                      </button>
+                    {/* Today's Orders / Tally Action Button */}
+                    <button
+                      type="button"
+                      onClick={() => setShowTodayStatsSidebar(true)}
+                      style={{
+                        background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                        color: "#ffffff",
+                        border: "none",
+                        padding: "8px 18px",
+                        borderRadius: "10px",
+                        fontSize: "13px",
+                        fontWeight: "800",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        boxShadow: "0 2px 8px rgba(217, 119, 6, 0.3)",
+                        transition: "all 0.15s ease"
+                      }}
+                    >
+                      <span style={{ fontSize: "15px" }}>📊</span> Today's Orders & Product Tally
+                    </button>
+                  </div>
+
+                  {/* Multi-Filter Bar: Channel + Payment + Delivery Status + Search */}
+                  <div style={{
+                    background: "#ffffff",
+                    border: "1px solid #e4e4e7",
+                    borderRadius: "14px",
+                    padding: "14px 18px",
+                    marginBottom: "20px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
+                  }}>
+                    {/* Row 1: Channel Tabs & Search */}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+                      {/* Channel Filter */}
+                      <div style={{ display: "flex", background: "#f4f4f5", padding: "3px", borderRadius: "8px", gap: "3px" }}>
+                        <button
+                          type="button"
+                          onClick={() => setQueueFilter("all")}
+                          style={{
+                            padding: "6px 14px",
+                            border: "none",
+                            background: queueFilter === "all" ? "#09090b" : "transparent",
+                            color: queueFilter === "all" ? "#ffffff" : "#52525b",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: "800",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          ☕ All Channels ({allQueueOrders.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQueueFilter("online")}
+                          style={{
+                            padding: "6px 14px",
+                            border: "none",
+                            background: queueFilter === "online" ? "#09090b" : "transparent",
+                            color: queueFilter === "online" ? "#ffffff" : "#52525b",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: "800",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          🏢 Online Desk ({onlineQueueCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQueueFilter("offline")}
+                          style={{
+                            padding: "6px 14px",
+                            border: "none",
+                            background: queueFilter === "offline" ? "#09090b" : "transparent",
+                            color: queueFilter === "offline" ? "#ffffff" : "#52525b",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            fontWeight: "800",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          🏪 Counter / Walk-in ({offlineQueueCount})
+                        </button>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div style={{ position: "relative", minWidth: "220px", flexGrow: 1, maxWidth: "340px" }}>
+                        <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", fontSize: "13px", color: "#a1a1aa" }}>🔍</span>
+                        <input
+                          type="text"
+                          value={queueSearchTerm}
+                          onChange={(e) => setQueueSearchTerm(e.target.value)}
+                          placeholder="Search order ID, customer, item..."
+                          style={{
+                            width: "100%",
+                            padding: "7px 12px 7px 32px",
+                            border: "1px solid #e4e4e7",
+                            borderRadius: "8px",
+                            fontSize: "12px",
+                            outline: "none",
+                            background: "#fafafa"
+                          }}
+                        />
+                        {queueSearchTerm && (
+                          <button
+                            type="button"
+                            onClick={() => setQueueSearchTerm("")}
+                            style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", color: "#71717a", fontSize: "12px" }}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Row 2: Payment Filter & Delivery Status Filter Dropdowns / Pills */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap", paddingTop: "8px", borderTop: "1px solid #f4f4f5" }}>
+                      
+                      {/* Payment Filter */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#52525b", whiteSpace: "nowrap" }}>
+                          💳 Payment:
+                        </span>
+                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                          {[
+                            { id: "all", label: "All Payments" },
+                            { id: "cash", label: "💵 Cash / COD" },
+                            { id: "online", label: "📱 Online / UPI" },
+                            { id: "paid", label: "✅ Paid" },
+                            { id: "pending", label: "⏳ Pending" }
+                          ].map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setQueuePaymentFilter(p.id)}
+                              style={{
+                                padding: "4px 10px",
+                                border: queuePaymentFilter === p.id ? "1px solid #09090b" : "1px solid #e4e4e7",
+                                background: queuePaymentFilter === p.id ? "#09090b" : "#ffffff",
+                                color: queuePaymentFilter === p.id ? "#ffffff" : "#52525b",
+                                borderRadius: "6px",
+                                fontSize: "11.5px",
+                                fontWeight: "750",
+                                cursor: "pointer",
+                                transition: "all 0.15s ease"
+                              }}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Delivery Status Filter */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#52525b", whiteSpace: "nowrap" }}>
+                          🚚 Status:
+                        </span>
+                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                          {[
+                            { id: "all", label: "All Status" },
+                            { id: "Received", label: "📥 Received" },
+                            { id: "Preparing", label: "🫖 Preparing" },
+                            { id: "Out for Delivery", label: "🚀 Out for Delivery" },
+                            { id: "Delivered", label: "✅ Delivered" },
+                            { id: "Cancelled", label: "❌ Cancelled" }
+                          ].map((st) => (
+                            <button
+                              key={st.id}
+                              type="button"
+                              onClick={() => setQueueDeliveryStatusFilter(st.id)}
+                              style={{
+                                padding: "4px 10px",
+                                border: queueDeliveryStatusFilter === st.id ? "1px solid #09090b" : "1px solid #e4e4e7",
+                                background: queueDeliveryStatusFilter === st.id ? "#09090b" : "#ffffff",
+                                color: queueDeliveryStatusFilter === st.id ? "#ffffff" : "#52525b",
+                                borderRadius: "6px",
+                                fontSize: "11.5px",
+                                fontWeight: "750",
+                                cursor: "pointer",
+                                transition: "all 0.15s ease"
+                              }}
+                            >
+                              {st.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                     </div>
                   </div>
 
@@ -2715,6 +3098,27 @@ export default function AdminDashboard() {
                         Complete operational logs of all offline counter orders and online corporate desk deliveries
                       </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowTodayStatsSidebar(true)}
+                      style={{
+                        background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                        color: "#ffffff",
+                        border: "none",
+                        padding: "8px 18px",
+                        borderRadius: "10px",
+                        fontSize: "13px",
+                        fontWeight: "800",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        boxShadow: "0 2px 8px rgba(217, 119, 6, 0.3)",
+                        transition: "all 0.15s ease"
+                      }}
+                    >
+                      <span style={{ fontSize: "15px" }}>📊</span> Today's Orders & Product Tally
+                    </button>
                   </div>
 
                   {/* Top Stats Cards Grid (Black & White Theme - Zero Money) */}
@@ -4075,6 +4479,378 @@ export default function AdminDashboard() {
                   </div>
                 ))
               )}
+            </div>
+          </aside>
+
+          {/* SLIDE-IN RIGHT SIDEBAR: TODAY'S ORDERS & PRODUCT DELIVERY TALLY */}
+          <div
+            className={`today-stats-drawer-overlay ${showTodayStatsSidebar ? "open" : ""}`}
+            onClick={() => setShowTodayStatsSidebar(false)}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(0,0,0,0.5)",
+              backdropFilter: "blur(2px)",
+              zIndex: 99998,
+              opacity: showTodayStatsSidebar ? 1 : 0,
+              pointerEvents: showTodayStatsSidebar ? "auto" : "none",
+              transition: "opacity 0.25s ease-in-out"
+            }}
+          />
+
+          <aside
+            className="today-stats-drawer-panel"
+            style={{
+              position: "fixed",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: "100%",
+              maxWidth: "480px",
+              background: "#ffffff",
+              boxShadow: "-10px 0 30px rgba(0,0,0,0.2)",
+              zIndex: 99999,
+              display: "flex",
+              flexDirection: "column",
+              transform: showTodayStatsSidebar ? "translateX(0)" : "translateX(100%)",
+              transition: "transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+              overflow: "hidden"
+            }}
+          >
+            {/* Drawer Header */}
+            <div style={{
+              padding: "20px 22px",
+              borderBottom: "1px solid #f0f0f0",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              background: "linear-gradient(135deg, #18181b, #09090b)",
+              color: "#ffffff"
+            }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "18px" }}>📊</span>
+                  <h3 style={{ margin: 0, fontSize: "17px", fontWeight: "900", color: "#ffffff" }}>
+                    Daily Product & Orders Tally
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: "12px", color: "#a1a1aa" }}>
+                  Total orders, quantity delivered vs preparing, and product item breakdown
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowTodayStatsSidebar(false)}
+                style={{
+                  background: "rgba(255,255,255,0.15)",
+                  border: "none",
+                  color: "#ffffff",
+                  fontSize: "16px",
+                  fontWeight: "bold",
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "50%",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "background 0.15s ease"
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "18px 20px", display: "flex", flexDirection: "column", gap: "16px", background: "#fcfcfc" }}>
+
+              {/* 1. Date Filter Controls */}
+              <div style={{ background: "#ffffff", border: "1px solid #e4e4e7", borderRadius: "12px", padding: "14px" }}>
+                <span style={{ fontSize: "12px", fontWeight: "800", color: "#18181b", display: "block", marginBottom: "8px" }}>
+                  📅 Select Date to View Stats
+                </span>
+
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "10px" }}>
+                  {[
+                    { id: "today", label: "Today" },
+                    { id: "yesterday", label: "Yesterday" },
+                    { id: "7days", label: "Last 7 Days" },
+                    { id: "all", label: "All Time" }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setTallyDateFilter(tab.id)}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: "6px",
+                        fontSize: "11.5px",
+                        fontWeight: "750",
+                        cursor: "pointer",
+                        border: tallyDateFilter === tab.id ? "1px solid #d97706" : "1px solid #e4e4e7",
+                        background: tallyDateFilter === tab.id ? "#fffbeb" : "#ffffff",
+                        color: tallyDateFilter === tab.id ? "#b45309" : "#52525b"
+                      }}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "11.5px", color: "#71717a", fontWeight: "600" }}>Or Custom Date:</span>
+                  <input
+                    type="date"
+                    value={customTallyDate}
+                    onChange={(e) => {
+                      setCustomTallyDate(e.target.value);
+                      setTallyDateFilter(e.target.value);
+                    }}
+                    style={{
+                      padding: "5px 10px",
+                      border: "1px solid #d4d4d8",
+                      borderRadius: "6px",
+                      fontSize: "12px",
+                      outline: "none",
+                      background: "#fafafa",
+                      cursor: "pointer",
+                      flex: 1
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* 2. Key Metrics Summary Grid (Order Counts & Fulfillment Metrics - Zero Revenue) */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                {/* Total Orders Card */}
+                <div style={{ background: "#ffffff", border: "1px solid #e4e4e7", borderRadius: "12px", padding: "12px 14px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#71717a", textTransform: "uppercase" }}>📦 Total Orders</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#09090b", margin: "4px 0 2px" }}>
+                    {dailyStatsAndProductTally.totalOrders}
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#52525b" }}>
+                    🌐 {dailyStatsAndProductTally.onlineOrdersCount} Online • 🏪 {dailyStatsAndProductTally.offlineOrdersCount} Offline
+                  </span>
+                </div>
+
+                {/* Delivered Orders Card */}
+                <div style={{ background: "linear-gradient(135deg, #ecfdf5, #d1fae5)", border: "1px solid #a7f3d0", borderRadius: "12px", padding: "12px 14px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#047857", textTransform: "uppercase" }}>✅ Delivered Orders</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#065f46", margin: "4px 0 2px" }}>
+                    {dailyStatsAndProductTally.deliveredOrdersCount} <span style={{ fontSize: "12px", fontWeight: "700", color: "#047857" }}>orders</span>
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#047857", fontWeight: "600" }}>
+                    Fulfilled & served successfully
+                  </span>
+                </div>
+
+                {/* In Prep / Active Orders Card */}
+                <div style={{ background: "linear-gradient(135deg, #fff7ed, #ffedd5)", border: "1px solid #fed7aa", borderRadius: "12px", padding: "12px 14px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#c2410c", textTransform: "uppercase" }}>🫖 In Prep / Active</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#9a3412", margin: "4px 0 2px" }}>
+                    {dailyStatsAndProductTally.preparingOrdersCount + dailyStatsAndProductTally.receivedOrdersCount} <span style={{ fontSize: "12px", fontWeight: "700", color: "#c2410c" }}>orders</span>
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#c2410c" }}>
+                    📥 {dailyStatsAndProductTally.receivedOrdersCount} Received • 🫖 {dailyStatsAndProductTally.preparingOrdersCount} In Prep
+                  </span>
+                </div>
+
+                {/* Total Cups / Items Delivered Card */}
+                <div style={{ background: "linear-gradient(135deg, #eff6ff, #dbeafe)", border: "1px solid #bfdbfe", borderRadius: "12px", padding: "12px 14px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#1d4ed8", textTransform: "uppercase" }}>☕ Total Cups Delivered</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#1e40af", margin: "4px 0 2px" }}>
+                    {dailyStatsAndProductTally.totalUnitsDelivered} <span style={{ fontSize: "12px", fontWeight: "600", color: "#1d4ed8" }}>/ {dailyStatsAndProductTally.totalUnitsOrdered} total</span>
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#1d4ed8" }}>
+                    ⏳ {dailyStatsAndProductTally.totalUnitsPreparing} cups in queue
+                  </span>
+                </div>
+              </div>
+
+              {/* 3. Product-by-Product Delivery Breakdown */}
+              <div style={{ background: "#ffffff", border: "1px solid #e4e4e7", borderRadius: "12px", padding: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: "14px", fontWeight: "900", color: "#09090b" }}>
+                      🍵 Product Delivery Breakdown
+                    </h4>
+                    <span style={{ fontSize: "11px", color: "#71717a" }}>
+                      {dailyStatsAndProductTally.productList.length} products ordered on this date
+                    </span>
+                  </div>
+
+                  {/* Search Product Filter */}
+                  <input
+                    type="text"
+                    placeholder="Search product..."
+                    value={tallySearchTerm}
+                    onChange={(e) => setTallySearchTerm(e.target.value)}
+                    style={{
+                      padding: "4px 10px",
+                      border: "1px solid #e4e4e7",
+                      borderRadius: "6px",
+                      fontSize: "11.5px",
+                      outline: "none",
+                      width: "140px",
+                      background: "#fafafa"
+                    }}
+                  />
+                </div>
+
+                {/* List of Products */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {dailyStatsAndProductTally.productList.length === 0 ? (
+                    <div style={{ padding: "32px 16px", textAlign: "center", color: "#71717a" }}>
+                      <span style={{ fontSize: "28px", display: "block", marginBottom: "6px" }}>🫖</span>
+                      <strong style={{ fontSize: "13px", color: "#18181b", display: "block" }}>No products ordered on this date</strong>
+                      <span style={{ fontSize: "11.5px" }}>Select another date above to view product sales and deliveries.</span>
+                    </div>
+                  ) : (
+                    dailyStatsAndProductTally.productList
+                      .filter(p => !tallySearchTerm || p.name.toLowerCase().includes(tallySearchTerm.toLowerCase()))
+                      .map((p, idx) => {
+                        const deliveredPct = p.totalQty > 0 ? Math.round((p.deliveredQty / p.totalQty) * 100) : 0;
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              border: "1px solid #f0f0f0",
+                              borderRadius: "10px",
+                              padding: "10px 12px",
+                              background: "#fafafa",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "8px"
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <img
+                                src={p.image || "/logo.png"}
+                                alt={p.name}
+                                style={{
+                                  width: "40px",
+                                  height: "40px",
+                                  borderRadius: "8px",
+                                  objectFit: "cover",
+                                  border: "1px solid #e4e4e7",
+                                  flexShrink: 0
+                                }}
+                              />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <strong style={{ fontSize: "13px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    {p.name}
+                                  </strong>
+                                  <span style={{
+                                    fontSize: "11px",
+                                    fontWeight: "800",
+                                    color: p.deliveredQty === p.totalQty ? "#16a34a" : "#d97706",
+                                    background: p.deliveredQty === p.totalQty ? "#ecfdf5" : "#fffbeb",
+                                    padding: "2px 7px",
+                                    borderRadius: "4px",
+                                    border: p.deliveredQty === p.totalQty ? "1px solid #a7f3d0" : "1px solid #fde68a",
+                                    whiteSpace: "nowrap"
+                                  }}>
+                                    {p.deliveredQty}/{p.totalQty} Delivered
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: "10.5px", color: "#71717a" }}>
+                                  Category: {p.category}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Metrics Row: Total Ordered, Delivered, In Prep */}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px" }}>
+                              <span style={{
+                                fontSize: "11px",
+                                fontWeight: "750",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                background: "#f4f4f5",
+                                color: "#18181b",
+                                border: "1px solid #e4e4e7"
+                              }}>
+                                📦 Total: <strong>{p.totalQty}</strong>
+                              </span>
+
+                              <span style={{
+                                fontSize: "11px",
+                                fontWeight: "750",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                background: "#ecfdf5",
+                                color: "#065f46",
+                                border: "1px solid #a7f3d0"
+                              }}>
+                                ✅ Delivered: <strong>{p.deliveredQty}</strong>
+                              </span>
+
+                              <span style={{
+                                fontSize: "11px",
+                                fontWeight: "750",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                background: (p.preparingQty + p.receivedQty) > 0 ? "#fff7ed" : "#f4f4f5",
+                                color: (p.preparingQty + p.receivedQty) > 0 ? "#9a3412" : "#71717a",
+                                border: "1px solid #fed7aa"
+                              }}>
+                                ⏳ In Prep: <strong>{p.preparingQty + p.receivedQty}</strong>
+                              </span>
+                            </div>
+
+                            {/* Delivery Progress Bar */}
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                              <div style={{ flex: 1, height: "6px", background: "#e4e4e7", borderRadius: "3px", overflow: "hidden" }}>
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    width: `${deliveredPct}%`,
+                                    background: deliveredPct === 100 ? "#16a34a" : "linear-gradient(90deg, #f59e0b, #10b981)",
+                                    borderRadius: "3px",
+                                    transition: "width 0.3s ease"
+                                  }}
+                                />
+                              </div>
+                              <span style={{ fontSize: "10px", fontWeight: "800", color: "#52525b", minWidth: "30px", textAlign: "right" }}>
+                                {deliveredPct}%
+                              </span>
+                            </div>
+
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Drawer Footer */}
+            <div style={{ padding: "14px 20px", borderTop: "1px solid #e4e4e7", background: "#ffffff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: "12px", color: "#71717a", fontWeight: "600" }}>
+                Active Date: <strong style={{ color: "#09090b" }}>{tallyDateFilter === "today" ? "Today" : tallyDateFilter === "yesterday" ? "Yesterday" : tallyDateFilter === "7days" ? "Last 7 Days" : tallyDateFilter}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowTodayStatsSidebar(false)}
+                style={{
+                  padding: "7px 16px",
+                  background: "#18181b",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "8px",
+                  fontSize: "12px",
+                  fontWeight: "750",
+                  cursor: "pointer"
+                }}
+              >
+                Close Drawer
+              </button>
             </div>
           </aside>
 
