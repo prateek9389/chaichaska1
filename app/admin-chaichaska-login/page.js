@@ -94,6 +94,10 @@ export default function AdminDashboard() {
   const [queueFilter, setQueueFilter] = useState("All");
   const [pendingModalView, setPendingModalView] = useState("orders");
   const [pendingSearchTerm, setPendingSearchTerm] = useState("");
+  const [showTodayStatsSidebar, setShowTodayStatsSidebar] = useState(false);
+  const [tallyDateFilter, setTallyDateFilter] = useState("today");
+  const [customTallyDate, setCustomTallyDate] = useState(new Date().toISOString().split('T')[0]);
+  const [tallySearchTerm, setTallySearchTerm] = useState("");
   
   const [isOnline, setIsOnline] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -660,10 +664,7 @@ export default function AdminDashboard() {
 
   // Sidebar visibility state
   const [showPendingSidebar, setShowPendingSidebar] = useState(false);
-  const [showTodayStatsSidebar, setShowTodayStatsSidebar] = useState(false);
-  const [tallyDateFilter, setTallyDateFilter] = useState("today");
-  const [customTallyDate, setCustomTallyDate] = useState(new Date().toISOString().split('T')[0]);
-  const [tallySearchTerm, setTallySearchTerm] = useState("");
+
 
   // Image Library states
   const [showImageLibrary, setShowImageLibrary] = useState(false);
