@@ -100,7 +100,12 @@ export default function AdminDashboard() {
     customerName: "",
     address: "",
     phone: "",
-    walkIn: false,
+    walkIn: true,
+    orderDate: new Date().toLocaleDateString('en-CA'),
+    orderTime: new Date().toTimeString().slice(0, 5),
+    status: "Delivered",
+    paymentMethod: "Cash",
+    paymentStatus: "Paid",
     items: []
   });
 
@@ -686,15 +691,20 @@ export default function AdminDashboard() {
         const newOrders = currentPending.filter(o => !prevOrderIds.includes(o.id));
         if (newOrders.length > 0) {
           const newest = newOrders[0];
-          setIncomingOrder(newest);
-          if (audioRef.current) {
-            audioRef.current.currentTime = 0;
-            audioRef.current.play().catch((err) => {
-              console.warn("Autoplay audio blocked or pending user interaction:", err);
-            });
+          // Only trigger ringing alert & popup modal for real-time online customer orders placed in last 10 mins
+          const isOfflineOrder = Boolean(newest.isOffline || newest.walkIn || newest.offlineAdded);
+          const isRecent = newest.createdAt && (Date.now() - newest.createdAt < 10 * 60 * 1000);
+          if (!isOfflineOrder && isRecent) {
+            setIncomingOrder(newest);
+            if (audioRef.current) {
+              audioRef.current.currentTime = 0;
+              audioRef.current.play().catch((err) => {
+                console.warn("Autoplay audio blocked or pending user interaction:", err);
+              });
+            }
+            setToastMsg(`🚨 New Online Order #${newest.id ? (typeof newest.id === "string" ? newest.id.slice(-4) : newest.id) : ""}!`);
+            setTimeout(() => setToastMsg(""), 6000);
           }
-          setToastMsg(`🚨 New Order #${newest.id ? (typeof newest.id === "string" ? newest.id.slice(-4) : newest.id) : ""}!`);
-          setTimeout(() => setToastMsg(""), 6000);
         }
       }
       prevOrderIds = data.map(o => o.id);
@@ -4006,132 +4016,209 @@ export default function AdminDashboard() {
               </div>
             )}
 
-            {/* TAB: OFFLINE & WALK-IN ORDERS (AUTOMATIC PRICE CALCULATION) */}
+            {/* TAB: OFFLINE & WALK-IN ORDERS (AUTOMATIC PRICE CALCULATION & PAST DATE ORDERS) */}
             {activeTab === "offline" && (() => {
               const calculatedTotal = offlineOrderForm.items.reduce((sum, it) => sum + (it.priceNum || 40) * it.qty, 0);
               const totalItemsCount = offlineOrderForm.items.reduce((acc, item) => acc + item.qty, 0);
+              const todayIso = new Date().toLocaleDateString('en-CA');
+              const isPastOrder = offlineOrderForm.orderDate && offlineOrderForm.orderDate < todayIso;
 
               return (
                 <div className="tab-body-wrapper" style={{ padding: "28px 32px" }}>
                   <div style={{ marginBottom: "20px" }}>
                     <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b" }}>Offline & Counter Walk-in Orders</h3>
-                    <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Create immediate counter orders with automatic price calculation per selected item</p>
+                    <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Create immediate counter sales or record past offline orders with manual date selection to automatically sync sales, tally & reports</p>
                   </div>
 
-                  {/* TOP ROW: 2 COLUMNS (LEFT: Customer & Auto Price, RIGHT: Kitchen Prep Items) */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }} className="dashboard-double-row-grid">
-                    {/* Left Column: Customer & Destination */}
-                    <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                  {/* TOP ROW: 2 COLUMNS (LEFT: Date, Customer & Payment, RIGHT: Kitchen Prep Items) */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: "24px", marginBottom: "24px" }} className="dashboard-double-row-grid">
+                    {/* Left Column: Date, Customer & Destination */}
+                    <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", gap: "18px" }}>
+                      
+                      {/* DATE & TIME SELECTION SECTION */}
+                      <div style={{ background: isPastOrder ? "#fffbeb" : "#f8fafc", padding: "16px", borderRadius: "14px", border: isPastOrder ? "1.5px solid #fcd34d" : "1.5px solid #e2e8f0" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "850", color: isPastOrder ? "#92400e" : "#09090b", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "6px" }}>
+                            📅 Order Date & Time {isPastOrder ? "(Past Date Entry)" : "(Current Date)"}
+                          </span>
+                          <span style={{ fontSize: "11px", fontWeight: "800", padding: "3px 8px", borderRadius: "6px", background: isPastOrder ? "#fef3c7" : "#dcfce7", color: isPastOrder ? "#b45309" : "#166534" }}>
+                            {isPastOrder ? "🗓️ Past Record" : "🟢 Live Order"}
+                          </span>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+                          <div>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "4px" }}>Order Date</label>
+                            <input 
+                              type="date"
+                              value={offlineOrderForm.orderDate || todayIso}
+                              onChange={(e) => {
+                                const newDate = e.target.value;
+                                const isPast = newDate && newDate < todayIso;
+                                setOfflineOrderForm({ 
+                                  ...offlineOrderForm, 
+                                  orderDate: newDate,
+                                  status: isPast ? "Delivered" : (offlineOrderForm.status || "Delivered")
+                                });
+                              }}
+                              style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #cbd5e1", background: "#ffffff", fontSize: "13px", color: "#09090b", fontWeight: "600", outline: "none", boxSizing: "border-box" }}
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "4px" }}>Order Time</label>
+                            <input 
+                              type="time"
+                              value={offlineOrderForm.orderTime || "12:00"}
+                              onChange={(e) => setOfflineOrderForm({ ...offlineOrderForm, orderTime: e.target.value })}
+                              style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #cbd5e1", background: "#ffffff", fontSize: "13px", color: "#09090b", fontWeight: "600", outline: "none", boxSizing: "border-box" }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Quick Date Shortcuts */}
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <span style={{ fontSize: "11px", color: "#71717a", fontWeight: "700" }}>Quick Pick:</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOfflineOrderForm({ ...offlineOrderForm, orderDate: todayIso, orderTime: new Date().toTimeString().slice(0, 5), status: "Received" });
+                            }}
+                            style={{ background: (!offlineOrderForm.orderDate || offlineOrderForm.orderDate === todayIso) ? "#09090b" : "#ffffff", color: (!offlineOrderForm.orderDate || offlineOrderForm.orderDate === todayIso) ? "#ffffff" : "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", padding: "3px 10px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
+                          >
+                            Today
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const y = new Date();
+                              y.setDate(y.getDate() - 1);
+                              const yIso = y.toLocaleDateString('en-CA');
+                              setOfflineOrderForm({ ...offlineOrderForm, orderDate: yIso, status: "Delivered" });
+                            }}
+                            style={{ background: (offlineOrderForm.orderDate === (() => { const y = new Date(); y.setDate(y.getDate() - 1); return y.toLocaleDateString('en-CA'); })()) ? "#09090b" : "#ffffff", color: (offlineOrderForm.orderDate === (() => { const y = new Date(); y.setDate(y.getDate() - 1); return y.toLocaleDateString('en-CA'); })()) ? "#ffffff" : "#334155", border: "1px solid #cbd5e1", borderRadius: "6px", padding: "3px 10px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
+                          >
+                            Yesterday
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* CUSTOMER & DESTINATION */}
                       <div>
-                        <h4 style={{ margin: "0 0 16px 0", fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Customer & Destination</h4>
-                        
-                        <div style={{ marginBottom: "14px" }}>
-                          <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Customer Name</label>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                          <label style={{ fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase" }}>Customer Details</label>
+                          <button
+                            type="button"
+                            onClick={() => setOfflineOrderForm({ ...offlineOrderForm, customerName: "Counter Walk-in Guest", walkIn: true, address: "Walk-in Counter", phone: "Walk-in" })}
+                            style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "2px 8px", fontSize: "11px", color: "#475569", fontWeight: "700", cursor: "pointer" }}
+                          >
+                            + Fast Counter Guest
+                          </button>
+                        </div>
+
+                        <div style={{ marginBottom: "12px" }}>
                           <input 
                             type="text"
                             value={offlineOrderForm.customerName}
                             onChange={e => setOfflineOrderForm({ ...offlineOrderForm, customerName: e.target.value })}
-                            style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
-                            placeholder="e.g. Rahul Sharma"
+                            style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
+                            placeholder="Customer Name (e.g. Rahul Sharma or Walk-in)"
                           />
                         </div>
 
-                        <div style={{ marginBottom: "16px" }}>
-                          <label style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "13px", cursor: "pointer", fontWeight: "750", color: "#09090b" }}>
+                        <div style={{ marginBottom: "14px" }}>
+                          <label style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "12.5px", cursor: "pointer", fontWeight: "750", color: "#09090b" }}>
                             <input 
                               type="checkbox"
                               checked={offlineOrderForm.walkIn}
                               onChange={e => setOfflineOrderForm({ ...offlineOrderForm, walkIn: e.target.checked, address: e.target.checked ? "Walk-in Counter" : "", phone: e.target.checked ? "Walk-in" : "" })}
                               style={{ width: "16px", height: "16px", accentColor: "#000000" }}
                             />
-                            Walk-in In-Store Customer (Immediate Counter Pickup)
+                            Walk-in / Counter Pickup (No delivery needed)
                           </label>
                         </div>
 
                         {!offlineOrderForm.walkIn && (
-                          <>
-                            <div style={{ marginBottom: "14px" }}>
-                              <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Mobile Number</label>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "12px", marginBottom: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Phone</label>
                               <input 
                                 type="text"
                                 value={offlineOrderForm.phone}
                                 onChange={e => setOfflineOrderForm({ ...offlineOrderForm, phone: e.target.value })}
-                                style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
+                                style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
                                 placeholder="+91 98000 00000"
                               />
                             </div>
-
-                            <div style={{ marginBottom: "14px" }}>
-                              <label style={{ display: "block", fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "6px" }}>Desk / Office Location</label>
-                              
-                              {(() => {
-                                const recentAddresses = Array.from(new Set(
-                                  orders
-                                    .filter(o => typeof o.address === 'string' || (o.address && typeof o.address.addressLine1 === 'string'))
-                                    .map(o => typeof o.address === 'string' ? o.address : o.address.addressLine1)
-                                    .filter(a => a && a.trim() !== "" && a !== "Walk-in Counter")
-                                )).slice(0, 5);
-                                
-                                if (recentAddresses.length > 0) {
-                                  return (
-                                    <div style={{ marginBottom: "8px", display: "flex", flexWrap: "wrap" }}>
-                                      {recentAddresses.map((addr, idx) => (
-                                        <button
-                                          key={idx}
-                                          type="button"
-                                          onClick={() => setOfflineOrderForm({ ...offlineOrderForm, address: addr })}
-                                          style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "4px 8px", fontSize: "11px", marginRight: "6px", marginBottom: "6px", cursor: "pointer", color: "#475569", transition: "all 0.2s ease" }}
-                                          onMouseEnter={(e) => { e.target.style.background = "#e2e8f0"; }}
-                                          onMouseLeave={(e) => { e.target.style.background = "#f1f5f9"; }}
-                                        >
-                                          + {addr}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  );
-                                }
-                                return null;
-                              })()}
-
-                              <textarea 
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Desk / Office</label>
+                              <input 
+                                type="text"
                                 value={offlineOrderForm.address}
                                 onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
-                                style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", minHeight: "75px", boxSizing: "border-box" }}
-                                placeholder="e.g. 2nd Floor, Cabin 204 or Desk Bay 4"
+                                style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
+                                placeholder="e.g. Floor 2, Cabin 204"
                               />
                             </div>
-                          </>
+                          </div>
                         )}
+                      </div>
 
-                        {/* Automatic Price Box (No Manual Entry Required) */}
-                        <div style={{ marginTop: "16px", padding: "16px", borderRadius: "12px", background: "#f0fdf4", border: "1.5px solid #bbf7d0" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <span style={{ fontSize: "12px", color: "#15803d", fontWeight: "bold", textTransform: "uppercase" }}>⚡ Auto-Calculated Price</span>
-                            <span style={{ fontSize: "11px", color: "#166534", background: "#dcfce7", padding: "2px 8px", borderRadius: "4px", fontWeight: "bold" }}>
-                              {totalItemsCount} {totalItemsCount === 1 ? "Item" : "Items"}
-                            </span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                            <span style={{ fontSize: "13px", color: "#166534", fontWeight: "600" }}>Total Order Value:</span>
-                            <strong style={{ fontSize: "24px", color: "#15803d", fontWeight: "900" }}>
-                              ₹{calculatedTotal}
-                            </strong>
-                          </div>
-                          <span style={{ fontSize: "11px", color: "#16a34a", display: "block", marginTop: "4px" }}>
-                            ✓ Sums automatically as you select products
-                          </span>
+                      {/* STATUS & SETTLEMENT */}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Order Status</label>
+                          <select
+                            value={offlineOrderForm.status || (isPastOrder ? "Delivered" : "Received")}
+                            onChange={(e) => setOfflineOrderForm({ ...offlineOrderForm, status: e.target.value })}
+                            style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "12.5px", color: "#09090b", fontWeight: "700", outline: "none" }}
+                          >
+                            <option value="Delivered">✅ Delivered (Completed)</option>
+                            <option value="Received">📥 Received (Kitchen Queue)</option>
+                            <option value="Preparing">🫖 Preparing (Brewing)</option>
+                          </select>
                         </div>
 
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Payment Method</label>
+                          <select
+                            value={offlineOrderForm.paymentMethod || "Cash"}
+                            onChange={(e) => setOfflineOrderForm({ ...offlineOrderForm, paymentMethod: e.target.value })}
+                            style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "12.5px", color: "#09090b", fontWeight: "700", outline: "none" }}
+                          >
+                            <option value="Cash">💵 Cash</option>
+                            <option value="UPI / QR">📱 UPI / QR</option>
+                            <option value="Card">💳 Card / POS</option>
+                            <option value="Corporate Bill">🏢 Corporate Account</option>
+                          </select>
+                        </div>
                       </div>
+
+                      {/* Automatic Price Box */}
+                      <div style={{ padding: "14px 16px", borderRadius: "12px", background: "#f0fdf4", border: "1.5px solid #bbf7d0" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "11.5px", color: "#15803d", fontWeight: "bold", textTransform: "uppercase" }}>⚡ Auto-Calculated Price</span>
+                          <span style={{ fontSize: "11px", color: "#166534", background: "#dcfce7", padding: "2px 8px", borderRadius: "4px", fontWeight: "bold" }}>
+                            {totalItemsCount} {totalItemsCount === 1 ? "Item" : "Items"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                          <span style={{ fontSize: "13px", color: "#166534", fontWeight: "600" }}>Total Order Value:</span>
+                          <strong style={{ fontSize: "22px", color: "#15803d", fontWeight: "900" }}>
+                            ₹{calculatedTotal}
+                          </strong>
+                        </div>
+                      </div>
+
                     </div>
 
-                    {/* Right Column: Kitchen Prep Items & Order Action */}
+                    {/* Right Column: Kitchen Prep Items */}
                     <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                           <div>
-                            <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Kitchen Prep Items</h4>
-                            <span style={{ fontSize: "12px", color: "#71717a" }}>Selected Chai & Snacks for brewing</span>
+                            <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Order Products & Chai</h4>
+                            <span style={{ fontSize: "12px", color: "#71717a" }}>Selected Chai & Snacks</span>
                           </div>
                           <button 
                             type="button"
@@ -4142,10 +4229,10 @@ export default function AdminDashboard() {
                           </button>
                         </div>
 
-                        <div style={{ maxHeight: "230px", minHeight: "150px", overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: "12px", padding: "12px", marginBottom: "16px", background: "#fafafa" }}>
+                        <div style={{ maxHeight: "250px", minHeight: "160px", overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: "12px", padding: "12px", marginBottom: "16px", background: "#fafafa" }}>
                           {offlineOrderForm.items.length === 0 ? (
-                            <div style={{ textAlign: "center", color: "#71717a", fontSize: "13px", padding: "40px 0" }}>
-                              No items selected yet. Click "+ Select Products" to add items and see price automatically.
+                            <div style={{ textAlign: "center", color: "#71717a", fontSize: "13px", padding: "45px 0" }}>
+                              No items selected yet. Click "+ Select Products" to add items and calculate price automatically.
                             </div>
                           ) : (
                             offlineOrderForm.items.map((item, idx) => {
@@ -4185,7 +4272,7 @@ export default function AdminDashboard() {
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", padding: "12px 16px", background: "#f8fafc", borderRadius: "12px", border: "1px solid #f1f5f9" }}>
                           <div>
                             <span style={{ fontSize: "13px", fontWeight: "800", color: "#09090b", display: "block" }}>Total Order Summary:</span>
-                            <span style={{ fontSize: "11.5px", color: "#71717a" }}>{totalItemsCount} items selected</span>
+                            <span style={{ fontSize: "11.5px", color: "#71717a" }}>{totalItemsCount} items selected • {offlineOrderForm.orderDate || todayIso}</span>
                           </div>
                           <span style={{ background: "#16a34a", color: "#ffffff", padding: "6px 16px", borderRadius: "8px", fontWeight: "900", fontSize: "16px" }}>
                             ₹{calculatedTotal}
@@ -4200,28 +4287,50 @@ export default function AdminDashboard() {
                               setTimeout(() => setToastMsg(""), 3000);
                               return;
                             }
+
+                            const orderDateVal = offlineOrderForm.orderDate || todayIso;
+                            const orderTimeVal = offlineOrderForm.orderTime || new Date().toTimeString().slice(0, 5);
+                            const parsedDate = new Date(`${orderDateVal}T${orderTimeVal}:00`);
+                            const createdAtTimestamp = !isNaN(parsedDate.getTime()) ? parsedDate.getTime() : Date.now();
+                            const formattedDate = new Date(createdAtTimestamp).toLocaleDateString('en-GB');
+                            const isPast = orderDateVal < todayIso;
+                            const finalStatus = offlineOrderForm.status || (isPast ? "Delivered" : "Received");
+
                             const orderData = {
-                              customer: offlineOrderForm.customerName,
-                              phone: offlineOrderForm.phone || "",
+                              customer: offlineOrderForm.customerName.trim(),
+                              phone: offlineOrderForm.phone || (offlineOrderForm.walkIn ? "Walk-in" : ""),
                               address: offlineOrderForm.address || (offlineOrderForm.walkIn ? "Counter Walk-in" : "Direct Pickup"),
-                              walkIn: offlineOrderForm.walkIn,
+                              walkIn: Boolean(offlineOrderForm.walkIn),
                               isOffline: true,
-                              paymentStatus: "Paid",
-                              paymentMethod: "Cash",
-                              status: "Received",
+                              offlineAdded: true,
+                              paymentStatus: offlineOrderForm.paymentStatus || "Paid",
+                              paymentMethod: offlineOrderForm.paymentMethod || "Cash",
+                              status: finalStatus,
                               total: `₹${calculatedTotal}`,
                               priceNum: calculatedTotal,
-                              createdAt: Date.now(),
-                              date: new Date().toLocaleDateString('en-GB'),
+                              createdAt: createdAtTimestamp,
+                              date: formattedDate,
                               item: offlineOrderForm.items.map(i => `${i.name} x${i.qty}`).join(", "),
                               items: offlineOrderForm.items.map(i => ({ name: i.name, quantity: i.qty, price: i.priceNum || 40 })),
                               img: offlineOrderForm.items[0]?.image || "/logo.png"
                             };
+
                             try {
                               await createOrder(orderData);
-                              setToastMsg("✅ Offline Counter Order Created (₹" + calculatedTotal + ") & Added to Queue!");
-                              setOfflineOrderForm({ customerName: "", address: "", phone: "", walkIn: false, totalPrice: "", items: [] });
-                              setTimeout(() => setToastMsg(""), 3000);
+                              setToastMsg(`✅ Offline Order added for ${orderDateVal} (₹${calculatedTotal})! Sales & Tally updated.`);
+                              setOfflineOrderForm({ 
+                                customerName: "", 
+                                address: "", 
+                                phone: "", 
+                                walkIn: true, 
+                                orderDate: todayIso, 
+                                orderTime: new Date().toTimeString().slice(0, 5), 
+                                status: "Delivered", 
+                                paymentMethod: "Cash", 
+                                paymentStatus: "Paid", 
+                                items: [] 
+                              });
+                              setTimeout(() => setToastMsg(""), 4000);
                             } catch (e) {
                               setToastMsg("❌ Error creating order: " + e.message);
                               setTimeout(() => setToastMsg(""), 3000);
@@ -4229,7 +4338,7 @@ export default function AdminDashboard() {
                           }}
                           style={{ background: "#000000", color: "#ffffff", border: "none", padding: "14px", borderRadius: "10px", fontWeight: "900", cursor: "pointer", width: "100%", fontSize: "14px", letterSpacing: "0.5px" }}
                         >
-                          CREATE COUNTER ORDER (₹{calculatedTotal}) ☕
+                          SAVE OFFLINE ORDER (₹{calculatedTotal}) ☕
                         </button>
                       </div>
                     </div>

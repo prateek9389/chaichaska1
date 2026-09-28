@@ -513,22 +513,25 @@ export default function AdminDashboard() {
   // Month-by-month sales distribution
   const monthSales = Array(12).fill(0);
   orders.forEach(o => {
-    if (!o.date) return;
-    const parts = o.date.split("/");
     let monthIndex = -1;
-    if (parts.length === 3) {
-      const first = parseInt(parts[0]);
-      if (first >= 1 && first <= 12) {
-        monthIndex = first - 1;
-      }
-    } else {
-      const d = new Date(o.date);
+    if (o.createdAt) {
+      const d = new Date(o.createdAt);
       if (!isNaN(d.getTime())) {
         monthIndex = d.getMonth();
       }
+    } else if (o.date) {
+      const parts = o.date.split("/");
+      if (parts.length === 3) {
+        const m = parseInt(parts[1]) - 1;
+        if (m >= 0 && m < 12) monthIndex = m;
+      } else {
+        const d = new Date(o.date);
+        if (!isNaN(d.getTime())) {
+          monthIndex = d.getMonth();
+        }
+      }
     }
-    const rawVal = o.total || o.price || o.amount || 0;
-    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
+    const val = parseOrderPrice(o);
     if (monthIndex >= 0 && monthIndex < 12 && !isNaN(val)) {
       monthSales[monthIndex] += val;
     }
