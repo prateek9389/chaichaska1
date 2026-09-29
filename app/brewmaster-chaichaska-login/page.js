@@ -767,7 +767,7 @@ export default function AdminDashboard() {
   }, [router]);
 
   
-  // WhatsApp Direct Redirect Helper (Auto-resolves Customer's Entered Phone Number)
+  // WhatsApp Direct Redirect Helper (Auto-takes customer phone entered during order; shows 'No number found' if absent)
   const resolveOrderPhone = (order) => {
     if (!order) return "";
     const candidates = [
@@ -775,15 +775,15 @@ export default function AdminDashboard() {
       order.customerPhone,
       order.userPhone,
       order.mobile,
+      order.phoneNumber,
       order.contactPhone,
-      typeof order.address === "object" ? order.address?.phone : "",
-      typeof order.address === "object" ? order.address?.mobile : "",
-      typeof order.address === "object" ? order.address?.phoneNumber : "",
+      typeof order.address === "object" ? (order.address?.phone || order.address?.mobile || order.address?.phoneNumber) : "",
+      typeof order.user === "object" ? (order.user?.phone || order.user?.phoneNumber) : "",
     ];
     for (const raw of candidates) {
       if (raw && typeof raw === "string") {
         const trimmed = raw.trim();
-        if (trimmed && trimmed !== "N/A" && trimmed !== "Walk-in" && trimmed !== "null" && trimmed !== "undefined") {
+        if (trimmed && trimmed !== "N/A" && trimmed !== "Walk-in" && trimmed !== "null" && trimmed !== "undefined" && trimmed !== "-" && trimmed !== "none") {
           let digits = trimmed.replace(/\D/g, "");
           if (digits.length === 11 && digits.startsWith("0")) {
             digits = digits.substring(1);
@@ -805,19 +805,13 @@ export default function AdminDashboard() {
 
   const sendWhatsAppRedirect = (order) => {
     if (!order) return;
-    let cleanPhone = resolveOrderPhone(order);
+    const cleanPhone = resolveOrderPhone(order);
     
-    // Fallback only if customer didn't enter any phone number during order
+    // If no customer phone number was provided during order placement
     if (!cleanPhone) {
-      const userPrompt = window.prompt("No phone number found on order. Enter customer 10-digit WhatsApp number:", "");
-      if (!userPrompt) return;
-      let digits = userPrompt.replace(/\D/g, "");
-      if (digits.length === 10) digits = "91" + digits;
-      if (!digits || digits.length < 10) {
-        alert("Please enter a valid 10-digit mobile number.");
-        return;
-      }
-      cleanPhone = digits;
+      setToastMsg("❌ Customer phone number not found on this order!");
+      setTimeout(() => setToastMsg(""), 3500);
+      return;
     }
     
     const cleanId = order.orderId || (order.id ? (typeof order.id === 'string' ? order.id.slice(-6).toUpperCase() : order.id) : "LIVE");
