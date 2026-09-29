@@ -446,20 +446,51 @@ export default function AdminDashboard() {
   // Earnings Summary Stats (Dynamic calculations from Firebase orders)
   const filteredOrders = orders.filter(o => {
     if (timeFilter === "All" || !timeFilter) return true;
-    if (!o.createdAt) return true;
+    if (!o.createdAt && !o.date) return false;
     
-    // Handle specific date string (YYYY-MM-DD) from the calendar
-    if (timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const orderDate = new Date(o.createdAt);
-      const orderDateString = orderDate.toLocaleDateString('en-CA'); 
+    let orderTimestamp = 0;
+    if (typeof o.createdAt === 'number' && !isNaN(o.createdAt)) {
+      orderTimestamp = o.createdAt;
+    } else if (o.createdAt?.seconds) {
+      orderTimestamp = o.createdAt.seconds * 1000;
+    } else if (o.createdAt) {
+      orderTimestamp = new Date(o.createdAt).getTime();
+    } else if (o.date) {
+      const parts = o.date.split('/');
+      if (parts.length === 3) {
+        orderTimestamp = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+      } else {
+        orderTimestamp = new Date(o.date).getTime();
+      }
+    }
+    
+    if (!orderTimestamp || isNaN(orderTimestamp)) return false;
+    const orderDate = new Date(orderTimestamp);
+    const orderDateString = orderDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+    
+    // Handle specific date string (YYYY-MM-DD) from calendar
+    if (typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
       return orderDateString === timeFilter;
     }
     
-    const now = Date.now();
-    const diff = now - o.createdAt;
-    if (timeFilter === "Daily") return diff <= 24 * 60 * 60 * 1000;
-    if (timeFilter === "Weekly") return diff <= 7 * 24 * 60 * 60 * 1000;
-    if (timeFilter === "Monthly") return diff <= 30 * 24 * 60 * 60 * 1000;
+    const now = new Date();
+    const todayStr = now.toLocaleDateString('en-CA');
+    
+    if (timeFilter === "Daily") {
+      return orderDateString === todayStr;
+    }
+    
+    if (timeFilter === "Weekly") {
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - 6);
+      weekStart.setHours(0, 0, 0, 0);
+      return orderTimestamp >= weekStart.getTime();
+    }
+    
+    if (timeFilter === "Monthly") {
+      return orderDate.getMonth() === now.getMonth() && orderDate.getFullYear() === now.getFullYear();
+    }
+    
     return true;
   });
 
@@ -483,15 +514,16 @@ export default function AdminDashboard() {
   const totalOrdersCount = validOrders.length;
   const completedOrdersCount = validOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
   const pendingOrdersCount = validOrders.filter(o => o.status === "Received" || o.status === "Pending" || o.status === "Preparing").length;
+  const deliveryShipmentCount = validOrders.filter(o => o.status === "Out for Delivery" || o.status === "Ready" || o.status === "Shipped" || o.status === "Delivered" || o.status === "Completed").length;
   const avgOrderValueVal = totalOrdersCount > 0 ? (totalSalesVal / totalOrdersCount) : 0;
 
-  const offlineOrdersCount = validOrders.filter(o => o.isOffline === true).length;
+  const offlineOrdersCount = validOrders.filter(o => Boolean(o.isOffline || o.walkIn)).length;
   const onlineOrdersCount = totalOrdersCount - offlineOrdersCount;
 
   const statsSummary = {
     totalSales: `₹${totalSalesVal.toLocaleString()}`,
     pendingAmount: `₹${pendingAmountVal.toLocaleString()}`,
-    totalOrders: `${totalOrdersCount} orders`,
+    totalOrders: `${totalOrdersCount}`,
     deliveryShipment: `${completedOrdersCount} Delivery`,
     pendingShipment: `${pendingOrdersCount} orders`,
     avgOrderValue: `₹${Math.round(avgOrderValueVal)}/Order`,
@@ -499,11 +531,24 @@ export default function AdminDashboard() {
     onlineOrders: onlineOrdersCount.toLocaleString(),
   };
 
-  // Top Items sold calculation
+  // Top Items sold calculation (based on active filtered orders)
   const itemCounts = {};
-  orders.forEach(o => {
-    const name = o.item || "Chai";
-    itemCounts[name] = (itemCounts[name] || 0) + 1;
+  validOrders.forEach(o => {
+    if (Array.isArray(o.items) && o.items.length > 0) {
+      o.items.forEach(it => {
+        const name = it.name || it.item || "Chai";
+        const qty = parseInt(it.quantity || it.qty) || 1;
+        itemCounts[name] = (itemCounts[name] || 0) + qty;
+      });
+    } else {
+      const itemStr = o.item || "Chai";
+      itemStr.split("+").forEach(part => {
+        const match = part.trim().match(/^(.*?)(?:\s*x\s*(\d+))?$/);
+        const name = match && match[1] ? match[1].trim() : part.trim();
+        const qty = match && match[2] ? parseInt(match[2]) : 1;
+        itemCounts[name] = (itemCounts[name] || 0) + qty;
+      });
+    }
   });
   const sortedItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
   const topItem1 = sortedItems[0] ? `${sortedItems[0][0]} (${sortedItems[0][1]} units)` : "Masala Chai (0 units)";
@@ -1819,56 +1864,80 @@ export default function AdminDashboard() {
                 </div>
 
                 
-                  {/* DAILY SALES REPORT TABLE (VISIBLE WHEN DATE OR DAILY FILTER IS SELECTED) */}
-                  {(timeFilter === "Daily" || (typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/))) && (
-                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "16px", border: "1px solid #eaeaea", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "24px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+                  {/* LIVE FILTERED SALES REPORT TABLE */}
+                  <div style={{ background: "#ffffff", padding: "24px", borderRadius: "16px", border: "1px solid #eaeaea", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "24px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+                      <div>
                         <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "800", color: "#2c1b0d" }}>
-                          Sales Report: {timeFilter === "Daily" ? "Today" : new Date(timeFilter).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                          Sales & Orders Report: <span style={{ color: "#c2410c" }}>{timeFilter === "All" ? "All Time" : timeFilter === "Daily" ? "Today" : timeFilter === "Weekly" ? "This Week (Last 7 Days)" : timeFilter === "Monthly" ? "This Month" : new Date(timeFilter).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
                         </h3>
+                        <span style={{ fontSize: "12px", color: "#71717a" }}>Showing {validOrders.length} {validOrders.length === 1 ? "order" : "orders"} matching active filter</span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{ background: "#f4f4f5", color: "#09090b", padding: "6px 14px", borderRadius: "8px", fontWeight: "700", fontSize: "13px" }}>
+                          🏪 {offlineOrdersCount} Offline • 🌐 {onlineOrdersCount} Online
+                        </div>
                         <div style={{ background: "#e8f5e9", color: "#2e7d32", padding: "8px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "16px" }}>
-                          Total: ₹{(typeof selectedDateTotalSales !== 'undefined' ? selectedDateTotalSales : (typeof totalSalesVal !== 'undefined' ? totalSalesVal : 0)).toFixed(2)}
+                          Total: ₹{totalSalesVal.toFixed(2)}
                         </div>
                       </div>
-                      
-                      <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "500px" }}>
-                          <thead>
-                            <tr style={{ background: "#f8f9fa", borderBottom: "2px solid #eee", textAlign: "left" }}>
-                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Order ID</th>
-                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Items</th>
-                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Type</th>
-                              <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700", textAlign: "right" }}>Amount (₹)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredOrders.length > 0 ? filteredOrders.map((o) => {
-                              const rawAmt = o.total || o.price || o.amount || 0;
-                              const amt = typeof rawAmt === "string" ? parseFloat(rawAmt.replace(/[^\d\.]/g, "")) : parseFloat(rawAmt);
-                              const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
-                              const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
-                              const itemName = o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection");
-                              
-                              return (
-                                <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
-                                  <td style={{ padding: "12px", fontSize: "14px", fontWeight: "600", color: "#2c1b0d" }}>{idStr}</td>
-                                  <td style={{ padding: "12px", fontSize: "14px", color: "#444" }}>{itemName}</td>
-                                  <td style={{ padding: "12px", fontSize: "14px", color: "#666" }}>{o.isOffline || o.walkIn ? "Offline / Counter" : "Online"}</td>
-                                  <td style={{ padding: "12px", fontSize: "14px", fontWeight: "700", color: "#2e7d32", textAlign: "right" }}>₹{amtStr}</td>
-                                </tr>
-                              );
-                            }) : (
-                              <tr>
-                                <td colSpan="4" style={{ padding: "24px", textAlign: "center", color: "#888", fontSize: "14px" }}>
-                                  No sales found for this date.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
-                      </div>
                     </div>
-                  )}
+                    
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "500px" }}>
+                        <thead>
+                          <tr style={{ background: "#f8f9fa", borderBottom: "2px solid #eee", textAlign: "left" }}>
+                            <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Order ID</th>
+                            <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Items</th>
+                            <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Date & Time</th>
+                            <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Type</th>
+                            <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700" }}>Status</th>
+                            <th style={{ padding: "12px", fontSize: "13px", color: "#666", fontWeight: "700", textAlign: "right" }}>Amount (₹)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {validOrders.length > 0 ? validOrders.map((o) => {
+                            const rawAmt = o.total || o.price || o.amount || 0;
+                            const amt = typeof rawAmt === "string" ? parseFloat(rawAmt.replace(/[^\d\.]/g, "")) : parseFloat(rawAmt);
+                            const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
+                            const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
+                            const itemName = o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection");
+                            const isOff = Boolean(o.isOffline || o.walkIn);
+                            const dateDisplay = o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString('en-GB') : "Today");
+                            
+                            return (
+                              <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
+                                <td style={{ padding: "12px", fontSize: "14px", fontWeight: "600", color: "#2c1b0d" }}>{idStr}</td>
+                                <td style={{ padding: "12px", fontSize: "14px", color: "#444" }}>{itemName}</td>
+                                <td style={{ padding: "12px", fontSize: "13px", color: "#666" }}>{dateDisplay}</td>
+                                <td style={{ padding: "12px", fontSize: "13px" }}>
+                                  <span style={{ padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: "700", background: isOff ? "#09090b" : "#e2e8f0", color: isOff ? "#ffffff" : "#09090b" }}>
+                                    {isOff ? "🏪 Offline / Counter" : "🌐 Online"}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "12px", fontSize: "13px" }}>
+                                  <span style={{ 
+                                    padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: "700",
+                                    background: o.status === "Delivered" || o.status === "Completed" ? "#dcfce7" : o.status === "Preparing" ? "#dbeafe" : "#ffedd5",
+                                    color: o.status === "Delivered" || o.status === "Completed" ? "#166534" : o.status === "Preparing" ? "#1e40af" : "#9a3412"
+                                  }}>
+                                    {o.status || "Received"}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "12px", fontSize: "14px", fontWeight: "700", color: "#2e7d32", textAlign: "right" }}>₹{amtStr}</td>
+                              </tr>
+                            );
+                          }) : (
+                            <tr>
+                              <td colSpan="6" style={{ padding: "28px", textAlign: "center", color: "#888", fontSize: "14px" }}>
+                                No sales/orders found for this selected filter.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
 
                   {/* MIDDLE ROW: SPLIT COLUMNS */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
