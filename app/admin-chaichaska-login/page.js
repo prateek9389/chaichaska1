@@ -1412,6 +1412,97 @@ export default function AdminDashboard() {
     .filter((o) => o.status === "Received")
     .sort((a, b) => a.id.localeCompare(b.id));
 
+  
+  // WhatsApp Direct Redirect Helper (Auto-resolves Customer's Entered Phone Number)
+  const resolveOrderPhone = (order) => {
+    if (!order) return "";
+    const candidates = [
+      order.phone,
+      order.customerPhone,
+      order.userPhone,
+      order.mobile,
+      order.contactPhone,
+      typeof order.address === "object" ? order.address?.phone : "",
+      typeof order.address === "object" ? order.address?.mobile : "",
+      typeof order.address === "object" ? order.address?.phoneNumber : "",
+    ];
+    for (const raw of candidates) {
+      if (raw && typeof raw === "string") {
+        const trimmed = raw.trim();
+        if (trimmed && trimmed !== "N/A" && trimmed !== "Walk-in" && trimmed !== "null" && trimmed !== "undefined") {
+          let digits = trimmed.replace(/\D/g, "");
+          if (digits.length === 11 && digits.startsWith("0")) {
+            digits = digits.substring(1);
+          }
+          if (digits.length === 12 && digits.startsWith("91")) {
+            return digits;
+          }
+          if (digits.length === 10) {
+            return "91" + digits;
+          }
+          if (digits.length > 10) {
+            return digits;
+          }
+        }
+      }
+    }
+    return "";
+  };
+
+  const sendWhatsAppRedirect = (order) => {
+    if (!order) return;
+    let cleanPhone = resolveOrderPhone(order);
+    
+    // Fallback only if customer didn't enter any phone number during order
+    if (!cleanPhone) {
+      const userPrompt = window.prompt("No phone number found on order. Enter customer 10-digit WhatsApp number:", "");
+      if (!userPrompt) return;
+      let digits = userPrompt.replace(/\D/g, "");
+      if (digits.length === 10) digits = "91" + digits;
+      if (!digits || digits.length < 10) {
+        alert("Please enter a valid 10-digit mobile number.");
+        return;
+      }
+      cleanPhone = digits;
+    }
+    
+    const cleanId = order.orderId || (order.id ? (typeof order.id === 'string' ? order.id.slice(-6).toUpperCase() : order.id) : "LIVE");
+    const customer = order.customer || (order.address?.firstName ? `${order.address.firstName} ${order.address.lastName || ''}`.trim() : "Customer");
+    const status = order.status || "Received";
+    const items = order.item || (Array.isArray(order.items) ? order.items.map(i => `${i.name || i.item} x${i.quantity || 1}`).join(", ") : "Chai & Snacks");
+    const total = typeof order.total === "string" && order.total.includes("₹") ? order.total : `₹${order.total || order.price || order.priceNum || 0}`;
+    const location = order.office || order.address || (order.walkIn ? "Counter Pickup" : "Desk Delivery");
+    const timeEst = order.allocatedTime ? `⏱️ *Est. Prep/Delivery Time:* ${order.allocatedTime}\n` : "";
+
+    let statusLine = "🫖 *Status:* Received (Order queued for brewing)";
+    if (status === "Preparing") {
+      statusLine = "🔥 *Status:* Preparing & Brewing Fresh in Kitchen";
+    } else if (status === "Out for Delivery" || status === "Ready" || status === "Shipped") {
+      statusLine = "🚀 *Status:* Out for Delivery / Ready for Pickup";
+    } else if (status === "Delivered" || status === "Completed") {
+      statusLine = "✅ *Status:* Delivered & Completed";
+    } else if (status === "Cancelled" || status === "Cancelled by User") {
+      statusLine = "❌ *Status:* Order Cancelled";
+    }
+
+    const msg = 
+`☕ *CHAI CHASKA — ORDER UPDATE* ☕
+
+Hello *${customer}*! 👋
+Your order status has been updated:
+
+${statusLine}
+📋 *Order ID:* #${cleanId}
+📦 *Items:* ${items}
+💰 *Total Amount:* ${total}
+📍 *Destination:* ${location}
+${timeEst}
+Enjoy your freshly brewed Chai Chaska! ☕✨`;
+
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+    window.open(waUrl, "_blank");
+  };
+
   const handleRefund = async (order) => {
     if (!window.confirm("Are you sure you want to refund this order? Coins will be added to the user's wallet.")) return;
     try {
@@ -2225,10 +2316,34 @@ export default function AdminDashboard() {
                                 </strong>
                               </div>
 
-                              <div className="queue-list-status">
+                              <div className="queue-list-status" style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
                                 <span className={`table-status-pill ${o.status ? o.status.toLowerCase() : "received"}`}>
                                   {o.status || "Received"}
                                 </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    sendWhatsAppRedirect(o);
+                                  }}
+                                  style={{
+                                    background: "#25D366",
+                                    color: "#ffffff",
+                                    border: "none",
+                                    borderRadius: "6px",
+                                    padding: "4px 8px",
+                                    fontSize: "11px",
+                                    fontWeight: "800",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                    boxShadow: "0 1px 4px rgba(37,211,102,0.25)"
+                                  }}
+                                  title="Send WhatsApp message to customer"
+                                >
+                                  💬 WhatsApp
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -2306,6 +2421,42 @@ export default function AdminDashboard() {
                                 💰 Refunded
                               </div>
                             )}
+                          </div>
+
+                          <div className="sidebar-detail-group" style={{ padding: "14px", background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: "12px", marginTop: "14px" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                              <label style={{ margin: 0, fontWeight: "800", color: "#166534", fontSize: "11px", textTransform: "uppercase" }}>
+                                💬 WhatsApp Customer Update
+                              </label>
+                              <span style={{ fontSize: "11px", fontWeight: "800", color: "#15803d" }}>
+                                {selectedQueueOrder.phone && selectedQueueOrder.phone !== "N/A" && selectedQueueOrder.phone !== "Walk-in" ? `📱 ${selectedQueueOrder.phone}` : "📲 Manual Number"}
+                              </span>
+                            </div>
+                            <p style={{ margin: "0 0 10px 0", fontSize: "12px", color: "#166534" }}>
+                              Click below to open WhatsApp with current order status (<strong>{selectedQueueOrder.status || "Received"}</strong>) prefilled.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => sendWhatsAppRedirect(selectedQueueOrder)}
+                              style={{
+                                width: "100%",
+                                padding: "11px 16px",
+                                background: "#25D366",
+                                color: "#ffffff",
+                                border: "none",
+                                borderRadius: "8px",
+                                fontSize: "13px",
+                                fontWeight: "850",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "8px",
+                                boxShadow: "0 3px 8px rgba(37,211,102,0.3)"
+                              }}
+                            >
+                              <span style={{ fontSize: "16px" }}>💬</span> Open & Send WhatsApp Msg
+                            </button>
                           </div>
 
                           <div className="sidebar-detail-group">
