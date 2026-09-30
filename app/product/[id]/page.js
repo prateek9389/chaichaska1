@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { getProductMeta } from "@/lib/productMeta";
 import { getProductById, getProducts, submitProductFeedback, getApprovedFeedbackForProduct } from "@/lib/firestore";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";

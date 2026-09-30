@@ -9,6 +9,7 @@ import Footer from "@/components/Footer";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/CartContext";
 import { onProductsSnapshot } from "@/lib/firestore";
+import { getProductMeta } from "@/lib/productMeta";
 
 // Curated vibrant gradient palettes matching reference UI aesthetic
 const GRADIENT_PALETTES = [
@@ -129,10 +130,17 @@ export default function ShopPage() {
     }
 
     const unsubscribe = onProductsSnapshot((items) => {
-      setProducts(items);
-      setLoading(false);
+      const resolved = items.map(p => {
+        const meta = getProductMeta(p.name, p.image || p.img, p.category);
+        return {
+          ...p,
+          image: meta.image,
+          category: p.category || meta.category
+        };
+      });
+      setProducts(resolved);
       try {
-        sessionStorage.setItem("chai_products_cache", JSON.stringify(items));
+        localStorage.setItem("cached_products", JSON.stringify(resolved));
       } catch (e) {}
     });
     return () => unsubscribe();
