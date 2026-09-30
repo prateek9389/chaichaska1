@@ -10,6 +10,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCart } from "@/contexts/CartContext";
 import { onProductsSnapshot } from "@/lib/firestore";
 import { getProductMeta } from "@/lib/productMeta";
+import { INITIAL_PRODUCTS_CACHE } from "@/lib/staticProducts";
 
 // Curated vibrant gradient palettes matching reference UI aesthetic
 const GRADIENT_PALETTES = [
@@ -105,7 +106,7 @@ export default function ShopPage() {
   const gradientTimerRef = useRef(null);
 
   // Luxury Preloader State with 1-second Curtain Roll Reveal
-  const [showPreloader, setShowPreloader] = useState(true);
+  const [showPreloader, setShowPreloader] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -114,34 +115,39 @@ export default function ShopPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("cached_products") || sessionStorage.getItem("chai_products_cache");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return INITIAL_PRODUCTS_CACHE;
+  });
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const cached = sessionStorage.getItem("chai_products_cache");
-    if (cached) {
-      try {
-        setProducts(JSON.parse(cached));
-        setLoading(false);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
+    // Background real-time sync with Firestore
     const unsubscribe = onProductsSnapshot((items) => {
-      const resolved = items.map(p => {
-        const meta = getProductMeta(p.name, p.image || p.img, p.category);
-        return {
-          ...p,
-          image: meta.image,
-          category: p.category || meta.category
-        };
-      });
-      setProducts(resolved);
-      try {
-        localStorage.setItem("cached_products", JSON.stringify(resolved));
-      } catch (e) {}
+      if (items && items.length > 0) {
+        const resolved = items.map(p => {
+          const meta = getProductMeta(p.name, p.image || p.img, p.category);
+          return {
+            ...p,
+            image: meta.image,
+            category: p.category || meta.category
+          };
+        });
+        setProducts(resolved);
+        try {
+          localStorage.setItem("cached_products", JSON.stringify(resolved));
+          sessionStorage.setItem("chai_products_cache", JSON.stringify(resolved));
+        } catch (e) {}
+      }
     });
     return () => unsubscribe();
   }, []);
