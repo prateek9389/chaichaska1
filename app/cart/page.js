@@ -168,7 +168,7 @@ export default function CartPage() {
                               <img
                                 src={
                                   item.image ||
-                                  "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=400&q=80"
+                                  "/logo.png"
                                 }
                                 alt={item.name}
                                 className="item-thumb-img"

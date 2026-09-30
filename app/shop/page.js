@@ -3601,7 +3601,7 @@ function ProductCard({
         <img
           src={
             product.image ||
-            "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80"
+            "/logo.png"
           }
           alt={product.name}
           className="ref-card-img"

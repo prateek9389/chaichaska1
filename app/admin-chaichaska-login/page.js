@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { getProductMeta } from "@/lib/productMeta";
 import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback, getRestockHistory } from "@/lib/firestore";
 import { loginWithEmail, signUpWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import Link from "next/link";
@@ -343,8 +344,9 @@ export default function AdminDashboard() {
           const name = it.name || it.item || "Chai Item";
           const qty = parseInt(it.quantity || it.qty) || 1;
           const unitP = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
-          const img = it.image || it.img || o.image || o.img || "/logo.png";
-          const cat = it.category || "Beverages";
+          const meta = getProductMeta(name, it.image || it.img, it.category);
+          const img = meta.image;
+          const cat = meta.category;
           const key = name.trim().toLowerCase();
 
           if (!productMap[key]) {
@@ -359,6 +361,13 @@ export default function AdminDashboard() {
               unitPrice: unitP,
               revenue: 0
             };
+          } else {
+            if (meta.image && (!productMap[key].image || productMap[key].image.includes("logo.png") || productMap[key].image.includes("ezzolluycd01piettblm") || productMap[key].image.includes("cmzhutu452ld8798gbln") || productMap[key].image.includes("br6kkfrjvoopkqkzpanm") || productMap[key].image.includes("p7f5conzmiziw1trmlsw") || productMap[key].image.includes("obzeioklky9xtmsrupw2"))) {
+              productMap[key].image = meta.image;
+            }
+            if (meta.category && (productMap[key].category === "Beverages" || productMap[key].category === "Other")) {
+              productMap[key].category = meta.category;
+            }
           }
 
           productMap[key].totalQty += qty;
@@ -371,6 +380,7 @@ export default function AdminDashboard() {
           }
           productMap[key].revenue += (unitP > 0 ? unitP * qty : (price / Math.max(o.items.length, 1)));
           if (img && img !== "/logo.png") productMap[key].image = img;
+          if (cat && cat !== "Beverages") productMap[key].category = cat;
         });
       } else if (o.item) {
         const itemStr = o.item;
@@ -380,13 +390,15 @@ export default function AdminDashboard() {
           const name = match && match[1] ? match[1].trim() : part.trim();
           const qty = match && match[2] ? parseInt(match[2]) : 1;
           const key = name.toLowerCase();
-          const img = o.image || o.img || "/logo.png";
+          const meta = getProductMeta(name, o.image || o.img, "");
+          const img = meta.image;
+          const cat = meta.category;
 
           if (!productMap[key]) {
             productMap[key] = {
               name,
               image: img,
-              category: "Beverages",
+              category: cat,
               totalQty: 0,
               deliveredQty: 0,
               preparingQty: 0,
@@ -394,6 +406,13 @@ export default function AdminDashboard() {
               unitPrice: 0,
               revenue: 0
             };
+          } else {
+            if (meta.image && (!productMap[key].image || productMap[key].image.includes("logo.png") || productMap[key].image.includes("ezzolluycd01piettblm") || productMap[key].image.includes("cmzhutu452ld8798gbln") || productMap[key].image.includes("br6kkfrjvoopkqkzpanm") || productMap[key].image.includes("p7f5conzmiziw1trmlsw") || productMap[key].image.includes("obzeioklky9xtmsrupw2"))) {
+              productMap[key].image = meta.image;
+            }
+            if (meta.category && (productMap[key].category === "Beverages" || productMap[key].category === "Other")) {
+              productMap[key].category = meta.category;
+            }
           }
 
           productMap[key].totalQty += qty;
@@ -405,6 +424,8 @@ export default function AdminDashboard() {
             productMap[key].receivedQty += qty;
           }
           productMap[key].revenue += price / Math.max(parts.length, 1);
+          if (img && img !== "/logo.png") productMap[key].image = img;
+          if (cat && cat !== "Beverages") productMap[key].category = cat;
         });
       }
     });
@@ -689,6 +710,8 @@ export default function AdminDashboard() {
   // Product Creation States
   const [productsList, setProductsList] = useState([]);
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [newProdName, setNewProdName] = useState("");
   const [newProdPrice, setNewProdPrice] = useState("");
   const [newProdDesc, setNewProdDesc] = useState("");
@@ -1047,36 +1070,41 @@ export default function AdminDashboard() {
 
   const handleAddNewProduct = async (e) => {
     e.preventDefault();
-    if (!newProdName || !newProdPrice) return;
+    if (!newProdName || !newProdPrice) {
+      setToastMsg("⚠️ Please provide product name and price.");
+      setTimeout(() => setToastMsg(""), 3000);
+      return;
+    }
     const priceVal = parseFloat(newProdPrice) || 0;
     const newProductData = {
       name: newProdName,
       priceNum: priceVal,
       price: `₹${priceVal}`,
-      desc: newProdDesc || "Premium beverage selection.",
+      desc: newProdDesc || "Premium handcrafted selection.",
       category: newProdCategory,
       caffeine: newProdCaffeine,
       sweetness: newProdSweetness,
       steepTime: newProdSteepTime,
       pairing: newProdPairing,
       rating: parseFloat(newProdRating) || 4.8,
-      image: newProdImage || "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=600&q=80",
-      gallery: newProdGallery,
+      image: newProdImage || "/logo.png",
+      gallery: newProdGallery || [],
     };
 
     try {
       await addProduct(newProductData);
-      setToastMsg(`🌱 Added product "${newProdName}" successfully!`);
+      setToastMsg(`✨ Added product "${newProdName}" successfully!`);
       setNewProdName("");
       setNewProdPrice("");
       setNewProdDesc("");
       setNewProdImage("");
+      setNewProdGallery([]);
       setNewProdCaffeine("Medium");
       setNewProdSweetness("Medium");
       setNewProdSteepTime("5 mins");
       setNewProdPairing("Biscuits");
       setNewProdRating(4.8);
-      setNewProdGallery([]);
+      setShowAddProductModal(false);
       setTimeout(() => setToastMsg(""), 4000);
     } catch (err) {
       setToastMsg(`❌ Error: ${err.message}`);
@@ -1085,53 +1113,54 @@ export default function AdminDashboard() {
   };
 
   const handleUploadImage = async (e, target = "new") => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    setToastMsg("Uploading image to Cloudinary...");
-    const formData = new FormData();
-    formData.append("file", file);
+    setIsUploadingImage(true);
+    setToastMsg("☁️ Uploading image to Cloudinary...");
 
     try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData
-      });
-      const data = await res.json();
-      if (data.url) {
-        if (target === "edit") {
-          setEditProdImage(data.url);
-        } else if (target === "new_gallery") {
-          setNewProdGallery(prev => [...prev, data.url]);
-        } else if (target === "edit_gallery") {
-          setEditProdGallery(prev => [...prev, data.url]);
-        } else {
-          setNewProdImage(data.url);
-        }
-        setToastMsg("Image uploaded successfully!");
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const formData = new FormData();
+        formData.append("file", file);
 
-        await addDoc(collection(db, "uploaded_images"), {
-          url: data.url,
-          uploadedAt: new Date().toISOString(),
-          name: file.name
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData
         });
-      } else {
-        setToastMsg(`Upload failed: ${data.error}`);
+        const data = await res.json();
+        if (data.url) {
+          if (target === "edit") {
+            setEditProdImage(data.url);
+          } else if (target === "new_gallery") {
+            setNewProdGallery(prev => [...prev, data.url]);
+          } else if (target === "edit_gallery") {
+            setEditProdGallery(prev => [...prev, data.url]);
+          } else {
+            setNewProdImage(data.url);
+          }
+
+          await addDoc(collection(db, "uploaded_images"), {
+            url: data.url,
+            uploadedAt: new Date().toISOString(),
+            name: file.name
+          });
+        }
       }
+      setToastMsg("✅ Image(s) uploaded successfully!");
       setTimeout(() => setToastMsg(""), 3000);
     } catch (err) {
-      setToastMsg(`Upload error: ${err.message}`);
+      setToastMsg(`❌ Upload error: ${err.message}`);
       setTimeout(() => setToastMsg(""), 3000);
+    } finally {
+      setIsUploadingImage(false);
     }
   };
 
   const handleSelectLibraryImage = (url) => {
     if (window.libraryTarget === "edit") {
       setEditProdImage(url);
-    } else if (window.libraryTarget === "new_gallery") {
-      setNewProdGallery(prev => [...prev, url]);
-    } else if (window.libraryTarget === "edit_gallery") {
-      setEditProdGallery(prev => [...prev, url]);
     } else {
       setNewProdImage(url);
     }
@@ -1172,22 +1201,23 @@ export default function AdminDashboard() {
     e.preventDefault();
     if (!editingProduct) return;
     const priceVal = parseFloat(editProdPrice) || 0;
+
     try {
       await updateProduct(editingProduct.id, {
         name: editProdName,
         priceNum: priceVal,
         price: `₹${priceVal}`,
-        category: editProdCategory,
         desc: editProdDesc,
-        image: editProdImage,
-        gallery: editProdGallery
+        category: editProdCategory,
+        image: editProdImage || "/logo.png",
+        gallery: editProdGallery || [],
       });
-      setToastMsg("Product updated successfully!");
+      setToastMsg(`✅ Updated product "${editProdName}" successfully!`);
       setEditingProduct(null);
-      setTimeout(() => setToastMsg(""), 3000);
+      setTimeout(() => setToastMsg(""), 4000);
     } catch (err) {
-      setToastMsg(`Error updating product: ${err.message}`);
-      setTimeout(() => setToastMsg(""), 3000);
+      setToastMsg(`❌ Error: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 4000);
     }
   };
 
@@ -1266,7 +1296,7 @@ export default function AdminDashboard() {
 
         {/* Card core body */}
         <div className="queue-card-body-wrap">
-          <img src={o.img} alt={o.item} className="queue-card-thumbnail" />
+          <img src={getProductMeta(o.item || (Array.isArray(o.items) && o.items[0]?.name), o.img || o.image).image} alt={o.item} className="queue-card-thumbnail" />
 
           <div className="queue-card-text-details">
             <h4>{o.item}</h4>
@@ -1847,7 +1877,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   )}
                 </div>
                 <img
-                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80"
+                  src="/logo.png"
                   alt="Profile"
                   className="profile-avatar-new"
                   onClick={() => setActiveTab("profile")}
@@ -2270,7 +2300,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
-                              <img src={o.image || o.img || "/assets/images/tea_icon.png"} alt={o.id} className="queue-list-img" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }} />
+                              <img src={getProductMeta(o.item || (Array.isArray(o.items) && o.items[0]?.name), o.image || o.img).image} alt={o.id} className="queue-list-img" style={{ width: '48px', height: '48px', borderRadius: '10px', objectFit: 'cover' }} />
                               <div className="queue-list-info" style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
                                   <span style={{ color: '#8a583c', fontWeight: '900', fontSize: '14px' }}>
@@ -2582,7 +2612,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         return (
                           <div key={idx} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "18px" }}>
                             <div style={{ display: "flex", gap: "12px", alignItems: "flex-start", marginBottom: "12px" }}>
-                              <img src={item.img} alt={item.name} className="queue-card-thumbnail" style={{ width: "56px", height: "56px" }} />
+                              <img src={getProductMeta(item.name, item.img || item.image).image} alt={item.name} className="queue-card-thumbnail" style={{ width: "56px", height: "56px" }} />
                               <div>
                                 <h4 style={{ fontSize: "14px", margin: "0 0 4px" }}>{item.name}</h4>
                                 <span style={{ fontSize: "10px", color: "#777", display: "block" }}>{item.recipe}</span>
@@ -3929,469 +3959,1084 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               </div>
             )}
 
+            {/* ================= MODERN PRODUCT MANAGEMENT (CREATE PRODUCT TAB) ================= */}
             {activeTab === "create_product" && (
-              <div className="tab-body-wrapper">
+              <div className="tab-body-wrapper" style={{ padding: "0 0 40px 0" }}>
                 {toastMsg && (
-                  <div style={{ position: "fixed", top: "24px", right: "24px", background: "#2c1b0d", color: "#fdf5e9", padding: "16px 24px", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.15)", zIndex: 9999, fontWeight: "bold", borderLeft: "4px solid #e74c3c", display: "flex", gap: "10px", alignItems: "center" }}>
-                    <span>🚨</span> {toastMsg}
+                  <div style={{ position: "fixed", top: "24px", right: "24px", background: "#2c1b0d", color: "#fdf5e9", padding: "16px 24px", borderRadius: "14px", boxShadow: "0 15px 35px rgba(0,0,0,0.25)", zIndex: 10002, fontWeight: "700", borderLeft: "4px solid #c9935a", display: "flex", gap: "10px", alignItems: "center", backdropFilter: "blur(10px)" }}>
+                    <span>✨</span> {toastMsg}
                   </div>
                 )}
 
-                {editingProduct && (
-                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
-                    <div style={{ background: "#fff", padding: "32px", borderRadius: "20px", width: "450px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", position: "relative" }}>
-                      <h3 style={{ margin: "0 0 20px", color: "#2c1b0d" }}>Edit Product</h3>
-                      <form onSubmit={handleUpdateProductSubmit}>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Product Name</label>
-                          <input type="text" value={editProdName} onChange={(e) => setEditProdName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Price (INR)</label>
-                          <input type="number" value={editProdPrice} onChange={(e) => setEditProdPrice(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Category</label>
-                          <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                            <option value="Chai">Chai</option>
-                            <option value="Coffee">Coffee</option>
-                            <option value="Sandwich">Sandwich</option>
-                            <option value="Snacks">Snacks</option>
-                            <option value="Toast">Toast</option>
-                            <option value="Maggi">Maggi</option>
-                            <option value="Drinks">Drinks</option>
-                            <option value="Water">Water</option>
-                          </select>
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Description</label>
-                          <textarea rows="2" value={editProdDesc} onChange={(e) => setEditProdDesc(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px", resize: "none" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "20px", display: "flex", gap: "10px", flexDirection: "column" }}>
-                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Product Image</label>
-                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
-                            </div>
-                            
-                          </div>
-                          <div>
-                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
-                            <input type="text" value={editProdImage} onChange={(e) => setEditProdImage(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                          </div>
-
-                          <div className="form-group" style={{ marginTop: "10px", display: "flex", gap: "10px", flexDirection: "column" }}>
-                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Gallery Images (Multiple)</label>
-                            <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                              <div style={{ flex: 1 }}>
-                                <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
-                              </div>
-                              
-                            </div>
-                            {editProdGallery.length > 0 && (
-                              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
-                                {editProdGallery.map((img, idx) => (
-                                  <div key={idx} style={{ position: "relative", width: "60px", height: "60px" }}>
-                                    <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px" }} />
-                                    <button type="button" onClick={() => setEditProdGallery(prev => prev.filter((_, i) => i !== idx))} style={{ position: "absolute", top: "-5px", right: "-5px", background: "red", color: "white", border: "none", borderRadius: "50%", width: "20px", height: "20px", fontSize: "10px", cursor: "pointer" }}>X</button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-                          <button type="button" onClick={() => setEditingProduct(null)} style={{ background: "#ccc", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", color: "#333" }}>Cancel</button>
-                          <button type="submit" style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", fontWeight: "bold" }}>Save Changes</button>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-
-                  {/* Left Column: Products List */}
+                {/* Top Action Header */}
+                <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "24px", background: "#ffffff", padding: "20px 24px", borderRadius: "20px", border: "1px solid rgba(44,27,13,0.06)", boxShadow: "0 4px 20px rgba(44,27,13,0.02)" }}>
                   <div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                      <h3 className="section-title" style={{ margin: 0 }}>Active Shop Products ({productsList.length})</h3>
-                      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                        {productsList.length > 0 && (
-                          <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
-                            <input 
-                              type="checkbox"
-                              checked={selectedProducts.length === productsList.length && productsList.length > 0}
-                              onChange={(e) => setSelectedProducts(e.target.checked ? productsList.map(p => p.id) : [])}
-                            />
-                            Select All
-                          </label>
-                        )}
-                        {selectedProducts.length > 0 && (
-                          <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
-                            Delete Selected ({selectedProducts.length})
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                      {productsList.map((p) => (
-                        <div key={p.id} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", display: "flex", gap: "16px", borderRadius: "16px", alignItems: "center" }}>
-                          <input 
-                            type="checkbox" 
-                            checked={selectedProducts.includes(p.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) setSelectedProducts([...selectedProducts, p.id]);
-                              else setSelectedProducts(selectedProducts.filter(id => id !== p.id));
-                            }}
-                            style={{ width: "20px", height: "20px", cursor: "pointer", flexShrink: 0 }}
-                          />
-                          <img src={p.image} alt={p.name} style={{ width: "90px", height: "90px", borderRadius: "12px", objectFit: "cover" }} />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                              <strong style={{ fontSize: "16px", color: "#2c1b0d" }}>{p.name}</strong>
-                              <span style={{ fontSize: "13px", fontWeight: "bold", color: "#8a583c" }}>{p.price}</span>
-                            </div>
-                            <span style={{ fontSize: "11px", color: "#666", background: "#f5ece1", padding: "2px 8px", borderRadius: "4px", display: "inline-block", margin: "4px 0" }}>{p.category}</span>
-                            <p style={{ fontSize: "12px", color: "#555", margin: "6px 0" }}>{p.desc}</p>
-
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px", fontSize: "11px", color: "#777", marginTop: "8px" }}>
-                              <span>☕ Caffeine: <strong>{p.caffeine || "Medium"}</strong></span>
-                              <span>🍬 Sweet: <strong>{p.sweetness || "Medium"}</strong></span>
-                              <span>⏱️ Steep: <strong>{p.steepTime || "5 mins"}</strong></span>
-                              <span>🍪 Pair: <strong>{p.pairing || "Cookies"}</strong></span>
-                              <span>★ Rating: <strong>{p.rating || 5}</strong></span>
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-end", gap: "8px" }}>
-                            <button
-                              onClick={() => {
-                                setEditingProduct(p);
-                                setEditProdName(p.name);
-                                setEditProdPrice(p.priceNum || parseFloat(p.price.replace("₹", "")) || parseFloat(p.price) || 0);
-                                setEditProdCategory(p.category || "Masala");
-                                setEditProdDesc(p.desc || "");
-                                setEditProdImage(p.image || "");
-                                setEditProdGallery(p.gallery || []);
-                              }}
-                              style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteProduct(p.id)}
-                              style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "8px", fontSize: "11px", fontWeight: "bold", cursor: "pointer" }}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {productsList.length === 0 && (
-                        <div style={{ textAlign: "center", padding: "40px", background: "#fff", borderRadius: "16px", color: "#888", border: "1px dashed #ccc" }}>
-                          No products found in the database. Add your first product on the right!
-                        </div>
-                      )}
-                    </div>
+                    <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "800", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span>☕</span> Product Catalog & Menu Management
+                    </h2>
+                    <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#7a6b5e" }}>
+                      Manage all products, pricing, categories, and cover images in real-time.
+                    </p>
                   </div>
-
-                  {/* Right Column: Add Product Form */}
-                  <div>
-                    <h3 className="section-title">Create & Register Product</h3>
-                    <form onSubmit={handleAddNewProduct} style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-
-                      <div className="form-group" style={{ marginBottom: "12px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Product Name</label>
-                        <input type="text" value={newProdName} onChange={(e) => setNewProdName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                      </div>
-
-                      <div className="form-group" style={{ marginBottom: "12px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Price (INR)</label>
-                        <input type="number" value={newProdPrice} onChange={(e) => setNewProdPrice(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                      </div>
-
-                      <div className="form-group" style={{ marginBottom: "12px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Category</label>
-                        <select value={newProdCategory} onChange={(e) => setNewProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                          <option value="Chai">Chai</option>
-                          <option value="Coffee">Coffee</option>
-                            <option value="Sandwich">Sandwich</option>
-                            <option value="Snacks">Snacks</option>
-                            <option value="Toast">Toast</option>
-                            <option value="Maggi">Maggi</option>
-                          <option value="Drinks">Drinks</option>
-                          <option value="Water">Water</option>
-                        </select>
-                      </div>
-
-                      {!(newProdCategory === "Water" || newProdCategory === "Drinks") && (
-                        <>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-                            <div className="form-group">
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Caffeine</label>
-                              <select value={newProdCaffeine} onChange={(e) => setNewProdCaffeine(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                                <option value="None">None</option>
-                                <option value="Low">Low</option>
-                                <option value="Medium">Medium</option>
-                                <option value="High">High</option>
-                              </select>
-                            </div>
-                            <div className="form-group">
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Sweetness</label>
-                              <select value={newProdSweetness} onChange={(e) => setNewProdSweetness(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                                <option value="None">None</option>
-                                <option value="Low">Low</option>
-                                <option value="Medium">Medium</option>
-                                <option value="High">High</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-                            <div className="form-group">
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Steep Time</label>
-                              <select value={newProdSteepTime} onChange={(e) => setNewProdSteepTime(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                                <option value="3 mins">3 mins</option>
-                                <option value="4 mins">4 mins</option>
-                                <option value="5 mins">5 mins</option>
-                                <option value="6 mins">6 mins</option>
-                              </select>
-                            </div>
-                            <div className="form-group">
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Pairing</label>
-                              <input type="text" placeholder="e.g. Biscuits" value={newProdPairing} onChange={(e) => setNewProdPairing(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                            </div>
-                          </div>
-                        </>
-                      )}
-
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px" }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Rating</label>
-                          <input type="number" step="0.1" min="1" max="5" value={newProdRating} onChange={(e) => setNewProdRating(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ gridColumn: "1 / -1", display: "flex", gap: "10px", flexDirection: "column" }}>
-                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Product Image</label>
-                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e)} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
-                            </div>
-                            
-                          </div>
-                          <div>
-                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
-                            <input type="text" placeholder="https://..." value={newProdImage} onChange={(e) => setNewProdImage(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                          </div>
-                        </div>
-
-                        <div className="form-group" style={{ marginTop: "20px", display: "flex", gap: "10px", flexDirection: "column" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Gallery Images (Multiple)</label>
-                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "new_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
-                            </div>
-                            
-                          </div>
-                          {newProdGallery.length > 0 && (
-                            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
-                              {newProdGallery.map((img, idx) => (
-                                <div key={idx} style={{ position: "relative", width: "60px", height: "60px" }}>
-                                  <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px" }} />
-                                  <button type="button" onClick={() => setNewProdGallery(prev => prev.filter((_, i) => i !== idx))} style={{ position: "absolute", top: "-5px", right: "-5px", background: "red", color: "white", border: "none", borderRadius: "50%", width: "20px", height: "20px", fontSize: "10px", cursor: "pointer" }}>X</button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Description</label>
-                        <textarea rows="2" value={newProdDesc} onChange={(e) => setNewProdDesc(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px", resize: "none" }} />
-                      </div>
-
-                      <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "12px", borderRadius: "8px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
-                        PUBLISH TO SHOP
-                      </button>
-                    </form>
-                  </div>
-
+                  <button
+                    onClick={() => {
+                      setNewProdName("");
+                      setNewProdPrice("");
+                      setNewProdDesc("");
+                      setNewProdImage("");
+                      setNewProdCategory("Chai");
+                      setNewProdCaffeine("Medium");
+                      setNewProdSweetness("Medium");
+                      setNewProdSteepTime("5 mins");
+                      setNewProdPairing("Biscuits");
+                      setNewProdRating(4.8);
+                      setShowAddProductModal(true);
+                    }}
+                    style={{
+                      background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                      color: "#ffffff",
+                      border: "none",
+                      padding: "12px 24px",
+                      borderRadius: "14px",
+                      fontWeight: "800",
+                      fontSize: "13.5px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      boxShadow: "0 8px 20px rgba(44,27,13,0.25)",
+                      transition: "transform 0.2s, box-shadow 0.2s"
+                    }}
+                  >
+                    <span style={{ fontSize: "16px" }}>+</span> Add New Product
+                  </button>
                 </div>
-              </div>
-            )}
 
-            {activeTab === "shop" && (
-              <div className="tab-body-wrapper">
-                {toastMsg && (
-                  <div style={{ position: "fixed", top: "24px", right: "24px", background: "#2c1b0d", color: "#fdf5e9", padding: "16px 24px", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.15)", zIndex: 9999, fontWeight: "bold", borderLeft: "4px solid #e74c3c", display: "flex", gap: "10px", alignItems: "center" }}>
-                    <span>🚨</span> {toastMsg}
-                  </div>
-                )}
-
-                {editingProduct && (
-                  <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
-                    <div style={{ background: "#fff", padding: "32px", borderRadius: "20px", width: "450px", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 30px rgba(0,0,0,0.2)", position: "relative" }}>
-                      <h3 style={{ margin: "0 0 20px", color: "#2c1b0d" }}>Edit Product</h3>
-                      <form onSubmit={handleUpdateProductSubmit}>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Product Name</label>
-                          <input type="text" value={editProdName} onChange={(e) => setEditProdName(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Price (INR)</label>
-                          <input type="number" value={editProdPrice} onChange={(e) => setEditProdPrice(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Category</label>
-                          <select value={editProdCategory} onChange={(e) => setEditProdCategory(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px" }}>
-                            <option value="Chai">Chai</option>
-                            <option value="Coffee">Coffee</option>
-                            <option value="Sandwich">Sandwich</option>
-                            <option value="Snacks">Snacks</option>
-                            <option value="Toast">Toast</option>
-                            <option value="Maggi">Maggi</option>
-                            <option value="Drinks">Drinks</option>
-                            <option value="Water">Water</option>
-                          </select>
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "12px" }}>
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Description</label>
-                          <textarea rows="2" value={editProdDesc} onChange={(e) => setEditProdDesc(e.target.value)} required style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px", resize: "none" }} />
-                        </div>
-                        <div className="form-group" style={{ marginBottom: "20px", display: "flex", gap: "10px", flexDirection: "column" }}>
-                          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Product Image</label>
-                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowImageLibrary(true);
-                                window.libraryTarget = "edit";
-                              }}
-                              style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
-                            >
-                              📂 Image Library
-                            </button>
-                          </div>
-                          <div>
-                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Or Image URL</label>
-                            <input type="text" value={editProdImage} onChange={(e) => setEditProdImage(e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
-                          </div>
-
-                          <div className="form-group" style={{ marginTop: "10px", display: "flex", gap: "10px", flexDirection: "column" }}>
-                            <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Upload Gallery Images (Multiple)</label>
-                            <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                              <div style={{ flex: 1 }}>
-                                <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit_gallery")} style={{ width: "100%", padding: "6px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12px" }} />
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowImageLibrary(true);
-                                  window.libraryTarget = "edit_gallery";
-                                }}
-                                style={{ background: "#8a583c", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "6px", fontSize: "12px", fontWeight: "bold", cursor: "pointer", height: "35px" }}
-                              >
-                                📂 Image Library
-                              </button>
-                            </div>
-                            {editProdGallery.length > 0 && (
-                              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "8px" }}>
-                                {editProdGallery.map((img, idx) => (
-                                  <div key={idx} style={{ position: "relative", width: "60px", height: "60px" }}>
-                                    <img src={img} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px" }} />
-                                    <button type="button" onClick={() => setEditProdGallery(prev => prev.filter((_, i) => i !== idx))} style={{ position: "absolute", top: "-5px", right: "-5px", background: "red", color: "white", border: "none", borderRadius: "50%", width: "20px", height: "20px", fontSize: "10px", cursor: "pointer" }}>X</button>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-                          <button type="button" onClick={() => setEditingProduct(null)} style={{ background: "#ccc", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", color: "#333" }}>Cancel</button>
-                          <button type="submit" style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12.5px", cursor: "pointer", fontWeight: "bold" }}>Save Changes</button>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                  <h3 className="section-title" style={{ margin: 0 }}>Store Products Catalog ({productsList.length})</h3>
-                  <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                    {productsList.length > 0 && (
-                      <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "bold" }}>
-                        <input 
-                          type="checkbox"
-                          checked={selectedProducts.length === productsList.length && productsList.length > 0}
-                          onChange={(e) => setSelectedProducts(e.target.checked ? productsList.map(p => p.id) : [])}
-                        />
-                        Select All
-                      </label>
-                    )}
-                    {selectedProducts.length > 0 && (
-                      <button onClick={handleDeleteSelectedProducts} style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}>
-                        Delete Selected ({selectedProducts.length})
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "24px", paddingBottom: "40px" }}>
+                {/* Catalog Grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "20px" }}>
                   {productsList.map((p) => (
-                    <div key={p.id} className="queue-card-detailed-item" style={{ background: "#ffffff", padding: "20px", display: "flex", flexDirection: "column", borderRadius: "16px", height: "100%", border: "1px solid rgba(44,27,13,0.04)", position: "relative" }}>
-                      <input 
-                        type="checkbox" 
-                        checked={selectedProducts.includes(p.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) setSelectedProducts([...selectedProducts, p.id]);
-                          else setSelectedProducts(selectedProducts.filter(id => id !== p.id));
-                        }}
-                        style={{ position: "absolute", top: "30px", left: "30px", zIndex: 10, width: "22px", height: "22px", cursor: "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }}
-                      />
-                      <img src={p.image} alt={p.name} style={{ width: "100%", height: "180px", borderRadius: "12px", objectFit: "cover", marginBottom: "12px" }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <strong style={{ fontSize: "16px", color: "#2c1b0d" }}>{p.name}</strong>
-                          <span style={{ fontSize: "14px", fontWeight: "bold", color: "#8a583c" }}>{p.price}</span>
+                    <div
+                      key={p.id}
+                      style={{
+                        background: "#ffffff",
+                        borderRadius: "20px",
+                        border: "1px solid rgba(44,27,13,0.06)",
+                        boxShadow: "0 4px 16px rgba(44,27,13,0.03)",
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                        transition: "transform 0.2s, box-shadow 0.2s"
+                      }}
+                    >
+                      <div style={{ position: "relative", width: "100%", height: "180px", background: "#f8f4ef" }}>
+                        <img
+                          src={p.image || "/logo.png"}
+                          alt={p.name}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                        />
+                        <div style={{ position: "absolute", top: "12px", right: "12px", background: "rgba(255,255,255,0.92)", backdropFilter: "blur(4px)", padding: "4px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: "800", color: "#8a583c", boxShadow: "0 2px 8px rgba(0,0,0,0.08)" }}>
+                          {p.price || `₹${p.priceNum || 0}`}
                         </div>
-                        <span style={{ fontSize: "11px", color: "#666", background: "#f5ece1", padding: "2px 8px", borderRadius: "4px", display: "inline-block", margin: "6px 0" }}>{p.category}</span>
-                        <p style={{ fontSize: "12.5px", color: "#555", margin: "6px 0 12px" }}>{p.desc}</p>
+                        <div style={{ position: "absolute", bottom: "12px", left: "12px", background: "#2c1b0d", color: "#fdf5e9", padding: "3px 9px", borderRadius: "8px", fontSize: "10.5px", fontWeight: "700", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          {p.category || "Beverage"}
+                        </div>
                       </div>
-                      <div style={{ display: "flex", gap: "10px", borderTop: "1px solid #f2eee9", paddingTop: "12px", marginTop: "12px" }}>
-                        <button
-                          onClick={() => {
-                            setEditingProduct(p);
-                            setEditProdName(p.name);
-                            setEditProdPrice(p.priceNum || parseFloat(p.price.replace("₹", "")) || 0);
-                            setEditProdCategory(p.category || "Masala");
-                            setEditProdDesc(p.desc || "");
-                            setEditProdImage(p.image || "");
-                            setEditProdGallery(p.gallery || []);
-                          }}
-                          style={{ flex: 1, background: "#2c1b0d", color: "#fff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(p.id)}
-                          style={{ flex: 1, background: "#e74c3c", color: "#fff", border: "none", padding: "10px", borderRadius: "8px", fontSize: "12px", fontWeight: "bold", cursor: "pointer" }}
-                        >
-                          Delete
-                        </button>
+
+                      <div style={{ padding: "18px", flex: 1, display: "flex", flexDirection: "column" }}>
+                        <h4 style={{ margin: "0 0 6px", fontSize: "16px", fontWeight: "800", color: "#2c1b0d" }}>{p.name}</h4>
+                        <p style={{ margin: "0 0 14px", fontSize: "12px", color: "#666", lineHeight: "1.4", flex: 1, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                          {p.desc || "No description provided."}
+                        </p>
+
+                        <div style={{ display: "flex", gap: "8px", paddingTop: "12px", borderTop: "1px solid rgba(44,27,13,0.06)" }}>
+                          <button
+                            onClick={() => {
+                              setEditingProduct(p);
+  setEditProdName(p.name || "");
+  setEditProdPrice(p.priceNum || parseFloat(String(p.price || "").replace(/[^0-9.]/g, "")) || 0);
+  setEditProdCategory(p.category || "Chai");
+  setEditProdDesc(p.desc || "");
+  setEditProdImage(p.image || "");
+  setEditProdGallery(p.gallery || []);
+                            }}
+                            style={{
+                              flex: 1,
+                              background: "#fdf8f3",
+                              color: "#2c1b0d",
+                              border: "1px solid rgba(44,27,13,0.12)",
+                              padding: "9px 14px",
+                              borderRadius: "10px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "6px"
+                            }}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(p.id)}
+                            style={{
+                              background: "rgba(231,76,60,0.08)",
+                              color: "#e74c3c",
+                              border: "1px solid rgba(231,76,60,0.2)",
+                              padding: "9px 14px",
+                              borderRadius: "10px",
+                              fontSize: "12px",
+                              fontWeight: "700",
+                              cursor: "pointer"
+                            }}
+                          >
+                            🗑️ Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
+
                   {productsList.length === 0 && (
-                    <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px", background: "#fff", borderRadius: "16px", color: "#888", border: "1px dashed #ccc" }}>
-                      No products found. Use "Create Product" to add some!
+                    <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "60px 20px", background: "#ffffff", borderRadius: "20px", border: "2px dashed rgba(44,27,13,0.12)" }}>
+                      <div style={{ fontSize: "40px", marginBottom: "12px" }}>☕</div>
+                      <h3 style={{ margin: "0 0 6px", color: "#2c1b0d" }}>No products found</h3>
+                      <p style={{ margin: "0 0 20px", color: "#888", fontSize: "13px" }}>Get started by adding your first product to the store!</p>
+                      <button
+                        onClick={() => setShowAddProductModal(true)}
+                        style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "10px", fontWeight: "700", fontSize: "13px", cursor: "pointer" }}
+                      >
+                        + Add Product
+                      </button>
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Feedback Tab */}
+            {/* ================= STORE CATALOG (SHOP TAB) ================= */}
+            {activeTab === "shop" && (
+              <div className="tab-body-wrapper" style={{ padding: "0 0 40px 0" }}>
+                {toastMsg && (
+                  <div style={{ position: "fixed", top: "24px", right: "24px", background: "#2c1b0d", color: "#fdf5e9", padding: "16px 24px", borderRadius: "14px", boxShadow: "0 15px 35px rgba(0,0,0,0.25)", zIndex: 10002, fontWeight: "700", borderLeft: "4px solid #c9935a", display: "flex", gap: "10px", alignItems: "center" }}>
+                    <span>✨</span> {toastMsg}
+                  </div>
+                )}
+
+                {/* Header with Batch Delete and Add Product */}
+                <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "24px", background: "#ffffff", padding: "20px 24px", borderRadius: "20px", border: "1px solid rgba(44,27,13,0.06)" }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "800", color: "#2c1b0d" }}>
+                      Store Products Catalog ({productsList.length})
+                    </h3>
+                    <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#7a6b5e" }}>
+                      Active store catalog available for customer online & offline orders.
+                    </p>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                    {productsList.length > 0 && (
+                      <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontWeight: "700", color: "#555" }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedProducts.length === productsList.length && productsList.length > 0}
+                          onChange={(e) => setSelectedProducts(e.target.checked ? productsList.map(p => p.id) : [])}
+                          style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                        />
+                        Select All
+                      </label>
+                    )}
+                    {selectedProducts.length > 0 && (
+                      <button
+                        onClick={handleDeleteSelectedProducts}
+                        style={{ background: "#e74c3c", color: "#fff", border: "none", padding: "9px 16px", borderRadius: "10px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                      >
+                        Delete Selected ({selectedProducts.length})
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setNewProdName("");
+                        setNewProdPrice("");
+                        setNewProdDesc("");
+                        setNewProdImage("");
+                        setNewProdCategory("Chai");
+                        setNewProdCaffeine("Medium");
+                        setNewProdSweetness("Medium");
+                        setNewProdSteepTime("5 mins");
+                        setNewProdPairing("Biscuits");
+                        setNewProdRating(4.8);
+                        setShowAddProductModal(true);
+                      }}
+                      style={{
+                        background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                        color: "#ffffff",
+                        border: "none",
+                        padding: "10px 20px",
+                        borderRadius: "12px",
+                        fontWeight: "800",
+                        fontSize: "13px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        boxShadow: "0 4px 14px rgba(44,27,13,0.2)"
+                      }}
+                    >
+                      <span>+</span> Add Product
+                    </button>
+                  </div>
+                </div>
+
+                {/* Catalog Grid */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "20px" }}>
+                  {productsList.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        background: "#ffffff",
+                        padding: "18px",
+                        display: "flex",
+                        flexDirection: "column",
+                        borderRadius: "20px",
+                        border: "1px solid rgba(44,27,13,0.06)",
+                        boxShadow: "0 4px 16px rgba(44,27,13,0.03)",
+                        position: "relative"
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedProducts.includes(p.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedProducts([...selectedProducts, p.id]);
+                          else setSelectedProducts(selectedProducts.filter(id => id !== p.id));
+                        }}
+                        style={{ position: "absolute", top: "28px", left: "28px", zIndex: 10, width: "20px", height: "20px", cursor: "pointer", accentColor: "#2c1b0d" }}
+                      />
+                      <div style={{ width: "100%", height: "170px", borderRadius: "14px", overflow: "hidden", background: "#f8f4ef", marginBottom: "14px" }}>
+                        <img
+                          src={p.image || "/logo.png"}
+                          alt={p.name}
+                          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                          <strong style={{ fontSize: "16px", color: "#2c1b0d", fontWeight: "800" }}>{p.name}</strong>
+                          <span style={{ fontSize: "14px", fontWeight: "800", color: "#8a583c", background: "#fdf8f3", padding: "2px 8px", borderRadius: "6px" }}>
+                            {p.price || `₹${p.priceNum || 0}`}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: "11px", color: "#7a6b5e", background: "#f5ece1", padding: "3px 8px", borderRadius: "6px", display: "inline-block", margin: "8px 0", fontWeight: "700" }}>
+                          {p.category || "Beverage"}
+                        </span>
+                        <p style={{ fontSize: "12px", color: "#666", margin: "0 0 14px", lineHeight: "1.4", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                          {p.desc || "No description provided."}
+                        </p>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", borderTop: "1px solid rgba(44,27,13,0.06)", paddingTop: "12px" }}>
+                        <button
+                          onClick={() => {
+                            setEditingProduct(p);
+  setEditProdName(p.name || "");
+  setEditProdPrice(p.priceNum || parseFloat(String(p.price || "").replace(/[^0-9.]/g, "")) || 0);
+  setEditProdCategory(p.category || "Chai");
+  setEditProdDesc(p.desc || "");
+  setEditProdImage(p.image || "");
+  setEditProdGallery(p.gallery || []);
+                          }}
+                          style={{ flex: 1, background: "#fdf8f3", color: "#2c1b0d", border: "1px solid rgba(44,27,13,0.12)", padding: "10px", borderRadius: "10px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                        >
+                          ✏️ Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteProduct(p.id)}
+                          style={{ flex: 1, background: "rgba(231,76,60,0.08)", color: "#e74c3c", border: "1px solid rgba(231,76,60,0.2)", padding: "10px", borderRadius: "10px", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {productsList.length === 0 && (
+                    <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "50px 20px", background: "#fff", borderRadius: "20px", color: "#888", border: "2px dashed rgba(44,27,13,0.12)" }}>
+                      No products found. Click "+ Add Product" to create one!
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ================= ULTRA-MODERN ADD PRODUCT POPUP MODAL ================= */}
+            {showAddProductModal && (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(18, 11, 7, 0.72)",
+                  backdropFilter: "blur(10px)",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  zIndex: 10001,
+                  padding: "20px"
+                }}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setShowAddProductModal(false);
+                }}
+              >
+                <div
+                  className="no-scrollbar"
+                  style={{
+                    background: "#ffffff",
+                    borderRadius: "28px",
+                    width: "100%",
+                    maxWidth: "540px",
+                    maxHeight: "90vh",
+                    overflowY: "auto",
+                    scrollbarWidth: "none",
+                    msOverflowStyle: "none",
+                    boxShadow: "0 25px 60px rgba(0,0,0,0.3), 0 0 0 1px rgba(44,27,13,0.06)",
+                    position: "relative",
+                    padding: "28px 32px",
+                    animation: "fadeIn 0.2s ease-out"
+                  }}
+                >
+                  {/* Modal Header */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "22px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "44px", height: "44px", borderRadius: "14px", background: "linear-gradient(135deg, #f5ece1 0%, #ecd9c6 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px" }}>
+                        ☕
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: "19px", fontWeight: "800", color: "#2c1b0d", letterSpacing: "-0.02em" }}>
+                          Add New Product
+                        </h3>
+                        <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#7a6b5e" }}>
+                          Fill in details & set cover image to publish.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddProductModal(false)}
+                      style={{
+                        background: "#f7f2ed",
+                        border: "none",
+                        width: "32px",
+                        height: "32px",
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "14px",
+                        fontWeight: "800",
+                        color: "#555",
+                        cursor: "pointer"
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleAddNewProduct} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                    {/* Cover Photo Upload & Library Selector */}
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px" }}>
+                          Product Cover Photo
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.libraryTarget = "new";
+                            setShowImageLibrary(true);
+                          }}
+                          style={{
+                            background: "#fdf8f3",
+                            border: "1px solid rgba(138,88,60,0.2)",
+                            color: "#8a583c",
+                            fontSize: "11.5px",
+                            fontWeight: "800",
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px"
+                          }}
+                        >
+                          📂 Pick from Library
+                        </button>
+                      </div>
+
+                      {newProdImage ? (
+                        <div style={{ position: "relative", width: "100%", height: "170px", borderRadius: "18px", overflow: "hidden", border: "2px solid rgba(44,27,13,0.12)", background: "#f8f4ef" }}>
+                          <img
+                            src={newProdImage}
+                            alt="Preview"
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                          />
+                          <div style={{ position: "absolute", top: "10px", left: "10px", background: "rgba(44,27,13,0.85)", backdropFilter: "blur(4px)", color: "#ffffff", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: "700" }}>
+                            ✓ Cover Photo Selected
+                          </div>
+                          <div style={{ position: "absolute", bottom: "10px", right: "10px", display: "flex", gap: "8px" }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.libraryTarget = "new";
+                                setShowImageLibrary(true);
+                              }}
+                              style={{
+                                background: "#ffffff",
+                                color: "#2c1b0d",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+                              }}
+                            >
+                              📂 Library
+                            </button>
+                            <label
+                              style={{
+                                background: "#ffffff",
+                                color: "#2c1b0d",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                                display: "inline-block"
+                              }}
+                            >
+                              🔄 Upload New
+                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "new")} style={{ display: "none" }} />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setNewProdImage("")}
+                              style={{ background: "#e74c3c", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
+                            >
+                              🗑️ Remove
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          <label
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "22px 16px",
+                              border: "2px dashed rgba(44,27,13,0.18)",
+                              borderRadius: "18px",
+                              background: isUploadingImage ? "#fbf7f2" : "#fdfaf7",
+                              cursor: "pointer",
+                              textAlign: "center"
+                            }}
+                          >
+                            <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "new")} style={{ display: "none" }} />
+                            {isUploadingImage ? (
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                                <div style={{ width: "24px", height: "24px", border: "3px solid #8a583c", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                                <span style={{ fontSize: "12.5px", fontWeight: "700", color: "#8a583c" }}>Uploading to Cloudinary...</span>
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#f5ece1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", marginBottom: "6px", color: "#8a583c" }}>
+                                  📸
+                                </div>
+                                <span style={{ fontSize: "13px", fontWeight: "700", color: "#2c1b0d" }}>Click or drop cover photo here</span>
+                                <span style={{ fontSize: "11px", color: "#888", marginTop: "2px" }}>Direct Cloudinary Upload (PNG, JPG, WebP)</span>
+                              </>
+                            )}
+                          </label>
+                        </div>
+                      )}
+
+                      {/* Manual URL Input */}
+                      <div style={{ marginTop: "6px" }}>
+                        <input
+                          type="text"
+                          placeholder="Or paste direct image URL (https://...)"
+                          value={newProdImage}
+                          onChange={(e) => setNewProdImage(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "8px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid rgba(44,27,13,0.12)",
+                            fontSize: "11.5px",
+                            background: "#faf7f4",
+                            color: "#333"
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Product Name */}
+                    <div>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                        Product Name *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Special Elaichi Chai"
+                        value={newProdName}
+                        onChange={(e) => setNewProdName(e.target.value)}
+                        required
+                        style={{
+                          width: "100%",
+                          padding: "10px 14px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(44,27,13,0.15)",
+                          fontSize: "13px",
+                          fontWeight: "600",
+                          color: "#2c1b0d",
+                          outline: "none"
+                        }}
+                      />
+                    </div>
+
+                    {/* Price & Category Grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "12px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                          Price (INR) *
+                        </label>
+                        <div style={{ position: "relative" }}>
+                          <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "800", color: "#8a583c", fontSize: "14px" }}>
+                            ₹
+                          </span>
+                          <input
+                            type="number"
+                            placeholder="30"
+                            value={newProdPrice}
+                            onChange={(e) => setNewProdPrice(e.target.value)}
+                            required
+                            style={{
+                              width: "100%",
+                              padding: "10px 14px 10px 28px",
+                              borderRadius: "12px",
+                              border: "1px solid rgba(44,27,13,0.15)",
+                              fontSize: "13px",
+                              fontWeight: "700",
+                              color: "#2c1b0d",
+                              outline: "none"
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                          Category *
+                        </label>
+                        <select
+                          value={newProdCategory}
+                          onChange={(e) => setNewProdCategory(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 14px",
+                            borderRadius: "12px",
+                            border: "1px solid rgba(44,27,13,0.15)",
+                            fontSize: "13px",
+                            fontWeight: "600",
+                            background: "#fff",
+                            color: "#2c1b0d",
+                            outline: "none",
+                            cursor: "pointer"
+                          }}
+                        >
+                          <option value="Chai">Chai</option>
+                          <option value="Coffee">Coffee</option>
+                          <option value="Sandwich">Sandwich</option>
+                          <option value="Snacks">Snacks</option>
+                          <option value="Toast">Toast</option>
+                          <option value="Maggi">Maggi</option>
+                          <option value="Drinks">Drinks</option>
+                          <option value="Water">Water</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Extra Beverage Attributes */}
+                    {!(newProdCategory === "Water" || newProdCategory === "Drinks") && (
+                      <div style={{ background: "#fdfaf7", padding: "12px", borderRadius: "14px", border: "1px solid rgba(44,27,13,0.06)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                        <div>
+                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#777" }}>Caffeine</label>
+                          <select value={newProdCaffeine} onChange={(e) => setNewProdCaffeine(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.12)", background: "#fff", fontSize: "12px", marginTop: "2px" }}>
+                            <option value="None">None</option>
+                            <option value="Low">Low</option>
+                            <option value="Medium">Medium</option>
+                            <option value="High">High</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#777" }}>Sweetness</label>
+                          <select value={newProdSweetness} onChange={(e) => setNewProdSweetness(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.12)", background: "#fff", fontSize: "12px", marginTop: "2px" }}>
+                            <option value="None">None</option>
+                            <option value="Low">Low</option>
+                            <option value="Medium">Medium</option>
+                            <option value="High">High</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#777" }}>Steep Time</label>
+                          <select value={newProdSteepTime} onChange={(e) => setNewProdSteepTime(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.12)", background: "#fff", fontSize: "12px", marginTop: "2px" }}>
+                            <option value="3 mins">3 mins</option>
+                            <option value="4 mins">4 mins</option>
+                            <option value="5 mins">5 mins</option>
+                            <option value="6 mins">6 mins</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#777" }}>Rating (★)</label>
+                          <input type="number" step="0.1" min="1" max="5" value={newProdRating} onChange={(e) => setNewProdRating(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.12)", fontSize: "12px", marginTop: "2px" }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    <div>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                        Description
+                      </label>
+                      <textarea
+                        rows="2"
+                        placeholder="Fresh aromatic handcrafted tea blend..."
+                        value={newProdDesc}
+                        onChange={(e) => setNewProdDesc(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "8px 12px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(44,27,13,0.15)",
+                          fontSize: "12px",
+                          outline: "none",
+                          resize: "none"
+                        }}
+                      />
+                    </div>
+
+                    {/* Modal Footer CTA */}
+                    <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddProductModal(false)}
+                        style={{
+                          flex: 1,
+                          background: "#f4ede6",
+                          color: "#2c1b0d",
+                          border: "none",
+                          padding: "11px",
+                          borderRadius: "12px",
+                          fontWeight: "700",
+                          fontSize: "13px",
+                          cursor: "pointer"
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isUploadingImage}
+                        style={{
+                          flex: 2,
+                          background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "11px",
+                          borderRadius: "12px",
+                          fontWeight: "800",
+                          fontSize: "13px",
+                          cursor: isUploadingImage ? "not-allowed" : "pointer",
+                          boxShadow: "0 6px 18px rgba(44,27,13,0.22)",
+                          opacity: isUploadingImage ? 0.7 : 1
+                        }}
+                      >
+                        {isUploadingImage ? "Uploading..." : "✨ Publish Product"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {/* ================= ULTRA-MODERN EDIT PRODUCT POPUP MODAL ================= */}
+            {editingProduct && (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(18, 11, 7, 0.72)",
+                  backdropFilter: "blur(10px)",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  zIndex: 10001,
+                  padding: "20px"
+                }}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setEditingProduct(null);
+                }}
+              >
+                <div
+                  className="no-scrollbar"
+                  style={{
+                    background: "#ffffff",
+                    borderRadius: "28px",
+                    width: "100%",
+                    maxWidth: "540px",
+                    maxHeight: "90vh",
+                    overflowY: "auto",
+                    scrollbarWidth: "none",
+                    msOverflowStyle: "none",
+                    boxShadow: "0 25px 60px rgba(0,0,0,0.3), 0 0 0 1px rgba(44,27,13,0.06)",
+                    position: "relative",
+                    padding: "28px 32px",
+                    animation: "fadeIn 0.2s ease-out"
+                  }}
+                >
+                  {/* Modal Header */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "22px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "44px", height: "44px", borderRadius: "14px", background: "linear-gradient(135deg, #f5ece1 0%, #ecd9c6 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px" }}>
+                        ✏️
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: "19px", fontWeight: "800", color: "#2c1b0d", letterSpacing: "-0.02em" }}>
+                          Edit Product
+                        </h3>
+                        <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#7a6b5e" }}>
+                          Update product details, pricing or cover image.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingProduct(null)}
+                      style={{
+                        background: "#f7f2ed",
+                        border: "none",
+                        width: "32px",
+                        height: "32px",
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "14px",
+                        fontWeight: "800",
+                        color: "#555",
+                        cursor: "pointer"
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleUpdateProductSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                    {/* Cover Photo Upload & Library Selector */}
+                    <div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                        <label style={{ fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px" }}>
+                          Product Cover Photo
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.libraryTarget = "edit";
+                            setShowImageLibrary(true);
+                          }}
+                          style={{
+                            background: "#fdf8f3",
+                            border: "1px solid rgba(138,88,60,0.2)",
+                            color: "#8a583c",
+                            fontSize: "11.5px",
+                            fontWeight: "800",
+                            padding: "4px 10px",
+                            borderRadius: "8px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px"
+                          }}
+                        >
+                          📂 Pick from Library
+                        </button>
+                      </div>
+
+                      {editProdImage ? (
+                        <div style={{ position: "relative", width: "100%", height: "170px", borderRadius: "18px", overflow: "hidden", border: "2px solid rgba(44,27,13,0.12)", background: "#f8f4ef" }}>
+                          <img
+                            src={editProdImage}
+                            alt="Preview"
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                          />
+                          <div style={{ position: "absolute", top: "10px", left: "10px", background: "rgba(44,27,13,0.85)", backdropFilter: "blur(4px)", color: "#ffffff", padding: "4px 10px", borderRadius: "8px", fontSize: "11px", fontWeight: "700" }}>
+                            ✓ Current Cover Photo
+                          </div>
+                          <div style={{ position: "absolute", bottom: "10px", right: "10px", display: "flex", gap: "8px" }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.libraryTarget = "edit";
+                                setShowImageLibrary(true);
+                              }}
+                              style={{
+                                background: "#ffffff",
+                                color: "#2c1b0d",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.15)"
+                              }}
+                            >
+                              📂 Library
+                            </button>
+                            <label
+                              style={{
+                                background: "#ffffff",
+                                color: "#2c1b0d",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: "700",
+                                cursor: "pointer",
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                                display: "inline-block"
+                              }}
+                            >
+                              🔄 Upload New
+                              <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit")} style={{ display: "none" }} />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setEditProdImage("")}
+                              style={{ background: "#e74c3c", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" }}
+                            >
+                              🗑️ Remove
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                          <label
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "22px 16px",
+                              border: "2px dashed rgba(44,27,13,0.18)",
+                              borderRadius: "18px",
+                              background: isUploadingImage ? "#fbf7f2" : "#fdfaf7",
+                              cursor: "pointer",
+                              textAlign: "center"
+                            }}
+                          >
+                            <input type="file" accept="image/*" onChange={(e) => handleUploadImage(e, "edit")} style={{ display: "none" }} />
+                            {isUploadingImage ? (
+                              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                                <div style={{ width: "24px", height: "24px", border: "3px solid #8a583c", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                                <span style={{ fontSize: "12.5px", fontWeight: "700", color: "#8a583c" }}>Uploading to Cloudinary...</span>
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#f5ece1", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "18px", marginBottom: "6px", color: "#8a583c" }}>
+                                  📸
+                                </div>
+                                <span style={{ fontSize: "13px", fontWeight: "700", color: "#2c1b0d" }}>Click or drop cover photo here</span>
+                                <span style={{ fontSize: "11px", color: "#888", marginTop: "2px" }}>Direct Cloudinary Upload (PNG, JPG, WebP)</span>
+                              </>
+                            )}
+                          </label>
+                        </div>
+                      )}
+
+                      {/* Manual URL Input */}
+                      <div style={{ marginTop: "6px" }}>
+                        <input
+                          type="text"
+                          placeholder="Or paste direct image URL (https://...)"
+                          value={editProdImage}
+                          onChange={(e) => setEditProdImage(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "8px 12px",
+                            borderRadius: "10px",
+                            border: "1px solid rgba(44,27,13,0.12)",
+                            fontSize: "11.5px",
+                            background: "#faf7f4",
+                            color: "#333"
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Product Name */}
+                    <div>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                        Product Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={editProdName}
+                        onChange={(e) => setEditProdName(e.target.value)}
+                        required
+                        style={{
+                          width: "100%",
+                          padding: "10px 14px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(44,27,13,0.15)",
+                          fontSize: "13px",
+                          fontWeight: "600",
+                          color: "#2c1b0d",
+                          outline: "none"
+                        }}
+                      />
+                    </div>
+
+                    {/* Price & Category Grid */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "12px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                          Price (INR) *
+                        </label>
+                        <div style={{ position: "relative" }}>
+                          <span style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)", fontWeight: "800", color: "#8a583c", fontSize: "14px" }}>
+                            ₹
+                          </span>
+                          <input
+                            type="number"
+                            value={editProdPrice}
+                            onChange={(e) => setEditProdPrice(e.target.value)}
+                            required
+                            style={{
+                              width: "100%",
+                              padding: "10px 14px 10px 28px",
+                              borderRadius: "12px",
+                              border: "1px solid rgba(44,27,13,0.15)",
+                              fontSize: "13px",
+                              fontWeight: "700",
+                              color: "#2c1b0d",
+                              outline: "none"
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                          Category *
+                        </label>
+                        <select
+                          value={editProdCategory}
+                          onChange={(e) => setEditProdCategory(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 14px",
+                            borderRadius: "12px",
+                            border: "1px solid rgba(44,27,13,0.15)",
+                            fontSize: "13px",
+                            fontWeight: "600",
+                            background: "#fff",
+                            color: "#2c1b0d",
+                            outline: "none",
+                            cursor: "pointer"
+                          }}
+                        >
+                          <option value="Chai">Chai</option>
+                          <option value="Coffee">Coffee</option>
+                          <option value="Sandwich">Sandwich</option>
+                          <option value="Snacks">Snacks</option>
+                          <option value="Toast">Toast</option>
+                          <option value="Maggi">Maggi</option>
+                          <option value="Drinks">Drinks</option>
+                          <option value="Water">Water</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                      <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                        Description
+                      </label>
+                      <textarea
+                        rows="2"
+                        value={editProdDesc}
+                        onChange={(e) => setEditProdDesc(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "8px 12px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(44,27,13,0.15)",
+                          fontSize: "12px",
+                          outline: "none",
+                          resize: "none"
+                        }}
+                      />
+                    </div>
+
+                    {/* Modal Footer CTA */}
+                    <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
+                      <button
+                        type="button"
+                        onClick={() => setEditingProduct(null)}
+                        style={{
+                          flex: 1,
+                          background: "#f4ede6",
+                          color: "#2c1b0d",
+                          border: "none",
+                          padding: "11px",
+                          borderRadius: "12px",
+                          fontWeight: "700",
+                          fontSize: "13px",
+                          cursor: "pointer"
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isUploadingImage}
+                        style={{
+                          flex: 2,
+                          background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "11px",
+                          borderRadius: "12px",
+                          fontWeight: "800",
+                          fontSize: "13px",
+                          cursor: isUploadingImage ? "not-allowed" : "pointer",
+                          boxShadow: "0 6px 18px rgba(44,27,13,0.22)",
+                          opacity: isUploadingImage ? 0.7 : 1
+                        }}
+                      >
+                        {isUploadingImage ? "Uploading..." : "💾 Save Changes"}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {activeTab === "feedback" && (
               <div className="tab-fade-in" style={{ padding: "30px", maxWidth: "1000px", margin: "0 auto" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
@@ -4918,7 +5563,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                     {/* Main order info with product image layout */}
                     <div className="sidebar-card-body-detailed">
-                      <img src={o.img} alt={o.item} className="sidebar-product-img" />
+                      <img src={getProductMeta(o.item || (Array.isArray(o.items) && o.items[0]?.name), o.img || o.image).image} alt={o.item} className="sidebar-product-img" />
 
                       <div className="sidebar-product-details">
                         <h4 className="sidebar-product-title">{o.item}</h4>
@@ -5236,7 +5881,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                   </span>
                                 </div>
                                 <span style={{ fontSize: "10.5px", color: "#71717a" }}>
-                                  Category: {p.category}
+                                  Category: {getProductMeta(p.name, p.image, p.category).category}
                                 </span>
                               </div>
                             </div>
@@ -5386,44 +6031,126 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
       {/* IMAGE LIBRARY POPUP */}
       {showImageLibrary && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000 }}>
-          <div style={{ background: "#fff", padding: "32px", borderRadius: "24px", width: "650px", maxWidth: "90vw", maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 40px rgba(0,0,0,0.3)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f2eee9", paddingBottom: "12px" }}>
-              <h3 style={{ margin: 0, color: "#2c1b0d" }}>📁 Uploaded Images Library</h3>
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(18, 11, 7, 0.8)",
+            backdropFilter: "blur(12px)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 10020,
+            padding: "20px"
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowImageLibrary(false);
+          }}
+        >
+          <div
+            className="no-scrollbar"
+            style={{
+              background: "#ffffff",
+              padding: "28px 32px",
+              borderRadius: "28px",
+              width: "680px",
+              maxWidth: "92vw",
+              maxHeight: "85vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 30px 70px rgba(0,0,0,0.4), 0 0 0 1px rgba(44,27,13,0.08)",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              position: "relative",
+              animation: "fadeIn 0.2s ease-out"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", borderBottom: "1px solid rgba(44,27,13,0.08)", paddingBottom: "14px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ fontSize: "22px" }}>📁</span>
+                <div>
+                  <h3 style={{ margin: 0, color: "#2c1b0d", fontSize: "18px", fontWeight: "800" }}>Uploaded Images Library</h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#7a6b5e" }}>Select any image below to use as your product cover photo.</p>
+                </div>
+              </div>
               <button
+                type="button"
                 onClick={() => setShowImageLibrary(false)}
-                style={{ background: "transparent", border: "none", fontSize: "22px", cursor: "pointer", color: "#e74c3c", fontWeight: "bold" }}
+                style={{
+                  background: "#f7f2ed",
+                  border: "none",
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "14px",
+                  fontWeight: "800",
+                  color: "#555",
+                  cursor: "pointer"
+                }}
               >
                 ✕
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto", paddingRight: "8px" }}>
+            <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", msOverflowStyle: "none", paddingRight: "4px" }}>
               {libraryImages.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "40px", color: "#888" }}>
-                  <span style={{ fontSize: "36px" }}>📂</span>
-                  <p style={{ marginTop: "12px" }}>No uploaded images found in your library yet.</p>
+                <div style={{ textAlign: "center", padding: "50px 20px", color: "#888" }}>
+                  <span style={{ fontSize: "40px" }}>📂</span>
+                  <p style={{ marginTop: "12px", fontSize: "13px" }}>No uploaded images found in your library yet.</p>
                 </div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: "14px" }}>
                   {libraryImages.map((img) => (
                     <div
                       key={img.id}
                       onClick={() => handleSelectLibraryImage(img.url)}
                       style={{
                         border: "2px solid rgba(44, 27, 13, 0.08)",
-                        borderRadius: "12px",
+                        borderRadius: "14px",
                         overflow: "hidden",
                         cursor: "pointer",
-                        transition: "all 0.2s ease",
-                        background: "#fcfaf7"
+                        position: "relative",
+                        aspectRatio: "1",
+                        background: "#fdfaf7",
+                        transition: "transform 0.2s, box-shadow 0.2s, border-color 0.2s"
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.borderColor = "#2c1b0d"}
-                      onMouseLeave={(e) => e.currentTarget.style.borderColor = "rgba(44, 27, 13, 0.08)"}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "scale(1.03)";
+                        e.currentTarget.style.borderColor = "#8a583c";
+                        e.currentTarget.style.boxShadow = "0 8px 18px rgba(44,27,13,0.15)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "scale(1)";
+                        e.currentTarget.style.borderColor = "rgba(44, 27, 13, 0.08)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
                     >
-                      <img src={img.url} alt={img.name} style={{ width: "100%", height: "100px", objectFit: "cover" }} />
-                      <div style={{ padding: "6px", fontSize: "10px", color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "center" }}>
-                        {img.name || "Image Link"}
+                      <img
+                        src={img.url}
+                        alt="Library item"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        onError={(e) => { e.currentTarget.src = "/logo.png"; }}
+                      />
+                      <div style={{
+                        position: "absolute",
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        background: "rgba(44, 27, 13, 0.75)",
+                        color: "#fff",
+                        fontSize: "10px",
+                        padding: "4px 6px",
+                        textAlign: "center",
+                        fontWeight: "700",
+                        backdropFilter: "blur(2px)"
+                      }}>
+                        Select Photo
                       </div>
                     </div>
                   ))}
@@ -5431,10 +6158,20 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               )}
             </div>
 
-            <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "12px" }}>
+            <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid rgba(44,27,13,0.08)", display: "flex", justifyContent: "flex-end" }}>
               <button
+                type="button"
                 onClick={() => setShowImageLibrary(false)}
-                style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
+                style={{
+                  background: "#2c1b0d",
+                  color: "#ffffff",
+                  border: "none",
+                  padding: "10px 20px",
+                  borderRadius: "12px",
+                  fontWeight: "750",
+                  fontSize: "12.5px",
+                  cursor: "pointer"
+                }}
               >
                 Close Library
               </button>
@@ -5837,6 +6574,10 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
       {/* Styled JSX */}
       <style dangerouslySetInnerHTML={{
         __html: `
+        /* No Scrollbar Utility */
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
         /* Custom Scrollbar */
         .custom-scrollbar::-webkit-scrollbar {
           width: 8px;

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { db, auth } from "@/lib/firebase";
 import { collection, onSnapshot, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { getProductMeta } from "@/lib/productMeta";
 import { onOrdersSnapshot, updateOrder, updateStockItem, addStockItem, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings, onProductsSnapshot, createOrder, getMenuItems, getCombos, getRestockHistory, getFeedback } from "@/lib/firestore";
 import { loginWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import { useRouter } from "next/navigation";
@@ -238,8 +239,9 @@ export default function AdminDashboard() {
           const name = it.name || it.item || "Chai Item";
           const qty = parseInt(it.quantity || it.qty) || 1;
           const unitP = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
-          const img = it.image || it.img || o.image || o.img || "/logo.png";
-          const cat = it.category || "Beverages";
+          const meta = getProductMeta(name, it.image || it.img, it.category);
+          const img = meta.image;
+          const cat = meta.category;
           const key = name.trim().toLowerCase();
 
           if (!productMap[key]) {
@@ -254,6 +256,13 @@ export default function AdminDashboard() {
               unitPrice: unitP,
               revenue: 0
             };
+          } else {
+            if (meta.image && (!productMap[key].image || productMap[key].image.includes("logo.png") || productMap[key].image.includes("ezzolluycd01piettblm") || productMap[key].image.includes("cmzhutu452ld8798gbln") || productMap[key].image.includes("br6kkfrjvoopkqkzpanm") || productMap[key].image.includes("p7f5conzmiziw1trmlsw") || productMap[key].image.includes("obzeioklky9xtmsrupw2"))) {
+              productMap[key].image = meta.image;
+            }
+            if (meta.category && (productMap[key].category === "Beverages" || productMap[key].category === "Other")) {
+              productMap[key].category = meta.category;
+            }
           }
 
           productMap[key].totalQty += qty;
@@ -266,6 +275,7 @@ export default function AdminDashboard() {
           }
           productMap[key].revenue += (unitP > 0 ? unitP * qty : (price / Math.max(o.items.length, 1)));
           if (img && img !== "/logo.png") productMap[key].image = img;
+          if (cat && cat !== "Beverages") productMap[key].category = cat;
         });
       } else if (o.item) {
         const itemStr = o.item;
@@ -275,13 +285,15 @@ export default function AdminDashboard() {
           const name = match && match[1] ? match[1].trim() : part.trim();
           const qty = match && match[2] ? parseInt(match[2]) : 1;
           const key = name.toLowerCase();
-          const img = o.image || o.img || "/logo.png";
+          const meta = getProductMeta(name, o.image || o.img, "");
+          const img = meta.image;
+          const cat = meta.category;
 
           if (!productMap[key]) {
             productMap[key] = {
               name,
               image: img,
-              category: "Beverages",
+              category: cat,
               totalQty: 0,
               deliveredQty: 0,
               preparingQty: 0,
@@ -289,6 +301,13 @@ export default function AdminDashboard() {
               unitPrice: 0,
               revenue: 0
             };
+          } else {
+            if (meta.image && (!productMap[key].image || productMap[key].image.includes("logo.png") || productMap[key].image.includes("ezzolluycd01piettblm") || productMap[key].image.includes("cmzhutu452ld8798gbln") || productMap[key].image.includes("br6kkfrjvoopkqkzpanm") || productMap[key].image.includes("p7f5conzmiziw1trmlsw") || productMap[key].image.includes("obzeioklky9xtmsrupw2"))) {
+              productMap[key].image = meta.image;
+            }
+            if (meta.category && (productMap[key].category === "Beverages" || productMap[key].category === "Other")) {
+              productMap[key].category = meta.category;
+            }
           }
 
           productMap[key].totalQty += qty;
@@ -300,6 +319,8 @@ export default function AdminDashboard() {
             productMap[key].receivedQty += qty;
           }
           productMap[key].revenue += price / Math.max(parts.length, 1);
+          if (img && img !== "/logo.png") productMap[key].image = img;
+          if (cat && cat !== "Beverages") productMap[key].category = cat;
         });
       }
     });
@@ -1129,7 +1150,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
         {/* Card core body */}
         <div className="queue-card-body-wrap">
-          <img src={o.img} alt={o.item} className="queue-card-thumbnail" />
+          <img src={getProductMeta(o.item || (Array.isArray(o.items) && o.items[0]?.name), o.img || o.image).image} alt={o.item} className="queue-card-thumbnail" />
 
           <div className="queue-card-text-details">
             <h4>{o.item}</h4>
@@ -1585,7 +1606,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   )}
                 </div>
                 <img
-                  src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80"
+                  src="/logo.png"
                   alt="Profile"
                   className="profile-avatar-new"
                   onClick={() => setActiveTab("profile")}
@@ -2257,7 +2278,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               setIsQueueSidebarOpen(true);
                             }}
                           >
-                            <img src={o.image || o.img || "/logo.png"} alt={o.id} className="queue-list-img" style={{ width: "54px", height: "54px", borderRadius: "10px", objectFit: 'cover', border: "1px solid #e4e4e7", flexShrink: 0 }} />
+                            <img src={getProductMeta(o.item || (Array.isArray(o.items) && o.items[0]?.name), o.image || o.img).image} alt={o.id} className="queue-list-img" style={{ width: "54px", height: "54px", borderRadius: "10px", objectFit: 'cover', border: "1px solid #e4e4e7", flexShrink: 0 }} />
                             <div className="queue-list-info" style={{ flexGrow: 1, minWidth: 0 }}>
                               <h4 style={{ fontSize: '14px', marginBottom: '4px', margin: 0, display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                 <span style={{ color: '#ffffff', fontWeight: '900', background: "#09090b", padding: "2px 7px", borderRadius: "4px", fontSize: "12px" }}>
@@ -4439,7 +4460,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               return (
                                 <div key={idx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "10px 14px", marginBottom: "8px" }}>
                                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                                    <img src={item.image || "/logo.png"} alt={item.name} style={{ width: "38px", height: "38px", borderRadius: "8px", objectFit: "cover" }} />
+                                    <img src={getProductMeta(item.name, item.image, item.category).image} alt={item.name} style={{ width: "38px", height: "38px", borderRadius: "8px", objectFit: "cover" }} />
                                     <div>
                                       <strong style={{ display: "block", fontSize: "13.5px", color: "#09090b" }}>{item.name}</strong>
                                       <span style={{ color: "#166534", fontSize: "12px", fontWeight: "bold" }}>
@@ -4509,8 +4530,11 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               createdAt: createdAtTimestamp,
                               date: formattedDate,
                               item: offlineOrderForm.items.map(i => `${i.name} x${i.qty}`).join(", "),
-                              items: offlineOrderForm.items.map(i => ({ name: i.name, quantity: i.qty, price: i.priceNum || 40 })),
-                              img: offlineOrderForm.items[0]?.image || "/logo.png"
+                              items: offlineOrderForm.items.map(i => {
+                                const m = getProductMeta(i.name, i.image, i.category);
+                                return { name: i.name, quantity: i.qty, price: i.priceNum || 40, image: m.image, category: m.category };
+                              }),
+                              img: getProductMeta(offlineOrderForm.items[0]?.name, offlineOrderForm.items[0]?.image, offlineOrderForm.items[0]?.category).image
                             };
 
                             try {
@@ -4614,12 +4638,12 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                       return (
                         <div key={prod.id} style={{ display: "flex", gap: "12px", border: "1px solid #e2e8f0", padding: "12px", borderRadius: "12px", alignItems: "center", background: existing ? "#f0fdf4" : "#ffffff", borderColor: existing ? "#86efac" : "#e2e8f0", transition: "all 0.2s ease" }}>
-                          <img src={prod.image || prod.imagePath || prod.img || "/logo.png"} alt={prod.name} style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "10px", border: "1px solid #e4e4e7" }} />
+                          <img src={getProductMeta(prod.name, prod.image || prod.imagePath || prod.img, prod.category).image} alt={prod.name} style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "10px", border: "1px solid #e4e4e7" }} />
                           <div style={{ flexGrow: 1, minWidth: 0 }}>
                             <strong style={{ display: "block", fontSize: "13.5px", color: "#09090b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{prod.name}</strong>
                             <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
                               <span style={{ fontSize: "13px", fontWeight: "900", color: "#16a34a" }}>₹{prodPrice}</span>
-                              <span style={{ fontSize: "11px", color: "#71717a" }}>• {prod.category || "Chai"}</span>
+                              <span style={{ fontSize: "11px", color: "#71717a" }}>• {getProductMeta(prod.name, prod.image, prod.category).category}</span>
                             </div>
                           </div>
                           {existing ? (
@@ -4657,7 +4681,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             <button 
                               type="button"
                               onClick={() => {
-                                const updated = [...offlineOrderForm.items, { id: prod.id, name: prod.name, priceNum: prodPrice, image: prod.image || prod.imagePath || prod.img || "/logo.png", qty: 1 }];
+                                const m = getProductMeta(prod.name, prod.image || prod.imagePath || prod.img, prod.category);
+                                const updated = [...offlineOrderForm.items, { id: prod.id, name: prod.name, priceNum: prodPrice, image: m.image, category: m.category, qty: 1 }];
                                 const newSum = updated.reduce((s, it) => s + (it.priceNum || 40) * it.qty, 0);
                                 setOfflineOrderForm({ ...offlineOrderForm, items: updated, totalPrice: String(newSum) });
                               }}
@@ -4748,7 +4773,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                     {/* Main order info with product image layout */}
                     <div className="sidebar-card-body-detailed">
-                      <img src={o.img} alt={o.item} className="sidebar-product-img" />
+                      <img src={getProductMeta(o.item || (Array.isArray(o.items) && o.items[0]?.name), o.img || o.image).image} alt={o.item} className="sidebar-product-img" />
 
                       <div className="sidebar-product-details">
                         <h4 className="sidebar-product-title">{o.item}</h4>
@@ -5066,7 +5091,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                   </span>
                                 </div>
                                 <span style={{ fontSize: "10.5px", color: "#71717a" }}>
-                                  Category: {p.category}
+                                  Category: {getProductMeta(p.name, p.image, p.category).category}
                                 </span>
                               </div>
                             </div>

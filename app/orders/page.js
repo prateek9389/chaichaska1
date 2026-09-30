@@ -480,7 +480,7 @@ export default function OrdersPage() {
                             src={
                               ord.image ||
                               ord.img ||
-                              "https://images.unsplash.com/photo-1576092768241-dec231879fc3?auto=format&fit=crop&w=400&q=80"
+                              "/logo.png"
                             }
                             alt={ord.item || "Order item"}
                             className="order-thumb-img"
