@@ -10,6 +10,109 @@ import { onOrdersSnapshot, updateOrder, updateStockItem, addStockItem, addRestoc
 import { loginWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 
+
+function getOrderDateString(order) {
+  if (!order) return "";
+  
+  // 1. Direct orderDate if present (e.g. YYYY-MM-DD or DD/MM/YYYY)
+  if (order.orderDate && typeof order.orderDate === 'string') {
+    const trimmed = order.orderDate.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parts = trimmed.split('/');
+    if (parts.length === 3) {
+      const d = parts[0].padStart(2, '0');
+      const m = parts[1].padStart(2, '0');
+      const y = parts[2];
+      return `${y}-${m}-${d}`;
+    }
+  }
+
+  // 2. createdAt timestamp or Firestore Timestamp
+  let timestamp = null;
+  if (order.createdAt) {
+    if (typeof order.createdAt === 'number') {
+      timestamp = order.createdAt;
+    } else if (order.createdAt?.seconds) {
+      timestamp = order.createdAt.seconds * 1000;
+    } else if (typeof order.createdAt?.toDate === 'function') {
+      timestamp = order.createdAt.toDate().getTime();
+    } else if (typeof order.createdAt === 'string') {
+      const parsed = Date.parse(order.createdAt);
+      if (!isNaN(parsed)) timestamp = parsed;
+    }
+  }
+
+  // 3. date string field (e.g. "25/09/2026 17:52", "2026-09-25", "Just now")
+  if (!timestamp && order.date && typeof order.date === 'string') {
+    const ds = order.date.trim();
+    if (ds === "Just now") {
+      timestamp = Date.now();
+    } else if (/^\d{4}-\d{2}-\d{2}/.test(ds)) {
+      return ds.slice(0, 10);
+    } else {
+      const match = ds.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (match) {
+        const d = match[1].padStart(2, '0');
+        const m = match[2].padStart(2, '0');
+        const y = match[3];
+        return `${y}-${m}-${d}`;
+      }
+      const parsed = Date.parse(ds);
+      if (!isNaN(parsed)) timestamp = parsed;
+    }
+  }
+
+  if (timestamp && !isNaN(timestamp)) {
+    const d = new Date(timestamp);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  return "";
+}
+
+function isOrderMatchingDateFilter(order, dateFilter) {
+  if (!dateFilter || dateFilter === "all" || dateFilter === "All") return true;
+
+  const orderDateStr = getOrderDateString(order);
+  if (!orderDateStr) return false;
+
+  const now = new Date();
+  const formatYMD = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayStr = formatYMD(now);
+
+  if (dateFilter === "today" || dateFilter === "Daily") {
+    return orderDateStr === todayStr;
+  }
+
+  if (dateFilter === "yesterday") {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    return orderDateStr === formatYMD(y);
+  }
+
+  if (dateFilter === "7days" || dateFilter === "Weekly") {
+    const past7 = new Date(now);
+    past7.setDate(past7.getDate() - 6);
+    return orderDateStr >= formatYMD(past7) && orderDateStr <= todayStr;
+  }
+
+  if (dateFilter === "Monthly") {
+    const orderParts = orderDateStr.split('-');
+    return parseInt(orderParts[0], 10) === now.getFullYear() && parseInt(orderParts[1], 10) === (now.getMonth() + 1);
+  }
+
+  // Exact date match (e.g. "2026-09-30" or "2026-09-25")
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateFilter)) {
+    return orderDateStr === dateFilter;
+  }
+
+  return true;
+}
+
+
 export default function AdminDashboard() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -73,6 +176,7 @@ export default function AdminDashboard() {
   const activeTab = activeTabState;
   const [timeFilter, setTimeFilter] = useState("All");
   const [queueFilter, setQueueFilter] = useState("All");
+  const [queueDateFilter, setQueueDateFilter] = useState("all");
   const [activeStatsModal, setActiveStatsModal] = useState(null);
   const [pendingModalView, setPendingModalView] = useState("orders");
   const [pendingSearchTerm, setPendingSearchTerm] = useState("");
@@ -181,31 +285,7 @@ export default function AdminDashboard() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const filteredOrdersForDate = orders.filter(o => {
-      if (!o.createdAt) return false;
-      const d = new Date(o.createdAt);
-      if (selectedFilter === "today") {
-        return d.toDateString() === new Date().toDateString();
-      }
-      if (selectedFilter === "yesterday") {
-        const y = new Date();
-        y.setDate(y.getDate() - 1);
-        return d.toDateString() === y.toDateString();
-      }
-      if (selectedFilter === "7days") {
-        return (Date.now() - o.createdAt) <= 7 * 24 * 60 * 60 * 1000;
-      }
-      if (selectedFilter === "custom" && customTallyDate) {
-        return d.toLocaleDateString('en-CA') === customTallyDate;
-      }
-      if (selectedFilter && selectedFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        return d.toLocaleDateString('en-CA') === selectedFilter;
-      }
-      if (selectedFilter === "all") {
-        return true;
-      }
-      return d.toDateString() === new Date().toDateString();
-    });
+    const filteredOrdersForDate = orders.filter(o => isOrderMatchingDateFilter(o, selectedFilter));
 
     const nonCancelledOrders = filteredOrdersForDate.filter(o => o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
 
@@ -468,55 +548,7 @@ export default function AdminDashboard() {
 
 // (isOrderPendingPayment relocated above)
 
-  const filteredOrders = orders.filter(o => {
-    if (timeFilter === "All" || !timeFilter) return true;
-    if (!o.createdAt && !o.date) return false;
-    
-    let orderTimestamp = 0;
-    if (typeof o.createdAt === 'number' && !isNaN(o.createdAt)) {
-      orderTimestamp = o.createdAt;
-    } else if (o.createdAt?.seconds) {
-      orderTimestamp = o.createdAt.seconds * 1000;
-    } else if (o.createdAt) {
-      orderTimestamp = new Date(o.createdAt).getTime();
-    } else if (o.date) {
-      const parts = o.date.split('/');
-      if (parts.length === 3) {
-        orderTimestamp = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
-      } else {
-        orderTimestamp = new Date(o.date).getTime();
-      }
-    }
-    
-    if (!orderTimestamp || isNaN(orderTimestamp)) return false;
-    const orderDate = new Date(orderTimestamp);
-    const orderDateString = orderDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
-    
-    // Handle specific date string (YYYY-MM-DD) from calendar
-    if (typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      return orderDateString === timeFilter;
-    }
-    
-    const now = new Date();
-    const todayStr = now.toLocaleDateString('en-CA');
-    
-    if (timeFilter === "Daily") {
-      return orderDateString === todayStr;
-    }
-    
-    if (timeFilter === "Weekly") {
-      const weekStart = new Date(now);
-      weekStart.setDate(now.getDate() - 6);
-      weekStart.setHours(0, 0, 0, 0);
-      return orderTimestamp >= weekStart.getTime();
-    }
-    
-    if (timeFilter === "Monthly") {
-      return orderDate.getMonth() === now.getMonth() && orderDate.getFullYear() === now.getFullYear();
-    }
-    
-    return true;
-  });
+  const filteredOrders = orders.filter(o => isOrderMatchingDateFilter(o, timeFilter));
 
   const selectedDateTotalSales = filteredOrders.reduce((acc, o) => {
     const val = parseOrderPrice(o);
@@ -1685,8 +1717,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
                       <input 
                         type="date"
-                        value={(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? timeFilter : ""}
-                        onChange={(e) => setTimeFilter(e.target.value || "All")}
+                        value={(typeof historyDateFilter === 'string' && historyDateFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? historyDateFilter : ""}
+                        onChange={(e) => setHistoryDateFilter(e.target.value || "all")}
                         style={{
                           padding: "4px 8px",
                           borderRadius: "6px",
@@ -1985,6 +2017,9 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               const offlineQueueCount = allQueueOrders.filter(o => o.isOffline || o.walkIn).length;
 
               const filteredQueueOrders = allQueueOrders.filter(o => {
+                // 0. Date Filter
+                if (!isOrderMatchingDateFilter(o, queueDateFilter)) return false;
+
                 // 1. Channel Filter
                 if (queueFilter === "online" && (o.isOffline || o.walkIn)) return false;
                 if (queueFilter === "offline" && !o.isOffline && !o.walkIn) return false;
@@ -2091,61 +2126,55 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     gap: "12px",
                     boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
                   }}>
-                    {/* Row 1: Channel Tabs & Search */}
+                    {/* Row 1: Date Filter Bar & Search */}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-                      {/* Channel Filter */}
-                      <div style={{ display: "flex", background: "#f4f4f5", padding: "3px", borderRadius: "8px", gap: "3px" }}>
-                        <button
-                          type="button"
-                          onClick={() => setQueueFilter("all")}
-                          style={{
-                            padding: "6px 14px",
-                            border: "none",
-                            background: queueFilter === "all" ? "#09090b" : "transparent",
-                            color: queueFilter === "all" ? "#ffffff" : "#52525b",
-                            borderRadius: "6px",
-                            fontSize: "12px",
-                            fontWeight: "800",
-                            cursor: "pointer",
-                            transition: "all 0.15s ease"
-                          }}
-                        >
-                          ☕ All Channels ({allQueueOrders.length})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setQueueFilter("online")}
-                          style={{
-                            padding: "6px 14px",
-                            border: "none",
-                            background: queueFilter === "online" ? "#09090b" : "transparent",
-                            color: queueFilter === "online" ? "#ffffff" : "#52525b",
-                            borderRadius: "6px",
-                            fontSize: "12px",
-                            fontWeight: "800",
-                            cursor: "pointer",
-                            transition: "all 0.15s ease"
-                          }}
-                        >
-                          🏢 Online Desk ({onlineQueueCount})
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setQueueFilter("offline")}
-                          style={{
-                            padding: "6px 14px",
-                            border: "none",
-                            background: queueFilter === "offline" ? "#09090b" : "transparent",
-                            color: queueFilter === "offline" ? "#ffffff" : "#52525b",
-                            borderRadius: "6px",
-                            fontSize: "12px",
-                            fontWeight: "800",
-                            cursor: "pointer",
-                            transition: "all 0.15s ease"
-                          }}
-                        >
-                          🏪 Counter / Walk-in ({offlineQueueCount})
-                        </button>
+                      {/* Date Filter Pills + Date Picker */}
+                      <div style={{ display: "flex", flexWrap: "wrap", background: "#f4f4f5", padding: "3px", borderRadius: "10px", gap: "3px", alignItems: "center" }}>
+                        {[
+                          { key: "all", label: "All Time" },
+                          { key: "today", label: "Today" },
+                          { key: "yesterday", label: "Yesterday" },
+                          { key: "7days", label: "Last 7 Days" }
+                        ].map((item) => (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => setQueueDateFilter(item.key)}
+                            style={{
+                              padding: "6px 12px",
+                              border: "none",
+                              background: queueDateFilter === item.key ? "#09090b" : "transparent",
+                              color: queueDateFilter === item.key ? "#ffffff" : "#52525b",
+                              borderRadius: "7px",
+                              fontSize: "11.5px",
+                              fontWeight: "800",
+                              cursor: "pointer",
+                              transition: "all 0.15s ease"
+                            }}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                        <div style={{ width: "1px", height: "18px", background: "#d4d4d8", margin: "0 4px" }}></div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px", paddingRight: "4px" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "750", color: "#71717a" }}>📅</span>
+                          <input
+                            type="date"
+                            value={queueDateFilter.match(/^\d{4}-\d{2}-\d{2}$/) ? queueDateFilter : ""}
+                            onChange={(e) => setQueueDateFilter(e.target.value || "all")}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "6px",
+                              border: "1px solid #d4d4d8",
+                              fontSize: "11.5px",
+                              color: "#18181b",
+                              background: queueDateFilter.match(/^\d{4}-\d{2}-\d{2}$/) ? "#fef3c7" : "#ffffff",
+                              cursor: "pointer",
+                              outline: "none",
+                              fontWeight: "700"
+                            }}
+                          />
+                        </div>
                       </div>
 
                       {/* Search Bar */}
@@ -2158,23 +2187,13 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           placeholder="Search order ID, customer, item..."
                           style={{
                             width: "100%",
-                            padding: "7px 12px 7px 32px",
-                            border: "1px solid #e4e4e7",
+                            padding: "8px 12px 8px 30px",
                             borderRadius: "8px",
-                            fontSize: "12px",
-                            outline: "none",
-                            background: "#fafafa"
+                            border: "1px solid #e4e4e7",
+                            fontSize: "12.5px",
+                            outline: "none"
                           }}
                         />
-                        {queueSearchTerm && (
-                          <button
-                            type="button"
-                            onClick={() => setQueueSearchTerm("")}
-                            style={{ position: "absolute", right: "8px", top: "50%", transform: "translateY(-50%)", border: "none", background: "transparent", cursor: "pointer", color: "#71717a", fontSize: "12px" }}
-                          >
-                            ✕
-                          </button>
-                        )}
                       </div>
                     </div>
 
@@ -3135,21 +3154,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 }
 
                 // Date Filter
-                if (historyDateFilter === "today") {
-                  if (h.createdAt) {
-                    const orderDate = new Date(h.createdAt);
-                    const today = new Date();
-                    return orderDate.toDateString() === today.toDateString();
-                  }
-                  const todayStr = new Date().toLocaleDateString("en-IN");
-                  return h.date === todayStr || h.date === "Just now";
-                }
-                if (historyDateFilter === "7days") {
-                  if (h.createdAt) {
-                    return (Date.now() - h.createdAt) <= 7 * 24 * 60 * 60 * 1000;
-                  }
-                  return true;
-                }
+                if (!isOrderMatchingDateFilter(h.rawOrder || h, historyDateFilter)) return false;
+
                 return true;
               });
 
