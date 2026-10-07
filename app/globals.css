@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   --cream: #fdf5e9;
   --cream-deep: #f6e9d5;

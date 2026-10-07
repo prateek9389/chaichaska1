@@ -138,6 +138,16 @@ function CheckoutPortal() {
       alert("Please enter your floor number (e.g. 4th Floor, Ground Floor).");
       return;
     }
+    if (!phone.trim()) {
+      alert("Please enter your WhatsApp Mobile Number for order confirmation & tracking.");
+      return;
+    }
+
+    const cleanPhone = phone.replace(/\D/g, "");
+    if (cleanPhone.length < 10) {
+      alert("Please enter a valid 10-digit mobile number.");
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -153,7 +163,7 @@ function CheckoutPortal() {
       floorNumber: floorNumber.trim(),
       office: formattedAddress,
       address: formattedAddress,
-      phone: phone.trim() || "N/A",
+      phone: cleanPhone.length === 10 ? `+91${cleanPhone}` : `+${cleanPhone}`,
       item: itemsDescription,
       items: cartItems.map((i) => ({
         id: i.id,
@@ -180,19 +190,7 @@ function CheckoutPortal() {
 
     try {
       // Cash on Delivery Instant Order
-            const orderId = await createOrder(orderData);
-
-      // WhatsApp Integration: Send Order Confirmation
-      if (phone) {
-        let fPhone = phone.trim();
-        if (fPhone.length === 10) fPhone = '91' + fPhone;
-        const msg = `Hello ${personName || 'Customer'}! Your order (${orderId.slice(-6).toUpperCase()}) at Chai Chaska has been successfully placed. We are processing it now!`;
-        fetch('/api/whatsapp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ number: fPhone, text: msg })
-        }).catch(err => console.error('WhatsApp notification failed:', err));
-      }
+      const orderId = await createOrder(orderData);
 
       // Save to guest orders
       try {
@@ -328,19 +326,21 @@ function CheckoutPortal() {
                     </div>
                   </div>
 
-                  {/* Optional Mobile for Delivery Phone Calls */}
+                  {/* Mandatory WhatsApp Mobile Number */}
                   <div className="form-group span-2">
                     <label className="input-label">
-                      <span>Mobile Number</span>
-                      <span className="optional-tag">(Optional for delivery calls)</span>
+                      <span>WhatsApp Mobile Number</span>
+                      <span className="required-star">*</span>
+                      <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "600", marginLeft: "6px" }}>(Live WhatsApp updates will be sent here)</span>
                     </label>
                     <div className="input-field-shell">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
                       </svg>
                       <input
                         type="tel"
-                        placeholder="e.g. 9876543210"
+                        required
+                        placeholder="e.g. 9876543210 or +919876543210"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         className="checkout-text-input"

@@ -361,23 +361,47 @@ export default function Navbar() {
       </div>
 
       <style>{`
+        .burger {
+          display: none;
+        }
+
         @media (max-width: 768px) {
           header.navbar-header,
-          .navbar-header,
-          .mobile-menu-drawer,
-          .mobile-menu-overlay {
+          .navbar-header {
+            display: block !important;
+            height: 64px !important;
+          }
+          .nav-container {
+            height: 64px !important;
+            padding: 0 16px !important;
+          }
+          .nav-links {
             display: none !important;
           }
+          .user-auth-btn {
+            display: none !important;
+          }
+          .burger {
+            display: flex !important;
+          }
+          .mobile-menu-drawer {
+            display: flex !important;
+          }
         }
-        @media (min-width: 769px) and (max-width: 860px) {
-          .nav-links { display: none !important; }
-          .nav-buy-btn { display: none !important; }
-          .user-auth-btn { display: none !important; }
-          .burger { display: flex !important; }
-          .nav-container { padding: 0 16px !important; }
+
+        @media (min-width: 769px) and (max-width: 992px) {
+          .nav-links {
+            gap: 16px !important;
+          }
+          .nav-container {
+            padding: 0 24px !important;
+          }
         }
-        @media (min-width: 861px) {
-          .nav-container { padding: 0 40px !important; }
+
+        @media (min-width: 993px) {
+          .nav-container {
+            padding: 0 40px !important;
+          }
         }
       `}</style>
     </>

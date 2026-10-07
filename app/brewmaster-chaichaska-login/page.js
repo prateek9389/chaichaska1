@@ -9,11 +9,12 @@ import { getProductMeta } from "@/lib/productMeta";
 import { onOrdersSnapshot, updateOrder, updateStockItem, addStockItem, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings, onProductsSnapshot, createOrder, getMenuItems, getCombos, getRestockHistory, getFeedback } from "@/lib/firestore";
 import { loginWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import { useRouter } from "next/navigation";
+import EditOrderModal from "@/components/EditOrderModal";
 
 
 function getOrderDateString(order) {
   if (!order) return "";
-  
+
   // 1. Direct orderDate if present (e.g. YYYY-MM-DD or DD/MM/YYYY)
   if (order.orderDate && typeof order.orderDate === 'string') {
     const trimmed = order.orderDate.trim();
@@ -80,7 +81,7 @@ function isOrderMatchingDateFilter(order, dateFilter) {
   if (!orderDateStr) return false;
 
   const now = new Date();
-  const formatYMD = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const formatYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const todayStr = formatYMD(now);
 
   if (dateFilter === "today" || dateFilter === "Daily") {
@@ -158,9 +159,10 @@ export default function AdminDashboard() {
     }
   };
 
-  // Tabs State (1st tab is Dashboard)
-  const [activeTabState, setActiveTabState] = useState("dashboard");
-  
+  // Tabs State (Default is Order Queue)
+  const [activeTabState, setActiveTabState] = useState("queue");
+  const [isMobileMoreDrawerOpen, setIsMobileMoreDrawerOpen] = useState(false);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const savedTab = localStorage.getItem("brewmaster_active_tab");
@@ -172,15 +174,70 @@ export default function AdminDashboard() {
     localStorage.setItem("brewmaster_active_tab", tab);
     setActiveTabState(tab);
   };
-  
+
   const activeTab = activeTabState;
+
+  // Order Notification Sound (MP3 with Synthesizer Fallback)
+  const notificationAudioRef = useRef(null);
+
+  const playSynthChimeFallback = () => {
+    try {
+      if (typeof window === "undefined") return;
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+      const ctx = new AudioContextClass();
+      if (ctx.state === "suspended") ctx.resume();
+
+      const now = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = "triangle";
+      osc1.frequency.setValueAtTime(880, now);
+      gain1.gain.setValueAtTime(0.35, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.55);
+
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = "sine";
+      osc2.frequency.setValueAtTime(1320, now + 0.16);
+      gain2.gain.setValueAtTime(0.4, now + 0.16);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.75);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.16);
+      osc2.stop(now + 0.8);
+    } catch (e) {}
+  };
+
+  const playNewOrderChime = () => {
+    try {
+      if (typeof window === "undefined") return;
+      if (!notificationAudioRef.current) {
+        notificationAudioRef.current = new Audio("/universfield-new-notification-036-485897.mp3");
+      }
+      notificationAudioRef.current.currentTime = 0;
+      const playPromise = notificationAudioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          // Fallback if browser policy restricts direct audio
+          playSynthChimeFallback();
+        });
+      }
+    } catch (err) {
+      playSynthChimeFallback();
+    }
+  };
   const [timeFilter, setTimeFilter] = useState("All");
   const [queueFilter, setQueueFilter] = useState("All");
   const [queueDateFilter, setQueueDateFilter] = useState("all");
   const [activeStatsModal, setActiveStatsModal] = useState(null);
   const [pendingModalView, setPendingModalView] = useState("orders");
   const [pendingSearchTerm, setPendingSearchTerm] = useState("");
-  
+
   const [selectedQueueOrder, setSelectedQueueOrder] = useState(null);
   const [isQueueSidebarOpen, setIsQueueSidebarOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -196,10 +253,61 @@ export default function AdminDashboard() {
   const [queuePaymentFilter, setQueuePaymentFilter] = useState("all");
   const [queueDeliveryStatusFilter, setQueueDeliveryStatusFilter] = useState("all");
   const [queueSearchTerm, setQueueSearchTerm] = useState("");
+  const [queueStatusFilter, setQueueStatusFilter] = useState("all");
+  const [queueChannelFilter, setQueueChannelFilter] = useState("all");
+  const [queueLocationFilter, setQueueLocationFilter] = useState("all");
+  const [selectedQueueItemIds, setSelectedQueueItemIds] = useState([]);
 
   // Active Orders Queue with detailed fields (including office number, product image, details, priority, createdAt, allocatedTime)
   const [orders, setOrders] = useState([]);
   const [productsList, setProductsList] = useState([]);
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [isEditOrderModalOpen, setIsEditOrderModalOpen] = useState(false);
+
+  // Continuous sound effect while any order is unhandled ("Received" or "Pending")
+  const unhandledNewOrdersCount = orders.filter(o => 
+    o.priority !== "Subscription" && 
+    ((o.status || "Received") === "Received" || o.status === "Pending")
+  ).length;
+
+  useEffect(() => {
+    if (unhandledNewOrdersCount > 0 && isLoggedIn) {
+      // Play immediately once
+      playNewOrderChime();
+      const interval = setInterval(() => {
+        playNewOrderChime();
+      }, 3500);
+      return () => clearInterval(interval);
+    }
+  }, [unhandledNewOrdersCount, isLoggedIn]);
+
+  const handleOpenEditOrderModal = (order, e) => {
+    if (e) e.stopPropagation();
+    setEditingOrder(order);
+    setIsEditOrderModalOpen(true);
+  };
+
+  const updateOrderStatusDirectly = async (order, newStatus, e) => {
+    if (e) e.stopPropagation();
+    if (!order || !order.id) return;
+    try {
+      const updates = { status: newStatus };
+      if (order.isOffline && newStatus === "Delivered" && (!order.paymentMethod || order.paymentMethod === "Pending Selection")) {
+        updates.paymentMethod = "Cash";
+        updates.paymentStatus = "Paid";
+      }
+      await updateOrder(order.id, updates);
+      if (selectedQueueOrder && selectedQueueOrder.id === order.id) {
+        setSelectedQueueOrder(prev => ({ ...prev, ...updates }));
+      }
+      setToastMsg(`Status updated to ${newStatus}!`);
+      setTimeout(() => setToastMsg(""), 3000);
+    } catch (err) {
+      console.error("Error updating status directly:", err);
+      alert("Failed to update status");
+    }
+  };
+
   const [isOfflineItemModalOpen, setIsOfflineItemModalOpen] = useState(false);
   const [offlineOrderForm, setOfflineOrderForm] = useState({
     customerName: "",
@@ -527,7 +635,7 @@ export default function AdminDashboard() {
   const [inventoryCategoryFilter, setInventoryCategoryFilter] = useState("All");
   const [inventorySelectedDate, setInventorySelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
-// (Price helpers relocated above)
+  // (Price helpers relocated above)
 
   // Customer Management Table — dynamically derived from live database orders
   const customerManagement = (() => {
@@ -546,7 +654,7 @@ export default function AdminDashboard() {
     })).sort((a, b) => b.orders - a.orders);
   })();
 
-// (isOrderPendingPayment relocated above)
+  // (isOrderPendingPayment relocated above)
 
   const filteredOrders = orders.filter(o => isOrderMatchingDateFilter(o, timeFilter));
 
@@ -557,22 +665,22 @@ export default function AdminDashboard() {
 
   const handleDownloadCSV = () => {
     if (!filteredOrders || !filteredOrders.length) return;
-    
+
     let csvContent = "data:text/csv;charset=utf-8,";
     csvContent += "Order ID,Items,Type,Amount (Rs)\n";
-    
+
     filteredOrders.forEach(o => {
       const amt = parseOrderPrice(o);
       const amtStr = isNaN(amt) ? "0.00" : amt.toFixed(2);
       const idStr = o.orderId || (o.id && o.id.startsWith("#") ? o.id : `#${o.id ? o.id.slice(-6).toUpperCase() : "LIVE"}`);
       const itemName = (o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(" | ") : "Chai Selection")).replace(/,/g, " ");
       const typeStr = o.isOffline || o.walkIn ? "Offline / Counter" : "Online";
-      
+
       csvContent += `${idStr},${itemName},${typeStr},${amtStr}\n`;
     });
-    
+
     csvContent += `,,,Total: Rs ${selectedDateTotalSales.toFixed(2)}\n`;
-    
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -657,7 +765,7 @@ export default function AdminDashboard() {
     };
   });
 
-  // Menu items — fetched from Firebase
+  // Products & Menu items — fetched from Firebase
   const [menuItems, setMenuItems] = useState([]);
   const [menuSubTab, setMenuSubTab] = useState("live");
   const [combos, setCombos] = useState([]);
@@ -729,7 +837,7 @@ export default function AdminDashboard() {
             audioRef.current.pause();
             audioRef.current.currentTime = 0;
             setIsAudioUnlocked(true);
-          }).catch(() => {});
+          }).catch(() => { });
         }
         window.removeEventListener("click", unlockAudio);
         window.removeEventListener("keydown", unlockAudio);
@@ -819,7 +927,6 @@ export default function AdminDashboard() {
     };
   }, [router]);
 
-  
   // WhatsApp Direct Redirect Helper (Auto-takes customer phone entered during order; shows 'No number found' if absent)
   const resolveOrderPhone = (order) => {
     if (!order) return "";
@@ -859,14 +966,14 @@ export default function AdminDashboard() {
   const sendWhatsAppRedirect = (order) => {
     if (!order) return;
     const cleanPhone = resolveOrderPhone(order);
-    
+
     // If no customer phone number was provided during order placement
     if (!cleanPhone) {
       setToastMsg("❌ Customer phone number not found on this order!");
       setTimeout(() => setToastMsg(""), 3500);
       return;
     }
-    
+
     const cleanId = order.orderId || (order.id ? (typeof order.id === 'string' ? order.id.slice(-6).toUpperCase() : order.id) : "LIVE");
     const customer = order.customer || (order.address?.firstName ? `${order.address.firstName} ${order.address.lastName || ''}`.trim() : "Customer");
     const status = order.status || "Received";
@@ -886,8 +993,8 @@ export default function AdminDashboard() {
       statusLine = "❌ *Status:* Order Cancelled";
     }
 
-    const msg = 
-`☕ *CHAI CHASKA — ORDER UPDATE* ☕
+    const msg =
+      `☕ *CHAI CHASKA — ORDER UPDATE* ☕
 
 Hello *${customer}*! 👋
 Your order status has been updated:
@@ -1356,31 +1463,31 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
       if (parts.length === 3) return new Date(`${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`);
       return new Date(dStr);
     };
-    
+
     let start = parseDate(startDateStr);
     if (!start || isNaN(start)) {
       start = new Date();
       start.setDate(1);
     }
-    
+
     let end = parseDate(endDateStr);
     if (!end || isNaN(end)) {
       end = new Date();
       end.setMonth(end.getMonth() + 1);
-      end.setDate(0); 
+      end.setDate(0);
     }
-    
+
     const dates = [];
     let current = new Date(start);
     let limit = 0;
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
+
     while (current <= end && limit < 60) {
       const day = String(current.getDate()).padStart(2, '0');
       const monthStr = months[current.getMonth()];
       const year = current.getFullYear();
       const formattedDate = `${day} ${monthStr} ${year}`;
-      
+
       dates.push(formattedDate);
       current.setDate(current.getDate() + 1);
       limit++;
@@ -1518,21 +1625,225 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               </button>
             </div>
           </aside>
-          
-          {/* MOBILE BOTTOM NAVBAR */}
-          <div className="mobile-bottom-navbar" style={{ display: 'none' }}>
-            <button onClick={() => setActiveTab("dashboard")} className={`mobile-bottom-nav-item ${activeTab === "dashboard" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
-              <span className="btn-emoji">📊</span> Dashboard
+
+          {/* MODERN LUXURY MOBILE BOTTOM NAVBAR */}
+          <nav className="brewmaster-mobile-bottom-bar" aria-label="Mobile Navigation">
+            <button
+              type="button"
+              onClick={() => { setActiveTab("dashboard"); setIsMobileMoreDrawerOpen(false); }}
+              className={`mob-nav-item ${activeTab === "dashboard" ? "active" : ""}`}
+            >
+              <div className="mob-nav-icon-wrap">
+                <span className="mob-nav-emoji">📊</span>
+              </div>
+              <span className="mob-nav-label">Dashboard</span>
             </button>
-            <button onClick={() => setActiveTab("queue")} className={`mobile-bottom-nav-item ${activeTab === "queue" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
-              <span className="btn-emoji">📥</span> Orders
+
+            <button
+              type="button"
+              onClick={() => { setActiveTab("queue"); setIsMobileMoreDrawerOpen(false); }}
+              className={`mob-nav-item ${activeTab === "queue" ? "active" : ""}`}
+            >
+              <div className="mob-nav-icon-wrap">
+                <span className="mob-nav-emoji">📥</span>
+                {unhandledNewOrdersCount > 0 && (
+                  <span className="mob-nav-badge-pill">{unhandledNewOrdersCount}</span>
+                )}
+              </div>
+              <span className="mob-nav-label">Orders</span>
             </button>
-            <button onClick={() => setActiveTab("shop")} className={`mobile-bottom-nav-item ${activeTab === "shop" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
-              <span className="btn-emoji">🛍️</span> Shop
+
+            {/* Center Floating + Button */}
+            <div className="mob-nav-center-wrap">
+              <button
+                type="button"
+                onClick={() => setIsMobileMoreDrawerOpen(!isMobileMoreDrawerOpen)}
+                className={`mob-nav-center-btn ${isMobileMoreDrawerOpen ? "open" : ""}`}
+                title="Brewmaster Shortcuts & Menu"
+              >
+                <span className="mob-nav-plus-icon">+</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { setActiveTab("offline"); setIsMobileMoreDrawerOpen(false); }}
+              className={`mob-nav-item ${activeTab === "offline" ? "active" : ""}`}
+            >
+              <div className="mob-nav-icon-wrap">
+                <span className="mob-nav-emoji">🏪</span>
+              </div>
+              <span className="mob-nav-label">Shop / POS</span>
             </button>
-            <button onClick={() => setActiveTab("profile")} className={`mobile-bottom-nav-item ${activeTab === "profile" ? "active" : ""}`} style={{ background: "transparent", border: "none" }}>
-              <span className="btn-emoji">⚙️</span> Profile
+
+            <button
+              type="button"
+              onClick={() => { setActiveTab("profile"); setIsMobileMoreDrawerOpen(false); }}
+              className={`mob-nav-item ${activeTab === "profile" ? "active" : ""}`}
+            >
+              <div className="mob-nav-icon-wrap">
+                <span className="mob-nav-emoji">⚙️</span>
+              </div>
+              <span className="mob-nav-label">Profile</span>
             </button>
+          </nav>
+
+          {/* BOTTOM SLIDER / DRAWER (POPUP SHORTCUTS AS IN BREWMASTER SIDEBAR) */}
+          <div
+            className={`mob-drawer-backdrop ${isMobileMoreDrawerOpen ? "open" : ""}`}
+            onClick={() => setIsMobileMoreDrawerOpen(false)}
+          >
+            <div
+              className={`mob-drawer-sheet ${isMobileMoreDrawerOpen ? "open" : ""}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Drawer Drag Bar Indicator */}
+              <div className="mob-drawer-drag-handle" />
+
+              {/* Drawer Header */}
+              <div className="mob-drawer-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '20px' }}>☕</span>
+                  <div>
+                    <h3 className="mob-drawer-title">Brewmaster Menu</h3>
+                    <p className="mob-drawer-sub">Quick action shortcuts & controls</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileMoreDrawerOpen(false)}
+                  className="mob-drawer-close-btn"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Grid of all Brewmaster Sidebar Actions */}
+              <div className="mob-drawer-grid">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("queue"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "queue" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#fef3c7', color: '#d97706' }}>📥</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Live Queue</strong>
+                    <span>Orders & tickets</span>
+                  </div>
+                  {unhandledNewOrdersCount > 0 && (
+                    <span className="mob-drawer-card-badge">{unhandledNewOrdersCount} new</span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setIsOfflineItemModalOpen(true); setIsMobileMoreDrawerOpen(false); }}
+                  className="mob-drawer-card"
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#dcfce7', color: '#16a34a' }}>➕</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>New Walk-in</strong>
+                    <span>Quick POS billing</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("offline"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "offline" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#e0f2fe', color: '#0284c7' }}>🏪</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Offline Counter</strong>
+                    <span>Store sales record</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("dashboard"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "dashboard" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#f3e8ff', color: '#9333ea' }}>📊</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Dashboard</strong>
+                    <span>Metrics & charts</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setShowTodayStatsSidebar(true); setIsMobileMoreDrawerOpen(false); }}
+                  className="mob-drawer-card"
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#ffedd5', color: '#ea580c' }}>📋</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Today's Tally</strong>
+                    <span>Item & cup totals</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("stock"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "stock" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#f1f5f9', color: '#475569' }}>📦</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Inventory</strong>
+                    <span>Tea, milk, supplies</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("history"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "history" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#fef2f2', color: '#dc2626' }}>📜</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Order History</strong>
+                    <span>Past dispatched logs</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("leave"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "leave" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#e0e7ff', color: '#4f46e5' }}>🚪</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Leave & Shift</strong>
+                    <span>Shift management</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("profile"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "profile" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#f8fafc', color: '#0f172a' }}>⚙️</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Profile & Store</strong>
+                    <span>Settings & status</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setIsMobileMoreDrawerOpen(false); handleLogout(); }}
+                  className="mob-drawer-card logout"
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#fee2e2', color: '#ef4444' }}>🔌</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Disconnect</strong>
+                    <span>Logout operator</span>
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* MAIN CONTAINER */}
@@ -1548,8 +1859,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
             {/* TOP HEADER */}
             <header className="dashboard-header-new">
               <div className="header-left-wrap" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <button 
-                  className="mobile-menu-btn" 
+                <button
+                  className="mobile-menu-btn"
                   onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                   style={{ background: "transparent", border: "none", fontSize: "24px", cursor: "pointer", display: "none" }}
                 >
@@ -1679,15 +1990,15 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               const sortedItems = Object.entries(itemCounts).sort((a, b) => b[1] - a[1]);
 
               return (
-                <div style={{ padding: "24px", background: "#f8f9fa", minHeight: "100vh", fontFamily: "sans-serif" }}>
-                  
+                <div className="tab-body-wrapper dashboard-tab-body" style={{ minHeight: "100vh" }}>
+
                   {/* METRICS HEADER & TIME FILTER */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
+                  <div className="dashboard-metrics-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px", flexWrap: "wrap", gap: "12px" }}>
                     <div>
                       <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "800", color: "#2c1b0d" }}>Dashboard Live Metrics</h2>
                       <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#777" }}>Live Firestore real-time data and order analytics.</p>
                     </div>
-                    <div style={{ display: "flex", gap: "6px", alignItems: "center", background: "#ffffff", padding: "4px 8px", borderRadius: "10px", border: "1px solid #eaeaea", boxShadow: "0 2px 6px rgba(0,0,0,0.03)" }}>
+                    <div className="dashboard-time-filter-wrap" style={{ display: "flex", gap: "6px", alignItems: "center", background: "#ffffff", padding: "4px 8px", borderRadius: "10px", border: "1px solid #eaeaea", boxShadow: "0 2px 6px rgba(0,0,0,0.03)", flexWrap: "wrap" }}>
                       <span style={{ fontSize: "12px", color: "#888", fontWeight: "600", marginRight: "4px" }}>Filter:</span>
                       {[
                         { id: "All", label: "All Time" },
@@ -1715,7 +2026,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         </button>
                       ))}
                       <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
-                      <input 
+                      <input
                         type="date"
                         value={(typeof historyDateFilter === 'string' && historyDateFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? historyDateFilter : ""}
                         onChange={(e) => setHistoryDateFilter(e.target.value || "all")}
@@ -1733,7 +2044,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   </div>
 
                   {/* TOP ROW: SUMMARY CARDS (DYNAMICALLY FILTERED) */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+                  <div className="dashboard-summary-grid" style={{ marginBottom: "24px" }}>
                     {[
                       { label: "Total Orders", value: `${totalOrdersCount}`, icon: "🧾", color: "#e8f5e9", text: "#2e7d32" },
                       { label: "Pending Orders", value: `${receivedOrdersCount + preparingOrdersCount}`, icon: "⏳", color: "#fff3e0", text: "#ef6c00", modal: "pending" },
@@ -1743,20 +2054,20 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       { label: "Completed Orders", value: `${deliveredOrdersCount}`, icon: "✅", color: "#e8f5e9", text: "#2e7d32" },
                       { label: "Total Sales", value: `₹${totalSalesVal.toLocaleString()}`, icon: "💰", color: "#e8f5e9", text: "#2e7d32" }
                     ].map((card, i) => (
-                      <div 
-                        key={i} 
+                      <div
+                        key={i}
                         onClick={() => {
                           if (card.modal === "pending") setActiveStatsModal("pending");
                           if (card.modal === "offline") setActiveStatsModal("offline");
                         }}
-                        style={{ 
-                          background: "#ffffff", 
-                          borderRadius: "12px", 
-                          padding: "16px", 
-                          border: "1px solid #eaeaea", 
-                          boxShadow: "0 2px 8px rgba(0,0,0,0.02)", 
-                          display: "flex", 
-                          flexDirection: "column", 
+                        style={{
+                          background: "#ffffff",
+                          borderRadius: "12px",
+                          padding: "16px",
+                          border: "1px solid #eaeaea",
+                          boxShadow: "0 2px 8px rgba(0,0,0,0.02)",
+                          display: "flex",
+                          flexDirection: "column",
                           gap: "12px",
                           cursor: card.modal ? "pointer" : "default"
                         }}
@@ -1770,7 +2081,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     ))}
                   </div>
 
-                  
+
                   {/* LIVE FILTERED SALES REPORT TABLE */}
                   <div style={{ background: "#ffffff", padding: "24px", borderRadius: "16px", border: "1px solid #eaeaea", boxShadow: "0 4px 12px rgba(0,0,0,0.03)", marginBottom: "24px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
@@ -1789,7 +2100,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         </div>
                       </div>
                     </div>
-                    
+
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "500px" }}>
                         <thead>
@@ -1811,7 +2122,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             const itemName = o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ") : "Chai Selection");
                             const isOff = Boolean(o.isOffline || o.walkIn);
                             const dateDisplay = o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString('en-GB') : "Today");
-                            
+
                             return (
                               <tr key={o.id} style={{ borderBottom: "1px solid #eee" }}>
                                 <td style={{ padding: "12px", fontSize: "14px", fontWeight: "600", color: "#2c1b0d" }}>{idStr}</td>
@@ -1823,7 +2134,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                   </span>
                                 </td>
                                 <td style={{ padding: "12px", fontSize: "13px" }}>
-                                  <span style={{ 
+                                  <span style={{
                                     padding: "3px 8px", borderRadius: "6px", fontSize: "11px", fontWeight: "700",
                                     background: o.status === "Delivered" || o.status === "Completed" ? "#dcfce7" : o.status === "Preparing" ? "#dbeafe" : "#ffedd5",
                                     color: o.status === "Delivered" || o.status === "Completed" ? "#166534" : o.status === "Preparing" ? "#1e40af" : "#9a3412"
@@ -1847,8 +2158,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   </div>
 
                   {/* MIDDLE ROW: SPLIT COLUMNS (MATCHING ADMIN DASHBOARD 1:1) */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
-                    
+                  <div className="dashboard-split-grid" style={{ marginBottom: "24px" }}>
+
                     {/* LEFT: High Demanding Products */}
                     <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -1880,13 +2191,13 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                 </td>
                                 <td style={{ padding: "12px 0", fontSize: "14px", color: "#333", fontWeight: "500" }}>{qty} sold</td>
                                 <td style={{ padding: "12px 0" }}>
-                                   <div style={{ display: "flex", gap: "3px", alignItems: "flex-end", height: "20px" }}>
-                                     <div style={{ width: "4px", height: "40%", background: "#1565c0", borderRadius: "2px" }}></div>
-                                     <div style={{ width: "4px", height: "60%", background: "#1565c0", borderRadius: "2px" }}></div>
-                                     <div style={{ width: "4px", height: "100%", background: "#1565c0", borderRadius: "2px" }}></div>
-                                     <div style={{ width: "4px", height: "80%", background: "#1565c0", borderRadius: "2px" }}></div>
-                                     <div style={{ width: "4px", height: "50%", background: "#e0e0e0", borderRadius: "2px" }}></div>
-                                   </div>
+                                  <div style={{ display: "flex", gap: "3px", alignItems: "flex-end", height: "20px" }}>
+                                    <div style={{ width: "4px", height: "40%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                    <div style={{ width: "4px", height: "60%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                    <div style={{ width: "4px", height: "100%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                    <div style={{ width: "4px", height: "80%", background: "#1565c0", borderRadius: "2px" }}></div>
+                                    <div style={{ width: "4px", height: "50%", background: "#e0e0e0", borderRadius: "2px" }}></div>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -1977,8 +2288,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           {stocks.filter(s => (parseFloat(s.qty) || 0) <= (s.minLimit || 10)).map((s, i) => (
                             <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
                               <td style={{ padding: "12px", display: "flex", alignItems: "center", gap: "10px", color: "#333", fontWeight: "500" }}>
-                                 <div style={{ background: "#f8f9fa", width: "28px", height: "28px", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>📦</div>
-                                 {s.name}
+                                <div style={{ background: "#f8f9fa", width: "28px", height: "28px", borderRadius: "4px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px" }}>📦</div>
+                                {s.name}
                               </td>
                               <td style={{ padding: "12px", color: "#555" }}>{s.qty} {s.unit || ""}</td>
                               <td style={{ padding: "12px" }}>
@@ -2002,50 +2313,33 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       </table>
                     </div>
                   </div>
-
                 </div>
               );
             })()}
 
-            {/* TAB: ORDER QUEUE (ALL ACTIVE ONLINE & OFFLINE PREPARATION ORDERS) */}
+            {/* TAB: ORDER QUEUE */}
             {activeTab === "queue" && (() => {
-              const allQueueOrders = orders
-                .filter(o => o.priority !== "Subscription")
-                .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+              const activeQueueOrders = orders.filter(o => o.priority !== "Subscription" && o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
+              const receivedCount = activeQueueOrders.filter(o => (o.status || "Received") === "Received").length;
+              const prepCount = activeQueueOrders.filter(o => o.status === "Preparing" || o.status === "Pending").length;
+              const outCount = activeQueueOrders.filter(o => o.status === "Out for Delivery" || o.status === "Shipped").length;
+              const offlineQueueCount = activeQueueOrders.filter(o => o.isOffline || o.walkIn).length;
+              const onlineQueueCount = activeQueueOrders.filter(o => !o.isOffline && !o.walkIn).length;
+              const queueTotalValue = activeQueueOrders.reduce((sum, o) => sum + parseOrderPrice(o), 0);
 
-              const onlineQueueCount = allQueueOrders.filter(o => !o.isOffline && !o.walkIn).length;
-              const offlineQueueCount = allQueueOrders.filter(o => o.isOffline || o.walkIn).length;
+              const uniqueLocations = Array.from(
+                new Set(
+                  activeQueueOrders
+                    .map(o => o.office || (typeof o.address === "string" ? o.address : o.address?.city || o.address?.address1))
+                    .filter(Boolean)
+                )
+              );
 
-              const filteredQueueOrders = allQueueOrders.filter(o => {
-                // 0. Date Filter
-                if (!isOrderMatchingDateFilter(o, queueDateFilter)) return false;
-
-                // 1. Channel Filter
-                if (queueFilter === "online" && (o.isOffline || o.walkIn)) return false;
-                if (queueFilter === "offline" && !o.isOffline && !o.walkIn) return false;
-
-                // 2. Payment Filter
-                if (queuePaymentFilter !== "all") {
-                  const pm = String(o.paymentMethod || "").toLowerCase();
-                  const ps = String(o.paymentStatus || "").toLowerCase();
-                  const isPending = isOrderPendingPayment(o) || ps === "pending" || pm === "corporate due" || pm === "pending selection";
-                  const isPaid = (ps === "paid" || ps === "completed" || ps === "success" || (!isPending && !pm.includes("cod")));
-
-                  if (queuePaymentFilter === "cash") {
-                    if (!pm.includes("cash") && !pm.includes("cod")) return false;
-                  } else if (queuePaymentFilter === "online") {
-                    if (pm.includes("cash") || pm.includes("cod")) return false;
-                  } else if (queuePaymentFilter === "paid") {
-                    if (!isPaid) return false;
-                  } else if (queuePaymentFilter === "pending") {
-                    if (!isPending) return false;
-                  }
-                }
-
-                // 3. Delivery / Order Status Filter
-                if (queueDeliveryStatusFilter !== "all") {
-                  const st = String(o.status || "Received").trim().toLowerCase();
-                  const targetSt = queueDeliveryStatusFilter.toLowerCase();
+              const filteredQueueOrders = activeQueueOrders.filter(o => {
+                // 1. Status Filter
+                if (queueStatusFilter !== "all") {
+                  const st = (o.status || "Received").toLowerCase();
+                  const targetSt = queueStatusFilter.toLowerCase();
                   if (targetSt === "received") {
                     if (st !== "received" && st !== "pending") return false;
                   } else if (targetSt === "preparing") {
@@ -2061,234 +2355,520 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   }
                 }
 
+                // 2. Channel Filter
+                if (queueChannelFilter !== "all") {
+                  const isOffline = o.isOffline || o.walkIn;
+                  if (queueChannelFilter === "Counter" && !isOffline) return false;
+                  if (queueChannelFilter === "Online" && isOffline) return false;
+                }
+
+                // 3. Location Filter
+                if (queueLocationFilter !== "all") {
+                  const loc = String(o.office || (typeof o.address === "string" ? o.address : o.address?.city || o.address?.address1 || "")).toLowerCase();
+                  if (!loc.includes(queueLocationFilter.toLowerCase())) return false;
+                }
+
                 // 4. Search Filter
                 if (queueSearchTerm && queueSearchTerm.trim() !== "") {
                   const term = queueSearchTerm.toLowerCase().trim();
-                  const idStr = String(o.id || o.orderId || "").toLowerCase();
-                  const custStr = String(o.customer || "").toLowerCase();
-                  const itemStr = String(o.item || (Array.isArray(o.items) ? o.items.map(i => i.name).join(" ") : "")).toLowerCase();
-                  const offStr = String(o.office || o.address || "").toLowerCase();
-                  if (!idStr.includes(term) && !custStr.includes(term) && !itemStr.includes(term) && !offStr.includes(term)) {
+                  const idStr = String(o.orderId || o.id || "").toLowerCase();
+                  const custStr = String(o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}` : "")).toLowerCase();
+                  const phoneStr = String(o.phone || o.mobile || o.address?.phone || "").toLowerCase();
+                  const itemStr = String(o.item || (Array.isArray(o.items) ? o.items.map(it => it.name || it.item).join(" ") : "")).toLowerCase();
+                  const offStr = String(o.office || (typeof o.address === "string" ? o.address : o.address?.address1 || "")).toLowerCase();
+                  if (!idStr.includes(term) && !custStr.includes(term) && !phoneStr.includes(term) && !itemStr.includes(term) && !offStr.includes(term)) {
                     return false;
                   }
                 }
 
                 return true;
-              });
+              }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+              const isAllSelected = filteredQueueOrders.length > 0 && filteredQueueOrders.every(o => selectedQueueItemIds.includes(o.id));
+              const toggleSelectAll = () => {
+                if (isAllSelected) {
+                  setSelectedQueueItemIds([]);
+                } else {
+                  setSelectedQueueItemIds(filteredQueueOrders.map(o => o.id));
+                }
+              };
+
+              const toggleSelectItem = (id, e) => {
+                if (e) e.stopPropagation();
+                setSelectedQueueItemIds(prev => 
+                  prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                );
+              };
 
               return (
-                <div className="tab-body-wrapper" style={{ padding: "28px 32px" }}>
-                  {/* Top Bar Header Row */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: "wrap", gap: "14px" }}>
-                    <div>
-                      <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b", display: "flex", alignItems: "center", gap: "10px" }}>
-                        Live Order Queue
-                        <span style={{ fontSize: "12px", background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a", padding: "2px 8px", borderRadius: "12px", fontWeight: "700" }}>
-                          {filteredQueueOrders.length} active
-                        </span>
-                      </h3>
-                      <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>Real-time preparation queue for online desk delivery orders and in-store counter walk-ins</p>
+                <div className="tab-body-wrapper" style={{ padding: "24px 28px" }}>
+                  {/* Top Queue Stats Header (Carousel on Mobile) */}
+                  <div className="queue-stats-carousel-wrapper">
+                    {/* Stat Card 1: Total Orders */}
+                    <div className="queue-stat-card">
+                      <div className="queue-stat-icon-wrap">
+                        <span style={{ fontSize: '18px' }}>👥</span>
+                      </div>
+                      <div className="queue-stat-content">
+                        <div className="queue-stat-top-row">
+                          <span className="queue-stat-title">Total Orders</span>
+                          <span className="queue-stat-trend up">▲ 18.6%</span>
+                        </div>
+                        <div className="queue-stat-value">{activeQueueOrders.length}</div>
+                        <span className="queue-stat-sub">Live Active Queue</span>
+                      </div>
                     </div>
 
-                    {/* Today's Orders / Tally Action Button */}
-                    <button
-                      type="button"
-                      onClick={() => setShowTodayStatsSidebar(true)}
-                      style={{
-                        background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                        color: "#ffffff",
-                        border: "none",
-                        padding: "8px 18px",
-                        borderRadius: "10px",
-                        fontSize: "13px",
-                        fontWeight: "800",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        boxShadow: "0 2px 8px rgba(217, 119, 6, 0.3)",
-                        transition: "all 0.15s ease"
-                      }}
-                    >
-                      <span style={{ fontSize: "15px" }}>📊</span> Today's Orders & Product Tally
-                    </button>
+                    {/* Stat Card 2: Received / New */}
+                    <div className="queue-stat-card">
+                      <div className="queue-stat-icon-wrap">
+                        <span style={{ fontSize: '18px' }}>📥</span>
+                      </div>
+                      <div className="queue-stat-content">
+                        <div className="queue-stat-top-row">
+                          <span className="queue-stat-title">Received / New</span>
+                          <span className="queue-stat-trend up">▲ 12.4%</span>
+                        </div>
+                        <div className="queue-stat-value">{receivedCount}</div>
+                        <span className="queue-stat-sub">Awaiting Prep</span>
+                      </div>
+                    </div>
+
+                    {/* Stat Card 3: In Brewing / Prep */}
+                    <div className="queue-stat-card">
+                      <div className="queue-stat-icon-wrap">
+                        <span style={{ fontSize: '18px' }}>🔥</span>
+                      </div>
+                      <div className="queue-stat-content">
+                        <div className="queue-stat-top-row">
+                          <span className="queue-stat-title">On Live Stove</span>
+                          <span className="queue-stat-trend up">▲ 8.2%</span>
+                        </div>
+                        <div className="queue-stat-value">{prepCount}</div>
+                        <span className="queue-stat-sub">In Brewing / Prep</span>
+                      </div>
+                    </div>
+
+                    {/* Stat Card 4: Out for Delivery */}
+                    <div className="queue-stat-card">
+                      <div className="queue-stat-icon-wrap">
+                        <span style={{ fontSize: '18px' }}>🏃</span>
+                      </div>
+                      <div className="queue-stat-content">
+                        <div className="queue-stat-top-row">
+                          <span className="queue-stat-title">Out for Delivery</span>
+                          <span className="queue-stat-trend up">▲ 15.7%</span>
+                        </div>
+                        <div className="queue-stat-value">{outCount}</div>
+                        <span className="queue-stat-sub">Delivering to Desk</span>
+                      </div>
+                    </div>
+
+                    {/* Stat Card 5: Total Value */}
+                    <div className="queue-stat-card">
+                      <div className="queue-stat-icon-wrap">
+                        <span style={{ fontSize: '18px' }}>💰</span>
+                      </div>
+                      <div className="queue-stat-content">
+                        <div className="queue-stat-top-row">
+                          <span className="queue-stat-title">Queue Value</span>
+                          <span className="queue-stat-trend up">▲ Live</span>
+                        </div>
+                        <div className="queue-stat-value">₹{queueTotalValue.toLocaleString('en-IN')}</div>
+                        <span className="queue-stat-sub">Active Total</span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Multi-Filter Bar: Channel + Payment + Delivery Status + Search */}
-                  <div style={{
-                    background: "#ffffff",
-                    border: "1px solid #e4e4e7",
-                    borderRadius: "14px",
-                    padding: "14px 18px",
-                    marginBottom: "20px",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "12px",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.03)"
-                  }}>
-                    {/* Row 1: Date Filter Bar & Search */}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-                      {/* Date Filter Pills + Date Picker */}
-                      <div style={{ display: "flex", flexWrap: "wrap", background: "#f4f4f5", padding: "3px", borderRadius: "10px", gap: "3px", alignItems: "center" }}>
-                        {[
-                          { key: "all", label: "All Time" },
-                          { key: "today", label: "Today" },
-                          { key: "yesterday", label: "Yesterday" },
-                          { key: "7days", label: "Last 7 Days" }
-                        ].map((item) => (
-                          <button
-                            key={item.key}
-                            type="button"
-                            onClick={() => setQueueDateFilter(item.key)}
-                            style={{
-                              padding: "6px 12px",
-                              border: "none",
-                              background: queueDateFilter === item.key ? "#09090b" : "transparent",
-                              color: queueDateFilter === item.key ? "#ffffff" : "#52525b",
-                              borderRadius: "7px",
-                              fontSize: "11.5px",
-                              fontWeight: "800",
-                              cursor: "pointer",
-                              transition: "all 0.15s ease"
-                            }}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                        <div style={{ width: "1px", height: "18px", background: "#d4d4d8", margin: "0 4px" }}></div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "4px", paddingRight: "4px" }}>
-                          <span style={{ fontSize: "11px", fontWeight: "750", color: "#71717a" }}>📅</span>
+                  {/* Filter & Action Controls Bar */}
+                  <div className="queue-filter-card">
+                    <div className="queue-filter-grid">
+                      {/* 1. Search */}
+                      <div className="queue-filter-col">
+                        <label className="queue-filter-label">Search</label>
+                        <div className="queue-input-wrapper">
+                          <span className="queue-input-icon">🔍</span>
                           <input
-                            type="date"
-                            value={queueDateFilter.match(/^\d{4}-\d{2}-\d{2}$/) ? queueDateFilter : ""}
-                            onChange={(e) => setQueueDateFilter(e.target.value || "all")}
-                            style={{
-                              padding: "4px 8px",
-                              borderRadius: "6px",
-                              border: "1px solid #d4d4d8",
-                              fontSize: "11.5px",
-                              color: "#18181b",
-                              background: queueDateFilter.match(/^\d{4}-\d{2}-\d{2}$/) ? "#fef3c7" : "#ffffff",
-                              cursor: "pointer",
-                              outline: "none",
-                              fontWeight: "700"
-                            }}
+                            type="text"
+                            placeholder="Orders, customer, phone..."
+                            value={queueSearchTerm}
+                            onChange={(e) => setQueueSearchTerm(e.target.value)}
+                            className="queue-search-input"
                           />
+                          {queueSearchTerm && (
+                            <button
+                              type="button"
+                              onClick={() => setQueueSearchTerm("")}
+                              className="queue-clear-search-btn"
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {/* Search Bar */}
-                      <div style={{ position: "relative", minWidth: "220px", flexGrow: 1, maxWidth: "340px" }}>
-                        <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", fontSize: "13px", color: "#a1a1aa" }}>🔍</span>
-                        <input
-                          type="text"
-                          value={queueSearchTerm}
-                          onChange={(e) => setQueueSearchTerm(e.target.value)}
-                          placeholder="Search order ID, customer, item..."
-                          style={{
-                            width: "100%",
-                            padding: "8px 12px 8px 30px",
-                            borderRadius: "8px",
-                            border: "1px solid #e4e4e7",
-                            fontSize: "12.5px",
-                            outline: "none"
-                          }}
-                        />
+                      {/* 2. Status */}
+                      <div className="queue-filter-col">
+                        <label className="queue-filter-label">Status</label>
+                        <select
+                          value={queueStatusFilter}
+                          onChange={(e) => setQueueStatusFilter(e.target.value)}
+                          className="queue-select-input"
+                        >
+                          <option value="all">All Status</option>
+                          <option value="Received">Received</option>
+                          <option value="Preparing">Preparing</option>
+                          <option value="Out for Delivery">Out for Delivery</option>
+                          <option value="Delivered">Delivered</option>
+                          <option value="Cancelled">Cancelled</option>
+                        </select>
+                      </div>
+
+                      {/* 3. Channel / Type */}
+                      <div className="queue-filter-col">
+                        <label className="queue-filter-label">Channel</label>
+                        <select
+                          value={queueChannelFilter}
+                          onChange={(e) => setQueueChannelFilter(e.target.value)}
+                          className="queue-select-input"
+                        >
+                          <option value="all">All Types</option>
+                          <option value="Counter">Counter Walk-in</option>
+                          <option value="Online">Online Desk</option>
+                        </select>
+                      </div>
+
+                      {/* 4. Location */}
+                      <div className="queue-filter-col">
+                        <label className="queue-filter-label">Location</label>
+                        <select
+                          value={queueLocationFilter}
+                          onChange={(e) => setQueueLocationFilter(e.target.value)}
+                          className="queue-select-input"
+                        >
+                          <option value="all">All Locations</option>
+                          {uniqueLocations.map(loc => (
+                            <option key={loc} value={loc}>{loc}</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
 
-                    {/* Row 2: Payment Filter & Delivery Status Filter Dropdowns / Pills */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap", paddingTop: "8px", borderTop: "1px solid #f4f4f5" }}>
-                      
-                      {/* Payment Filter */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#52525b", whiteSpace: "nowrap" }}>
-                          💳 Payment:
-                        </span>
-                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                          {[
-                            { id: "all", label: "All Payments" },
-                            { id: "cash", label: "💵 Cash / COD" },
-                            { id: "online", label: "📱 Online / UPI" },
-                            { id: "paid", label: "✅ Paid" },
-                            { id: "pending", label: "⏳ Pending" }
-                          ].map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => setQueuePaymentFilter(p.id)}
-                              style={{
-                                padding: "4px 10px",
-                                border: queuePaymentFilter === p.id ? "1px solid #09090b" : "1px solid #e4e4e7",
-                                background: queuePaymentFilter === p.id ? "#09090b" : "#ffffff",
-                                color: queuePaymentFilter === p.id ? "#ffffff" : "#52525b",
-                                borderRadius: "6px",
-                                fontSize: "11.5px",
-                                fontWeight: "750",
-                                cursor: "pointer",
-                                transition: "all 0.15s ease"
-                              }}
-                            >
-                              {p.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Delivery Status Filter */}
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#52525b", whiteSpace: "nowrap" }}>
-                          🚚 Status:
-                        </span>
-                        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-                          {[
-                            { id: "all", label: "All Status" },
-                            { id: "Received", label: "📥 Received" },
-                            { id: "Preparing", label: "🫖 Preparing" },
-                            { id: "Out for Delivery", label: "🚀 Out for Delivery" },
-                            { id: "Delivered", label: "✅ Delivered" },
-                            { id: "Cancelled", label: "❌ Cancelled" }
-                          ].map((st) => (
-                            <button
-                              key={st.id}
-                              type="button"
-                              onClick={() => setQueueDeliveryStatusFilter(st.id)}
-                              style={{
-                                padding: "4px 10px",
-                                border: queueDeliveryStatusFilter === st.id ? "1px solid #09090b" : "1px solid #e4e4e7",
-                                background: queueDeliveryStatusFilter === st.id ? "#09090b" : "#ffffff",
-                                color: queueDeliveryStatusFilter === st.id ? "#ffffff" : "#52525b",
-                                borderRadius: "6px",
-                                fontSize: "11.5px",
-                                fontWeight: "750",
-                                cursor: "pointer",
-                                transition: "all 0.15s ease"
-                              }}
-                            >
-                              {st.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
+                    {/* Right-aligned Actions */}
+                    <div className="queue-actions-group">
+                      <button
+                        type="button"
+                        onClick={() => setIsOfflineItemModalOpen(true)}
+                        className="queue-add-btn"
+                        title="Add in-store counter walk-in order"
+                      >
+                        <span style={{ fontSize: '15px', fontWeight: '900' }}>+</span> Add Order
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowTodayStatsSidebar(true)}
+                        className="queue-refresh-btn"
+                        title="Today's Orders & Product Tally"
+                      >
+                        📊
+                      </button>
                     </div>
                   </div>
 
-                  <div className="queue-list-container">
+                  {/* Modern Clean Orders Table Container */}
+                  <div className="queue-table-card">
+                    <div className="queue-table-scroll">
+                      <table className="queue-modern-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '40px', textAlign: 'center' }}>
+                              <input
+                                type="checkbox"
+                                checked={isAllSelected}
+                                onChange={toggleSelectAll}
+                                className="queue-checkbox"
+                                title="Select All"
+                              />
+                            </th>
+                            <th>Customer & ID</th>
+                            <th>Contact</th>
+                            <th>Items Ordered</th>
+                            <th style={{ textAlign: 'center' }}>Qty</th>
+                            <th>Elapsed Time</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th>Location</th>
+                            <th style={{ textAlign: 'center' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredQueueOrders.length === 0 ? (
+                            <tr>
+                              <td colSpan="10" style={{ padding: "48px 20px", textAlign: "center", color: "#64748b" }}>
+                                <div style={{ fontSize: '32px', marginBottom: '8px' }}>📭</div>
+                                <strong style={{ fontSize: '15px', color: '#1e293b' }}>No orders found matching filters</strong>
+                                <p style={{ fontSize: '12px', margin: '4px 0 0', color: '#94a3b8' }}>Try resetting your search, status, or channel filters</p>
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredQueueOrders.map((o) => {
+                              const priceFormatted = formatOrderTotal(o);
+                              const isOfflineOrder = Boolean(o.isOffline || o.walkIn);
+                              const customerName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (isOfflineOrder ? "Counter Guest" : "Customer"));
+                              const orderIdFormatted = o.orderId || (o.id && o.id.length > 8 ? `#${o.id.slice(-6).toUpperCase()}` : o.id);
+                              const phoneFormatted = o.phone || o.mobile || o.address?.phone || (isOfflineOrder ? "In-Store Walk-in" : "+91 98765 43210");
+                              const locationFormatted = o.office || (typeof o.address === "string" ? o.address : o.address?.city || o.address?.address1 || (isOfflineOrder ? "Counter Pickup" : "Desk Delivery"));
+                              const isSelected = selectedQueueItemIds.includes(o.id);
+
+                              // Items calculation
+                              const totalQty = Array.isArray(o.items) && o.items.length > 0
+                                ? o.items.reduce((acc, it) => acc + (parseInt(it.quantity || it.qty) || 1), 0)
+                                : (parseInt(o.quantity) || 1);
+                              
+                              const itemsSummary = Array.isArray(o.items) && o.items.length > 0
+                                ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ")
+                                : (o.item || "Chai Selection");
+
+                              const firstItemName = Array.isArray(o.items) && o.items.length > 0 ? (o.items[0]?.name || o.items[0]?.item) : o.item;
+                              const productMeta = getProductMeta(firstItemName, o.image || o.img);
+
+                              // Status styles & pill dot
+                              const currentStatus = o.status || "Received";
+                              const getStatusPill = (st) => {
+                                switch (st) {
+                                  case "Preparing":
+                                    return { bg: "#e0f2fe", text: "#0369a1", dot: "#0284c7", border: "#bae6fd" };
+                                  case "Out for Delivery":
+                                  case "Ready":
+                                    return { bg: "#f3e8ff", text: "#7e22ce", dot: "#9333ea", border: "#e9d5ff" };
+                                  case "Delivered":
+                                    return { bg: "#dcfce7", text: "#15803d", dot: "#16a34a", border: "#bbf7d0" };
+                                  case "Cancelled":
+                                  case "Cancelled by User":
+                                    return { bg: "#fee2e2", text: "#b91c1c", dot: "#dc2626", border: "#fecaca" };
+                                  default:
+                                    return { bg: "#fef3c7", text: "#92400e", dot: "#d97706", border: "#fde68a" };
+                                }
+                              };
+                              const pill = getStatusPill(currentStatus);
+                              const isNewOrderAwaitingPrep = (currentStatus === "Received" || currentStatus === "Pending");
+
+                              return (
+                                <tr
+                                  key={o.id}
+                                  className={`queue-table-row ${isSelected ? 'row-selected' : ''} ${isNewOrderAwaitingPrep ? 'new-order-received-glow' : ''}`}
+                                  onClick={() => {
+                                    setSelectedQueueOrder(o);
+                                    setDeliveryTimeInput(o.allocatedTime || "");
+                                    setQueueDeliveryPaymentMethod(o.paymentMethod || "Cash");
+                                    setQueueDeliveryPaymentStatus(o.paymentStatus || (o.paymentMethod === "Pending Selection" ? "Pending" : "Paid"));
+                                    setIsQueueSidebarOpen(true);
+                                  }}
+                                >
+                                  {/* 1. Checkbox */}
+                                  <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={(e) => toggleSelectItem(o.id, e)}
+                                      className="queue-checkbox"
+                                    />
+                                  </td>
+
+                                  {/* 2. Customer & ID */}
+                                  <td>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                      <img
+                                        src={productMeta.image}
+                                        alt={customerName}
+                                        className="queue-customer-avatar"
+                                      />
+                                      <div>
+                                        <div style={{ fontWeight: '800', color: '#0f172a', fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                          {customerName}
+                                          {isNewOrderAwaitingPrep && (
+                                            <span className="new-order-badge-pulse">🔔 NEW ORDER</span>
+                                          )}
+                                          <span className={`queue-channel-pill ${isOfflineOrder ? 'counter' : 'online'}`}>
+                                            {isOfflineOrder ? "🏪 Counter" : "🌐 Online"}
+                                          </span>
+                                        </div>
+                                        <div style={{ fontSize: '11.5px', color: '#64748b', fontWeight: '700', marginTop: '2px' }}>
+                                          {orderIdFormatted}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* 3. Contact */}
+                                  <td>
+                                    <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '12.5px' }}>
+                                      {phoneFormatted}
+                                    </div>
+                                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                                      {o.email || (isOfflineOrder ? "Store Cashier" : "Office Desk")}
+                                    </div>
+                                  </td>
+
+                                  {/* 4. Items Ordered */}
+                                  <td>
+                                    <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '12.5px', maxWidth: '240px', lineHeight: '1.35' }}>
+                                      {itemsSummary}
+                                    </div>
+                                    {(o.sugar || o.milk) && (
+                                      <div style={{ fontSize: '10.5px', color: '#8a583c', marginTop: '2px', fontWeight: '700' }}>
+                                        {o.sugar ? `Sugar: ${o.sugar}` : ''} {o.milk ? `• Milk: ${o.milk}` : ''}
+                                      </div>
+                                    )}
+                                  </td>
+
+                                  {/* 5. Qty */}
+                                  <td style={{ textAlign: 'center' }}>
+                                    <span style={{ fontWeight: '800', color: '#1e293b', fontSize: '13px', background: '#f1f5f9', padding: '3px 8px', borderRadius: '6px' }}>
+                                      {totalQty}
+                                    </span>
+                                  </td>
+
+                                  {/* 6. Elapsed Time */}
+                                  <td>
+                                    <span className="queue-time-badge">
+                                      ⏱️ {(() => {
+                                        const diffMs = Date.now() - (o.createdAt || Date.now());
+                                        const diffMins = Math.floor(diffMs / 60000);
+                                        if (diffMins < 60) return `${diffMins}m ago`;
+                                        if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+                                        return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short' });
+                                      })()}
+                                    </span>
+                                  </td>
+
+                                  {/* 7. Amount */}
+                                  <td>
+                                    <strong style={{ fontSize: '14.5px', color: '#15803d', fontWeight: '900' }}>
+                                      {priceFormatted}
+                                    </strong>
+                                  </td>
+
+                                  {/* 8. Direct Status Dropdown (Matches Image Pill) */}
+                                  <td onClick={(e) => e.stopPropagation()}>
+                                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                                      <select
+                                        value={currentStatus}
+                                        onChange={(e) => updateOrderStatusDirectly(o, e.target.value, e)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="queue-status-dropdown"
+                                        style={{
+                                          background: pill.bg,
+                                          color: pill.text,
+                                          borderColor: pill.border
+                                        }}
+                                        title="Click to update order status directly"
+                                      >
+                                        <option value="Received">● Received</option>
+                                        <option value="Preparing">● Preparing</option>
+                                        <option value="Out for Delivery">● On Delivery</option>
+                                        <option value="Delivered">● Delivered</option>
+                                        <option value="Cancelled">● Cancelled</option>
+                                      </select>
+                                    </div>
+                                  </td>
+
+                                  {/* 9. Location */}
+                                  <td>
+                                    <div style={{ fontSize: '12px', color: '#475569', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                      📍 {locationFormatted}
+                                    </div>
+                                  </td>
+
+                                  {/* 10. Actions */}
+                                  <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => handleOpenEditOrderModal(o, e)}
+                                        className="queue-edit-btn"
+                                        title="Add / Remove items or edit quantities in this order"
+                                      >
+                                        ✏️ Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setSelectedQueueOrder(o);
+                                          setDeliveryTimeInput(o.allocatedTime || "");
+                                          setQueueDeliveryPaymentMethod(o.paymentMethod || "Cash");
+                                          setQueueDeliveryPaymentStatus(o.paymentStatus || (o.paymentMethod === "Pending Selection" ? "Pending" : "Paid"));
+                                          setIsQueueSidebarOpen(true);
+                                        }}
+                                        className="queue-view-btn"
+                                        title="View full order details sidebar"
+                                      >
+                                        ⋮
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* MOBILE ORDER CARDS VIEW (Visible only on mobile screen) */}
+                  <div className="queue-mobile-cards-container">
                     {filteredQueueOrders.length === 0 ? (
-                      <div className="empty-column-msg" style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: "14px", padding: "48px 20px", textAlign: "center", color: "#71717a" }}>
-                        <span style={{ fontSize: "32px", display: "block", marginBottom: "8px" }}>🫖</span>
-                        <strong style={{ fontSize: "14px", color: "#09090b", display: "block", marginBottom: "4px" }}>No active orders in this queue filter</strong>
-                        <span style={{ fontSize: "12px", color: "#71717a" }}>New orders from desk or offline counter will appear here instantly.</span>
+                      <div style={{ background: '#ffffff', borderRadius: '14px', padding: '32px 16px', textAlign: 'center', color: '#64748b', border: '1px solid #f1f5f9' }}>
+                        <div style={{ fontSize: '28px', marginBottom: '6px' }}>📭</div>
+                        <strong style={{ fontSize: '14px', color: '#1e293b' }}>No orders found</strong>
+                        <p style={{ fontSize: '12px', margin: '4px 0 0', color: '#94a3b8' }}>Try clearing your filters</p>
                       </div>
                     ) : (
                       filteredQueueOrders.map((o) => {
-                        const isOffline = Boolean(o.isOffline || o.walkIn);
+                        const priceFormatted = formatOrderTotal(o);
+                        const isOfflineOrder = Boolean(o.isOffline || o.walkIn);
+                        const customerName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : (isOfflineOrder ? "Counter Guest" : "Customer"));
+                        const orderIdFormatted = o.orderId || (o.id && o.id.length > 8 ? `#${o.id.slice(-6).toUpperCase()}` : o.id);
+                        const phoneFormatted = o.phone || o.mobile || o.address?.phone || (isOfflineOrder ? "In-Store Walk-in" : "+91 98765 43210");
+                        const locationFormatted = o.office || (typeof o.address === "string" ? o.address : o.address?.city || o.address?.address1 || (isOfflineOrder ? "Counter Pickup" : "Desk Delivery"));
+                        
+                        const totalQty = Array.isArray(o.items) && o.items.length > 0
+                          ? o.items.reduce((acc, it) => acc + (parseInt(it.quantity || it.qty) || 1), 0)
+                          : (parseInt(o.quantity) || 1);
+                        
+                        const itemsSummary = Array.isArray(o.items) && o.items.length > 0
+                          ? o.items.map(it => `${it.name || it.item} x${it.quantity || 1}`).join(", ")
+                          : (o.item || "Chai Selection");
+
+                        const firstItemName = Array.isArray(o.items) && o.items.length > 0 ? (o.items[0]?.name || o.items[0]?.item) : o.item;
+                        const productMeta = getProductMeta(firstItemName, o.image || o.img);
+
+                        const currentStatus = o.status || "Received";
+                        const getStatusPill = (st) => {
+                          switch (st) {
+                            case "Preparing":
+                              return { bg: "#e0f2fe", text: "#0369a1", dot: "#0284c7", border: "#bae6fd" };
+                            case "Out for Delivery":
+                            case "Ready":
+                              return { bg: "#f3e8ff", text: "#7e22ce", dot: "#9333ea", border: "#e9d5ff" };
+                            case "Delivered":
+                              return { bg: "#dcfce7", text: "#15803d", dot: "#16a34a", border: "#bbf7d0" };
+                            case "Cancelled":
+                            case "Cancelled by User":
+                              return { bg: "#fee2e2", text: "#b91c1c", dot: "#dc2626", border: "#fecaca" };
+                            default:
+                              return { bg: "#fef3c7", text: "#92400e", dot: "#d97706", border: "#fde68a" };
+                          }
+                        };
+                        const pill = getStatusPill(currentStatus);
+                        const isNewOrderAwaitingPrep = (currentStatus === "Received" || currentStatus === "Pending");
+
                         return (
                           <div
-                            key={o.id}
-                            className="queue-list-item"
-                            style={{ border: "1px solid #e2e8f0", borderRadius: "14px", padding: "14px 18px", background: "#ffffff", marginBottom: "12px", display: "flex", alignItems: "center", gap: "14px", cursor: "pointer", transition: "all 0.15s ease" }}
+                            key={`mob-${o.id}`}
+                            className={`queue-mobile-order-card ${isNewOrderAwaitingPrep ? 'new-order-received-glow' : ''}`}
                             onClick={() => {
                               setSelectedQueueOrder(o);
                               setDeliveryTimeInput(o.allocatedTime || "");
@@ -2297,98 +2877,97 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               setIsQueueSidebarOpen(true);
                             }}
                           >
-                            <img src={getProductMeta(o.item || (Array.isArray(o.items) && o.items[0]?.name), o.image || o.img).image} alt={o.id} className="queue-list-img" style={{ width: "54px", height: "54px", borderRadius: "10px", objectFit: 'cover', border: "1px solid #e4e4e7", flexShrink: 0 }} />
-                            <div className="queue-list-info" style={{ flexGrow: 1, minWidth: 0 }}>
-                              <h4 style={{ fontSize: '14px', marginBottom: '4px', margin: 0, display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                <span style={{ color: '#ffffff', fontWeight: '900', background: "#09090b", padding: "2px 7px", borderRadius: "4px", fontSize: "12px" }}>
-                                  {o.orderId || (o.id && o.id.length > 8 ? o.id.substring(0,8) : o.id)}
+                            {/* Header: Avatar, Name, ID, Price & Time */}
+                            <div className="mob-card-header">
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                                <img
+                                  src={productMeta.image}
+                                  alt={customerName}
+                                  className="mob-card-avatar"
+                                />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: '800', fontSize: '13.5px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{customerName}</span>
+                                    {isNewOrderAwaitingPrep && (
+                                      <span className="new-order-badge-pulse">🔔 NEW ORDER</span>
+                                    )}
+                                    <span className={`queue-channel-pill ${isOfflineOrder ? 'counter' : 'online'}`}>
+                                      {isOfflineOrder ? "🏪 Counter" : "🌐 Online"}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', marginTop: '1px' }}>
+                                    {orderIdFormatted}
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <div style={{ fontSize: '15px', color: '#16a34a', fontWeight: '900' }}>
+                                  {priceFormatted}
+                                </div>
+                                <span className="queue-time-badge" style={{ fontSize: '10px', padding: '2px 5px' }}>
+                                  ⏱️ {(() => {
+                                    const diffMs = Date.now() - (o.createdAt || Date.now());
+                                    const diffMins = Math.floor(diffMs / 60000);
+                                    if (diffMins < 60) return `${diffMins}m ago`;
+                                    if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
+                                    return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short' });
+                                  })()}
                                 </span>
-                                <strong style={{ color: "#09090b" }}>{o.customer || "Guest"}</strong>
-                                <span style={{
-                                  fontSize: "10.5px",
-                                  fontWeight: "800",
-                                  padding: "2px 7px",
-                                  borderRadius: "4px",
-                                  background: isOffline ? "#fff7ed" : "#eff6ff",
-                                  color: isOffline ? "#c2410c" : "#1d4ed8",
-                                  border: isOffline ? "1px solid #fed7aa" : "1px solid #bfdbfe"
-                                }}>
-                                  {isOffline ? "🏪 Offline Counter" : "🌐 Online Desk"}
-                                </span>
-                                {isOffline ? (
-                                  <span style={{
-                                    fontSize: "10.5px",
-                                    fontWeight: "750",
-                                    padding: "2px 7px",
-                                    borderRadius: "4px",
-                                    background: (o.paymentStatus === "Pending" || o.paymentMethod === "Corporate Due" || o.paymentMethod === "Pending Selection") ? "#fef3c7" : "#ecfdf5",
-                                    color: (o.paymentStatus === "Pending" || o.paymentMethod === "Corporate Due" || o.paymentMethod === "Pending Selection") ? "#92400e" : "#065f46",
-                                    border: "1px solid #e2e8f0"
-                                  }}>
-                                    {o.paymentMethod === "Cash" ? "💵 Cash" : o.paymentMethod === "Card" ? "💳 Card" : (o.paymentMethod === "Corporate Due" || o.paymentStatus === "Pending" || o.paymentMethod === "Pending Selection") ? "⏳ Pending / Due" : `📱 ${o.paymentMethod || "Online UPI"}`}
-                                  </span>
-                                ) : (
-                                  <span style={{
-                                    fontSize: "10.5px",
-                                    fontWeight: "750",
-                                    padding: "2px 7px",
-                                    borderRadius: "4px",
-                                    background: "#f0fdf4",
-                                    color: "#166534",
-                                    border: "1px solid #bbf7d0"
-                                  }}>
-                                    💳 Paid Online
-                                  </span>
-                                )}
-                              </h4>
-                              <p style={{ fontWeight: '750', color: '#09090b', fontSize: '13px', margin: '4px 0 2px' }}>{o.item}</p>
-                              <p style={{ fontSize: '11.5px', color: '#71717a', margin: '0 0 4px' }}>📍 {o.office || o.address || (o.walkIn ? "Counter Pickup" : "Desk Delivery")}</p>
-                              <span className="time-elapsed" style={{ fontSize: '10.5px', fontWeight: 'bold', color: '#71717a' }}>
-                                ⏱️ {(() => {
-                                  const diffMs = Date.now() - o.createdAt;
-                                  const diffMins = Math.floor(diffMs / 60000);
-                                  if (diffMins < 60) return `${diffMins}m ago`;
-                                  if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ${diffMins % 60}m ago`;
-                                  return new Date(o.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', year: 'numeric' });
-                                })()}
-                              </span>
+                              </div>
                             </div>
-                            <div className="queue-list-status" style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-                              <span style={{
-                                fontSize: "11px",
-                                fontWeight: "800",
-                                padding: "5px 12px",
-                                borderRadius: "6px",
-                                background: o.status === "Preparing" ? "#0284c7" : o.status === "Delivered" ? "#16a34a" : o.status === "Out for Delivery" || o.status === "Ready" ? "#7e22ce" : "#f4f4f5",
-                                color: o.status === "Preparing" || o.status === "Delivered" || o.status === "Out for Delivery" || o.status === "Ready" ? "#ffffff" : "#09090b",
-                                border: "1px solid #e4e4e7",
-                                display: "inline-block"
-                              }}>
-                                {o.status || "Received"}
-                              </span>
+
+                            {/* Items summary */}
+                            <div className="mob-card-items-box">
+                              <div style={{ fontSize: '12.5px', fontWeight: '700', color: '#1e293b', lineHeight: '1.3' }}>
+                                {itemsSummary}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', fontSize: '11px', color: '#64748b' }}>
+                                <span>📍 {locationFormatted}</span>
+                                <span style={{ fontWeight: '800', background: '#e2e8f0', color: '#1e293b', padding: '1px 6px', borderRadius: '4px' }}>
+                                  Qty: {totalQty}
+                                </span>
+                              </div>
+                              {phoneFormatted && phoneFormatted !== "In-Store Walk-in" && (
+                                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                                  📞 {phoneFormatted}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Footer Actions: Direct Status Select + Edit Button */}
+                            <div className="mob-card-footer" onClick={(e) => e.stopPropagation()}>
+                              <div style={{ flex: 1 }}>
+                                <select
+                                  value={currentStatus}
+                                  onChange={(e) => updateOrderStatusDirectly(o, e.target.value, e)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="queue-status-dropdown"
+                                  style={{
+                                    background: pill.bg,
+                                    color: pill.text,
+                                    borderColor: pill.border,
+                                    width: '100%',
+                                    textAlign: 'center',
+                                    padding: '7px 10px',
+                                    fontSize: '12px'
+                                  }}
+                                  title="Change status"
+                                >
+                                  <option value="Received">● Received</option>
+                                  <option value="Preparing">● Preparing</option>
+                                  <option value="Out for Delivery">● On Delivery</option>
+                                  <option value="Delivered">● Delivered</option>
+                                  <option value="Cancelled">● Cancelled</option>
+                                </select>
+                              </div>
                               <button
                                 type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  sendWhatsAppRedirect(o);
-                                }}
-                                style={{
-                                  background: "#25D366",
-                                  color: "#ffffff",
-                                  border: "none",
-                                  borderRadius: "6px",
-                                  padding: "4px 8px",
-                                  fontSize: "11px",
-                                  fontWeight: "800",
-                                  cursor: "pointer",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: "4px",
-                                  boxShadow: "0 1px 4px rgba(37,211,102,0.25)"
-                                }}
-                                title="Send WhatsApp message to customer"
+                                onClick={(e) => handleOpenEditOrderModal(o, e)}
+                                className="queue-edit-btn"
+                                style={{ padding: '7px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                                title="Edit Items"
                               >
-                                💬 WhatsApp
+                                ✏️ Edit
                               </button>
                             </div>
                           </div>
@@ -2397,279 +2976,418 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     )}
                   </div>
 
-                {/* SLIDING SIDEBAR FOR ORDER DETAILS (NO MONEY) */}
-                <div className={`queue-sidebar-overlay ${isQueueSidebarOpen ? "open" : ""}`} onClick={() => setIsQueueSidebarOpen(false)}></div>
-                <div className={`queue-sidebar-panel ${isQueueSidebarOpen ? "open" : ""}`}>
-                  {selectedQueueOrder && (() => {
-                    const isOffline = Boolean(selectedQueueOrder.isOffline || selectedQueueOrder.walkIn);
-                    return (
-                      <div className="queue-sidebar-content">
-                        <button className="sidebar-close-btn" onClick={() => setIsQueueSidebarOpen(false)}>✕</button>
+                  {/* SLIDING SIDEBAR FOR ORDER DETAILS (MODERN, WIDE & IMAGE-RICH) */}
+                  <div className={`queue-sidebar-overlay ${isQueueSidebarOpen ? "open" : ""}`} onClick={() => setIsQueueSidebarOpen(false)}></div>
+                  <div className={`queue-sidebar-panel ${isQueueSidebarOpen ? "open" : ""}`}>
+                    {selectedQueueOrder && (() => {
+                      const isOffline = Boolean(selectedQueueOrder.isOffline || selectedQueueOrder.walkIn);
+                      const orderDisplayId = selectedQueueOrder.orderId || (selectedQueueOrder.id ? (typeof selectedQueueOrder.id === "string" ? selectedQueueOrder.id.slice(-6).toUpperCase() : selectedQueueOrder.id) : "N/A");
 
-                        <h2>Order #{selectedQueueOrder.id ? (typeof selectedQueueOrder.id === "string" ? selectedQueueOrder.id.slice(-6).toUpperCase() : selectedQueueOrder.id) : ""}</h2>
-                        <div className="sidebar-detail-group">
-                          <label>Customer</label>
-                          <p>{selectedQueueOrder.customer}</p>
-                          <label>Channel</label>
-                          <p>{isOffline ? "🏪 Offline Counter Order" : "🌐 Online App Order (Desk Delivery)"}</p>
-                          <label>Office / Desk</label>
-                          <p>{selectedQueueOrder.office || selectedQueueOrder.address || (isOffline ? "Counter Pickup" : "Desk Delivery")}</p>
-                          <label>Phone</label>
-                          <p>{selectedQueueOrder.phone || "N/A"}</p>
-                        </div>
+                      // Normalize items array
+                      const itemsList = Array.isArray(selectedQueueOrder.items) && selectedQueueOrder.items.length > 0
+                        ? selectedQueueOrder.items
+                        : [
+                          {
+                            name: selectedQueueOrder.item || "Chai Selection",
+                            quantity: selectedQueueOrder.quantity || 1,
+                            price: selectedQueueOrder.price || selectedQueueOrder.amount || selectedQueueOrder.total,
+                            sugar: selectedQueueOrder.sugar,
+                            milk: selectedQueueOrder.milk,
+                            image: selectedQueueOrder.image || selectedQueueOrder.img
+                          }
+                        ];
 
-                        <div className="sidebar-detail-group">
-                          <label>Items to Brew</label>
-                          <p><strong>{selectedQueueOrder.item}</strong></p>
+                      const getStatusColor = (st) => {
+                        switch (st) {
+                          case "Preparing": return { bg: "#e0f2fe", text: "#0369a1", border: "#7dd3fc", dot: "#0284c7" };
+                          case "Out for Delivery":
+                          case "Ready": return { bg: "#f3e8ff", text: "#7e22ce", border: "#d8b4fe", dot: "#9333ea" };
+                          case "Delivered": return { bg: "#dcfce7", text: "#15803d", border: "#86efac", dot: "#16a34a" };
+                          case "Cancelled":
+                          case "Cancelled by User": return { bg: "#fee2e2", text: "#b91c1c", border: "#fca5a5", dot: "#dc2626" };
+                          default: return { bg: "#fef3c7", text: "#92400e", border: "#fcd34d", dot: "#d97706" };
+                        }
+                      };
 
-                          <label>Preferences</label>
-                          <p>{selectedQueueOrder.sugar || "Regular Sugar"} | {selectedQueueOrder.milk || "Standard Milk"}</p>
-                          
-                          <label>Fulfillment Priority</label>
-                          <p>{selectedQueueOrder.priority || (isOffline ? "Counter Fast Fulfillment" : "Standard Desk Delivery")}</p>
-                        </div>
+                      const statusStyle = getStatusColor(selectedQueueOrder.status || "Received");
 
-                        <div className="sidebar-detail-group">
-                          <label>Update Status</label>
-                          <select
-                            className="sidebar-select"
-                            value={selectedQueueOrder.status || "Received"}
-                            onChange={(e) => {
-                              const newStatus = e.target.value;
-                              const updates = { status: newStatus };
-                              // Only handle settlement if it is an OFFLINE order
-                              if (isOffline && newStatus === "Delivered" && (!selectedQueueOrder.paymentMethod || selectedQueueOrder.paymentMethod === "Pending Selection")) {
-                                updates.paymentMethod = queueDeliveryPaymentMethod || "Cash";
-                                updates.paymentStatus = queueDeliveryPaymentStatus || "Paid";
-                              }
-                              setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
-                              updateOrder(selectedQueueOrder.id, updates);
+                      const handleStatusChange = (newStatus) => {
+                        const updates = { status: newStatus };
+                        if (isOffline && newStatus === "Delivered" && (!selectedQueueOrder.paymentMethod || selectedQueueOrder.paymentMethod === "Pending Selection")) {
+                          updates.paymentMethod = queueDeliveryPaymentMethod || "Cash";
+                          updates.paymentStatus = queueDeliveryPaymentStatus || "Paid";
+                        }
+                        setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
+                        updateOrder(selectedQueueOrder.id, updates);
+                        setToastMsg(`Status updated to ${newStatus}! WhatsApp update auto-sent.`);
+                        setTimeout(() => setToastMsg(""), 3000);
+                      };
 
-                            }}
-                          >
-                            <option value="Received">Received</option>
-                            <option value="Preparing">Preparing</option>
-                            <option value="Out for Delivery">Out for Delivery / Ready</option>
-                            <option value="Delivered">Delivered</option>
-                            <option value="Cancelled">Cancelled</option>
-                          </select>
-                        </div>
-
-                        {/* PAYMENT SETTLEMENT: ONLINE vs OFFLINE */}
-                        {!isOffline ? (
-                          /* ONLINE ORDERS: NO CASH/UPI UPDATE NEEDED */
-                          <div className="sidebar-detail-group" style={{
-                            background: "#f0fdf4",
-                            border: "1px solid #bbf7d0",
-                            borderRadius: "12px",
-                            padding: "12px 14px",
-                            marginTop: "8px",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "10px"
-                          }}>
-                            <span style={{ fontSize: "22px" }}>🌐</span>
-                            <div>
-                              <div style={{ fontSize: "12px", fontWeight: "800", color: "#166534" }}>Online Order (App Checkout)</div>
-                              <div style={{ fontSize: "11px", color: "#15803d" }}>Payment settled online. No manual cash / UPI update needed.</div>
-                            </div>
-                          </div>
-                        ) : (
-                          /* OFFLINE ORDERS: COUNTER SETTLEMENT SELECTOR */
-                          <div className="sidebar-detail-group" style={{
-                            background: "#fffbeb",
-                            border: "1px solid #fde68a",
-                            borderRadius: "12px",
-                            padding: "14px",
-                            marginTop: "8px"
-                          }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                              <label style={{ margin: 0, fontWeight: "800", color: "#92400e", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                                🏪 Offline Settlement Method
-                              </label>
-                              <span style={{
-                                fontSize: "10px",
-                                fontWeight: "800",
-                                padding: "2px 7px",
-                                borderRadius: "4px",
-                                background: ((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "#fef3c7" : "#166534",
-                                color: ((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "#92400e" : "#ffffff",
-                                border: "1px solid rgba(0,0,0,0.1)"
-                              }}>
-                                {((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "⏳ Payment Due / Pending" : "✅ Payment Collected"}
+                      return (
+                        <div className="queue-sidebar-content-modern">
+                          {/* SIDEBAR HEADER */}
+                          <div className="modern-sidebar-header">
+                            <div className="sidebar-header-title-box">
+                              <div className="sidebar-order-pill">
+                                <span className="channel-indicator">{isOffline ? "🏪 COUNTER" : "🌐 APP"}</span>
+                                <span className="order-num">#{orderDisplayId}</span>
+                              </div>
+                              <span
+                                className="order-status-pill-badge"
+                                style={{
+                                  background: statusStyle.bg,
+                                  color: statusStyle.text,
+                                  borderColor: statusStyle.border
+                                }}
+                              >
+                                <span className="status-live-dot" style={{ background: statusStyle.dot }}></span>
+                                {selectedQueueOrder.status || "Received"}
                               </span>
                             </div>
+                            <button
+                              type="button"
+                              className="sidebar-modern-close-btn"
+                              onClick={() => setIsQueueSidebarOpen(false)}
+                              title="Close Sidebar"
+                            >
+                              ✕
+                            </button>
+                          </div>
 
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "6px" }}>
-                              {[
-                                { id: "Cash", label: "💵 Cash", status: "Paid" },
-                                { id: "Online UPI", label: "📱 Online UPI", status: "Paid" },
-                                { id: "Corporate Due", label: "⏳ Pending / Due", status: "Pending" },
-                                { id: "Card", label: "💳 Card / POS", status: "Paid" }
-                              ].map((pm) => {
-                                const isSelected = (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === pm.id;
+                          {/* ORDER META & TIME BANNER */}
+                          <div className="sidebar-meta-card">
+                            <div className="sidebar-meta-row">
+                              <div className="sidebar-meta-item">
+                                <span className="meta-label">Customer</span>
+                                <span className="meta-value-bold">{selectedQueueOrder.customer || (isOffline ? "Walk-in Customer" : "App User")}</span>
+                              </div>
+                              <div className="sidebar-meta-item text-right">
+                                <span className="meta-label">Phone</span>
+                                <span className="meta-value">{selectedQueueOrder.phone || "N/A"}</span>
+                              </div>
+                            </div>
+                            <div className="sidebar-meta-divider"></div>
+                            <div className="sidebar-meta-row">
+                              <div className="sidebar-meta-item">
+                                <span className="meta-label">Delivery Destination</span>
+                                <span className="meta-value-accent">
+                                  📍 {selectedQueueOrder.office || selectedQueueOrder.address || (isOffline ? "Counter Fast Pickup" : "Desk Delivery")}
+                                </span>
+                              </div>
+                              <div className="sidebar-meta-item text-right">
+                                <span className="meta-label">Ordered Time</span>
+                                <span className="meta-value-sub">
+                                  {selectedQueueOrder.createdAt ? new Date(selectedQueueOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Recent"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* ORDERED ITEMS LIST WITH PRODUCT IMAGES */}
+                          <div className="sidebar-section-card">
+                            <div className="sidebar-section-header">
+                              <h3 className="sidebar-section-title">
+                                <span>☕</span> Items to Brew & Prepare
+                              </h3>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <span className="items-count-badge">{itemsList.length} {itemsList.length === 1 ? 'Item' : 'Items'}</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleOpenEditOrderModal(selectedQueueOrder, e)}
+                                  style={{
+                                    background: "#fef3c7",
+                                    color: "#92400e",
+                                    border: "1px solid #fcd34d",
+                                    borderRadius: "6px",
+                                    padding: "3px 8px",
+                                    fontSize: "11px",
+                                    fontWeight: "800",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "3px"
+                                  }}
+                                  title="Add or remove items in this order"
+                                >
+                                  ✏️ Edit Items
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="sidebar-items-list">
+                              {itemsList.map((item, idx) => {
+                                const itemName = item.name || item.item || "Chai Selection";
+                                const itemQty = item.quantity || item.qty || 1;
+                                const itemImg = item.image || item.img || selectedQueueOrder.image || selectedQueueOrder.img || "https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=300&auto=format&fit=crop";
+                                const itemSugar = item.sugar || selectedQueueOrder.sugar;
+                                const itemMilk = item.milk || selectedQueueOrder.milk;
+                                const itemNotes = item.notes || item.customizations || item.addons;
+
                                 return (
-                                  <button
-                                    key={pm.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setQueueDeliveryPaymentMethod(pm.id);
-                                      setQueueDeliveryPaymentStatus(pm.status);
-                                      setSelectedQueueOrder(prev => prev ? { ...prev, paymentMethod: pm.id, paymentStatus: pm.status } : null);
-                                      updateOrder(selectedQueueOrder.id, {
-                                        paymentMethod: pm.id,
-                                        paymentStatus: pm.status
-                                      });
-                                      setToastMsg(`Offline payment marked as ${pm.id}!`);
-                                      setTimeout(() => setToastMsg(""), 2000);
-                                    }}
-                                    style={{
-                                      padding: "9px 8px",
-                                      borderRadius: "8px",
-                                      fontSize: "12px",
-                                      fontWeight: "800",
-                                      border: isSelected ? "2px solid #2c1b0d" : "1px solid #e2e8f0",
-                                      background: isSelected ? "#2c1b0d" : "#ffffff",
-                                      color: isSelected ? "#ffffff" : "#2c1b0d",
-                                      cursor: "pointer",
-                                      transition: "all 0.15s ease",
-                                      textAlign: "center"
-                                    }}
-                                  >
-                                    {pm.label}
-                                  </button>
+                                  <div key={idx} className="sidebar-item-row">
+                                    <div className="sidebar-item-img-wrap">
+                                      <img
+                                        src={itemImg}
+                                        alt={itemName}
+                                        className="sidebar-item-img"
+                                        onError={(e) => {
+                                          e.target.onerror = null;
+                                          e.target.src = "https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=300&auto=format&fit=crop";
+                                        }}
+                                      />
+                                      <span className="sidebar-item-qty-badge">x{itemQty}</span>
+                                    </div>
+
+                                    <div className="sidebar-item-info">
+                                      <div className="sidebar-item-title-row">
+                                        <span className="sidebar-item-name">{itemName}</span>
+                                        {item.price && (
+                                          <span className="sidebar-item-price">
+                                            ₹{typeof item.price === "number" ? item.price * itemQty : item.price}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* PREFERENCES PILLS */}
+                                      <div className="sidebar-item-pills">
+                                        {itemSugar && (
+                                          <span className="item-pill sugar-pill">
+                                            🍬 {itemSugar}
+                                          </span>
+                                        )}
+                                        {itemMilk && (
+                                          <span className="item-pill milk-pill">
+                                            🥛 {itemMilk}
+                                          </span>
+                                        )}
+                                        {itemNotes && (
+                                          <span className="item-pill notes-pill">
+                                            ✨ {itemNotes}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
                                 );
                               })}
                             </div>
                           </div>
-                        )}
 
-                        <div className="sidebar-detail-group" style={{ padding: "14px", background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: "12px", marginTop: "14px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                            <label style={{ margin: 0, fontWeight: "800", color: "#166534", fontSize: "11px", textTransform: "uppercase" }}>
-                              💬 WhatsApp Customer Update
-                            </label>
-                            <span style={{ fontSize: "11px", fontWeight: "800", color: "#15803d" }}>
-                              {selectedQueueOrder.phone && selectedQueueOrder.phone !== "N/A" && selectedQueueOrder.phone !== "Walk-in" ? `📱 ${selectedQueueOrder.phone}` : "📲 Manual Number"}
-                            </span>
+                          {/* STATUS UPDATE ACTION PANEL */}
+                          <div className="sidebar-section-card status-action-card">
+                            <div className="sidebar-section-header">
+                              <div>
+                                <h3 className="sidebar-section-title">
+                                  <span>⚡</span> Update Order Status
+                                </h3>
+                                <p className="sidebar-section-sub">Auto-triggers WhatsApp notifications & Tax Invoice PDF on delivery</p>
+                              </div>
+                              <span className="auto-whatsapp-tag">
+                                💬 Auto WhatsApp
+                              </span>
+                            </div>
+
+                            <div className="status-quick-grid">
+                              {[
+                                { key: "Received", label: "Received", icon: "📥", activeBg: "#fef3c7", activeColor: "#92400e" },
+                                { key: "Preparing", label: "Brewing 🔥", icon: "🔥", activeBg: "#e0f2fe", activeColor: "#0369a1" },
+                                { key: "Out for Delivery", label: "Out for Delivery", icon: "🏃", activeBg: "#f3e8ff", activeColor: "#7e22ce" },
+                                { key: "Delivered", label: "Delivered", icon: "☕", activeBg: "#dcfce7", activeColor: "#15803d" },
+                                { key: "Cancelled", label: "Cancelled", icon: "❌", activeBg: "#fee2e2", activeColor: "#b91c1c" }
+                              ].map((st) => {
+                                const isCurrent = (selectedQueueOrder.status || "Received") === st.key;
+                                return (
+                                  <button
+                                    key={st.key}
+                                    type="button"
+                                    onClick={() => handleStatusChange(st.key)}
+                                    className={`status-chip-btn ${isCurrent ? 'active' : ''}`}
+                                    style={{
+                                      borderColor: isCurrent ? st.activeColor : '#e2e8f0',
+                                      background: isCurrent ? st.activeBg : '#ffffff',
+                                      color: isCurrent ? st.activeColor : '#475569'
+                                    }}
+                                  >
+                                    <span>{st.icon}</span> {st.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <div className="sidebar-select-wrapper" style={{ marginTop: "12px" }}>
+                              <select
+                                className="sidebar-select modern"
+                                value={selectedQueueOrder.status || "Received"}
+                                onChange={(e) => handleStatusChange(e.target.value)}
+                              >
+                                <option value="Received">📥 Received (Pending)</option>
+                                <option value="Preparing">🔥 Preparing / Brewing</option>
+                                <option value="Out for Delivery">🏃 Out for Delivery / Ready</option>
+                                <option value="Delivered">☕ Delivered / Served</option>
+                                <option value="Cancelled">❌ Cancelled</option>
+                              </select>
+                            </div>
                           </div>
-                          <p style={{ margin: "0 0 10px 0", fontSize: "12px", color: "#166534" }}>
-                            Click below to open WhatsApp with current status (<strong>{selectedQueueOrder.status || "Received"}</strong>) prefilled.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => sendWhatsAppRedirect(selectedQueueOrder)}
-                            style={{
-                              width: "100%",
-                              padding: "11px 16px",
-                              background: "#25D366",
-                              color: "#ffffff",
-                              border: "none",
-                              borderRadius: "8px",
-                              fontSize: "13px",
-                              fontWeight: "850",
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: "8px",
-                              boxShadow: "0 3px 8px rgba(37,211,102,0.3)"
-                            }}
-                          >
-                            <span style={{ fontSize: "16px" }}>💬</span> Open & Send WhatsApp Msg
-                          </button>
-                        </div>
 
-                        <div className="sidebar-detail-group">
-                          <label>Set Delivery Time</label>
-                          <div style={{ display: "flex", gap: "10px" }}>
-                            <input
-                              type="text"
-                              className="sidebar-input"
-                              value={deliveryTimeInput}
-                              onChange={(e) => setDeliveryTimeInput(e.target.value)}
-                              placeholder="e.g. 15 mins"
-                            />
-                            <button
-                              className="sidebar-save-btn"
-                              onClick={() => {
-                                const updatedStatus = selectedQueueOrder.status || "Received";
-                                const updates = {
-                                  allocatedTime: deliveryTimeInput,
-                                  status: updatedStatus
-                                };
-
-                                if (isOffline) {
-                                  const paymentMethodToSave = queueDeliveryPaymentMethod || selectedQueueOrder.paymentMethod || "Cash";
-                                  const paymentStatusToSave = queueDeliveryPaymentStatus || selectedQueueOrder.paymentStatus || (paymentMethodToSave === "Corporate Due" ? "Pending" : "Paid");
-                                  updates.paymentMethod = paymentMethodToSave;
-                                  updates.paymentStatus = paymentStatusToSave;
-                                }
-                                
-                                updateOrder(selectedQueueOrder.id, updates);
-
-                                if (selectedQueueOrder.userId || selectedQueueOrder.userId === undefined) {
-                                  // Assume userId exists in real data. If so, fetch token and notify
-                                  const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
-                                  if (uid) {
-                                    getDoc(doc(db, "users", uid)).then(userSnap => {
-                                      if (userSnap.exists() && userSnap.data().fcmToken) {
-                                        fetch("/api/notify", {
-                                          method: "POST",
-                                          headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({
-                                            token: userSnap.data().fcmToken,
-                                            title: "Order Update",
-                                            body: `Your order is now ${updatedStatus}`,
-                                            orderId: selectedQueueOrder.id,
-                                            userId: uid
-                                          })
-                                        });
-                                      }
-                                    }).catch(e => console.error("Error fetching user for push:", e));
-                                  }
-                                }
-
-                                setToastMsg("Order details updated successfully!");
-                                setSaveAnimation(true);
-                                setTimeout(() => {
-                                  setToastMsg("");
-                                  setSaveAnimation(false);
-                                }, 2000);
-                              }}
-                              style={{ 
-                                background: saveAnimation ? "#25D366" : "#2c1b0d",
-                                transition: "background 0.3s ease"
-                              }}
-                            >
-                              {saveAnimation ? (
-                                <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                                    <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425z"/>
-                                  </svg>
-                                  Saved!
+                          {/* PAYMENT SETTLEMENT CARD (OFFLINE vs ONLINE) */}
+                          {!isOffline ? (
+                            <div className="sidebar-section-card online-settled-card">
+                              <div className="online-settled-flex">
+                                <div className="online-settled-icon">🌐</div>
+                                <div className="online-settled-text">
+                                  <div className="online-settled-title">Online App Checkout</div>
+                                  <div className="online-settled-desc">Payment settled through App / UPI gateway. No manual counter cash collection needed.</div>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="sidebar-section-card offline-settlement-card">
+                              <div className="sidebar-section-header">
+                                <div>
+                                  <h3 className="sidebar-section-title">
+                                    <span>🏪</span> Counter Settlement Method
+                                  </h3>
+                                  <p className="sidebar-section-sub">Collect payment at POS counter</p>
+                                </div>
+                                <span className={`payment-due-badge ${(selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Paid" ? "paid" : "pending"}`}>
+                                  {((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "⏳ Due / Pending" : "✅ Paid"}
                                 </span>
-                              ) : "Save"}
-                            </button>
+                              </div>
+
+                              <div className="payment-methods-grid">
+                                {[
+                                  { id: "Cash", label: "💵 Cash", status: "Paid" },
+                                  { id: "Online UPI", label: "📱 Online UPI", status: "Paid" },
+                                  { id: "Corporate Due", label: "⏳ Pending / Due", status: "Pending" },
+                                  { id: "Card", label: "💳 Card / POS", status: "Paid" }
+                                ].map((pm) => {
+                                  const isSelected = (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === pm.id;
+                                  return (
+                                    <button
+                                      key={pm.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setQueueDeliveryPaymentMethod(pm.id);
+                                        setQueueDeliveryPaymentStatus(pm.status);
+                                        setSelectedQueueOrder(prev => prev ? { ...prev, paymentMethod: pm.id, paymentStatus: pm.status } : null);
+                                        updateOrder(selectedQueueOrder.id, {
+                                          paymentMethod: pm.id,
+                                          paymentStatus: pm.status
+                                        });
+                                        setToastMsg(`Offline payment marked as ${pm.id}!`);
+                                        setTimeout(() => setToastMsg(""), 2000);
+                                      }}
+                                      className={`payment-method-chip ${isSelected ? "selected" : ""}`}
+                                    >
+                                      {pm.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* PREPARATION & DELIVERY WINDOW */}
+                          <div className="sidebar-section-card">
+                            <h3 className="sidebar-section-title">
+                              <span>⏱️</span> Preparation & Delivery Window
+                            </h3>
+                            <div className="quick-time-buttons">
+                              {["10 mins", "15 mins", "20 mins", "30 mins"].map((t) => (
+                                <button
+                                  key={t}
+                                  type="button"
+                                  className="quick-time-pill"
+                                  onClick={() => setDeliveryTimeInput(t)}
+                                >
+                                  {t}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="delivery-time-input-row">
+                              <input
+                                type="text"
+                                className="sidebar-input modern"
+                                value={deliveryTimeInput}
+                                onChange={(e) => setDeliveryTimeInput(e.target.value)}
+                                placeholder="e.g. 15 mins"
+                              />
+                              <button
+                                type="button"
+                                className={`sidebar-save-btn modern ${saveAnimation ? "saved" : ""}`}
+                                onClick={() => {
+                                  const updatedStatus = selectedQueueOrder.status || "Received";
+                                  const updates = {
+                                    allocatedTime: deliveryTimeInput,
+                                    status: updatedStatus
+                                  };
+
+                                  if (isOffline) {
+                                    const paymentMethodToSave = queueDeliveryPaymentMethod || selectedQueueOrder.paymentMethod || "Cash";
+                                    const paymentStatusToSave = queueDeliveryPaymentStatus || selectedQueueOrder.paymentStatus || (paymentMethodToSave === "Corporate Due" ? "Pending" : "Paid");
+                                    updates.paymentMethod = paymentMethodToSave;
+                                    updates.paymentStatus = paymentStatusToSave;
+                                  }
+
+                                  updateOrder(selectedQueueOrder.id, updates);
+
+                                  if (selectedQueueOrder.userId || selectedQueueOrder.userId === undefined) {
+                                    const uid = selectedQueueOrder.userId || selectedQueueOrder.customerUid;
+                                    if (uid) {
+                                      getDoc(doc(db, "users", uid)).then(userSnap => {
+                                        if (userSnap.exists() && userSnap.data().fcmToken) {
+                                          fetch("/api/notify", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({
+                                              token: userSnap.data().fcmToken,
+                                              title: "Order Update",
+                                              body: `Your order is now ${updatedStatus}`,
+                                              orderId: selectedQueueOrder.id,
+                                              userId: uid
+                                            })
+                                          });
+                                        }
+                                      }).catch(e => console.error("Error fetching user for push:", e));
+                                    }
+                                  }
+
+                                  setToastMsg("Order details updated successfully!");
+                                  setSaveAnimation(true);
+                                  setTimeout(() => {
+                                    setToastMsg("");
+                                    setSaveAnimation(false);
+                                  }, 2000);
+                                }}
+                              >
+                                {saveAnimation ? (
+                                  <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                      <path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425z" />
+                                    </svg>
+                                    Saved!
+                                  </span>
+                                ) : "Save Time"}
+                              </button>
+                            </div>
                           </div>
+
                         </div>
+                      );
+                    })()}
+                  </div>
 
-                      </div>
-                    );
-                  })()}
                 </div>
-
-              </div>
               );
             })()}
 
             {/* OTHER OPERATIONAL TABS */}
-             {activeTab === "stock" && (() => {
+            {activeTab === "stock" && (() => {
               const categories = ["All", "Tea", "Milk", "Coffee", "Shake", "Water", "Maggi", "Snacks", "Toast", "Biscuit", "Namkeen", "Disposable", "Cold Drink"];
               const filteredInventory = stocks.filter(s => inventoryCategoryFilter === "All" || s.category === inventoryCategoryFilter);
 
               return (
-                <div className="tab-body-wrapper" style={{ position: "relative" }}>
+                <div className="tab-body-wrapper stock-tab-body" style={{ position: "relative" }}>
                   {toastMsg && (
                     <div style={{ position: "fixed", top: "24px", right: "24px", background: "#2c1b0d", color: "#fdf5e9", padding: "16px 24px", borderRadius: "12px", boxShadow: "0 10px 30px rgba(0,0,0,0.15)", zIndex: 9999, fontWeight: "bold", borderLeft: "4px solid #e74c3c", display: "flex", gap: "10px", alignItems: "center" }}>
                       <span>🚨</span> {toastMsg}
@@ -2677,15 +3395,16 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   )}
 
                   <div style={{ maxWidth: "1000px", margin: "0 auto", width: "100%" }}>
-                    
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+
+                    {/* Stock Header Controls */}
+                    <div className="stock-header-controls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", gap: "12px", flexWrap: "wrap" }}>
+                      <div className="stock-categories-scroll" style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "4px", maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
                         {categories.map(cat => (
                           <button
                             key={cat}
                             onClick={() => setInventoryCategoryFilter(cat)}
                             style={{
-                              padding: "6px 12px",
+                              padding: "6px 14px",
                               borderRadius: "20px",
                               fontSize: "11px",
                               fontWeight: "bold",
@@ -2693,18 +3412,20 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               cursor: "pointer",
                               background: inventoryCategoryFilter === cat ? "#2c1b0d" : "#f0f0f0",
                               color: inventoryCategoryFilter === cat ? "#fff" : "#555",
-                              transition: "all 0.2s"
+                              transition: "all 0.2s",
+                              whiteSpace: "nowrap",
+                              flexShrink: 0
                             }}
                           >
                             {cat}
                           </button>
                         ))}
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f8f9fa", padding: "6px 12px", borderRadius: "8px", border: "1px solid #eaeaea" }}>
-                          <span style={{ fontSize: "12px", fontWeight: "bold", color: "#555" }}>📅 Select Date:</span>
-                          <input 
-                            type="date" 
+                      <div className="stock-actions-wrap" style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                        <div className="stock-date-picker-wrap" style={{ display: "flex", alignItems: "center", gap: "6px", background: "#f8f9fa", padding: "6px 12px", borderRadius: "8px", border: "1px solid #eaeaea" }}>
+                          <span style={{ fontSize: "12px", fontWeight: "bold", color: "#555", whiteSpace: "nowrap" }}>📅 Select Date:</span>
+                          <input
+                            type="date"
                             max={new Date().toISOString().split('T')[0]}
                             value={inventorySelectedDate}
                             onChange={(e) => setInventorySelectedDate(e.target.value)}
@@ -2713,6 +3434,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         </div>
                         <button
                           onClick={() => setIsAddInventoryModalOpen(true)}
+                          className="stock-upload-btn"
                           style={{
                             background: "#27ae60",
                             color: "#fff",
@@ -2724,7 +3446,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             cursor: "pointer",
                             display: "flex",
                             alignItems: "center",
-                            gap: "6px"
+                            gap: "6px",
+                            whiteSpace: "nowrap"
                           }}
                         >
                           <span className="btn-emoji">➕</span> Upload New Inventory
@@ -2732,7 +3455,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       </div>
                     </div>
 
-                    <div style={{ background: "#ffffff", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", overflow: "hidden", marginBottom: "30px" }}>
+                    {/* Desktop Stock Table View */}
+                    <div className="stock-table-card desktop-only-view" style={{ background: "#ffffff", borderRadius: "16px", border: "1px solid rgba(0,0,0,0.05)", overflowX: "auto", marginBottom: "30px" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12px" }}>
                         <thead>
                           <tr style={{ background: "#fbf9f6", color: "#555", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
@@ -2788,7 +3512,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                           const amount = parseFloat(usageAmount);
                                           if (!amount || amount <= 0) return alert("Enter valid usage amount");
                                           if (amount > qty) return alert("Amount exceeds current stock");
-                                          
+
                                           const newQty = qty - amount;
                                           const dailyUsage = item.dailyUsage || [];
                                           dailyUsage.push({ date: inventorySelectedDate, used: amount });
@@ -2823,7 +3547,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                         onClick={async () => {
                                           const amount = parseFloat(restockAmount);
                                           if (!amount || amount <= 0) return alert("Enter valid upload amount");
-                                          
+
                                           const newQty = qty + amount;
                                           const uploadHistory = item.uploadHistory || [];
                                           uploadHistory.push({ date: inventorySelectedDate, added: amount });
@@ -2903,7 +3627,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           })}
                           {filteredInventory.length === 0 && (
                             <tr>
-                              <td colSpan="5" style={{ padding: "20px", textAlign: "center", color: "#888", fontStyle: "italic" }}>
+                              <td colSpan="6" style={{ padding: "20px", textAlign: "center", color: "#888", fontStyle: "italic" }}>
                                 No inventory items found for this category.
                               </td>
                             </tr>
@@ -2911,74 +3635,258 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Mobile Stock Cards List View */}
+                    <div className="stock-mobile-cards-container mobile-only-view" style={{ display: "none", flexDirection: "column", gap: "10px", marginBottom: "30px" }}>
+                      {filteredInventory.map((item, idx) => {
+                        const qty = parseFloat(item.qty) || 0;
+                        const limit = item.minLimit || 10;
+                        const isLow = qty <= limit;
+                        return (
+                          <div key={item.id || idx} className="stock-mobile-card" style={{ background: "#ffffff", borderRadius: "14px", border: "1px solid #e2e8f0", padding: "14px", boxShadow: "0 2px 8px rgba(0,0,0,0.03)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+                              <div>
+                                <span style={{ fontSize: "10px", fontWeight: "800", color: "#8a583c", background: "rgba(138,88,60,0.1)", padding: "2px 8px", borderRadius: "6px", display: "inline-block", marginBottom: "4px" }}>
+                                  {item.category}
+                                </span>
+                                <strong style={{ fontSize: "14.5px", color: "#09090b", display: "block" }}>{item.name}</strong>
+                              </div>
+                              <span style={{ background: isLow ? "#fce8e6" : "#e8f6ef", color: isLow ? "#e74c3c" : "#27ae60", padding: "3px 8px", borderRadius: "6px", fontSize: "10px", fontWeight: "850", border: isLow ? "1px solid #fca5a5" : "1px solid #86efac" }}>
+                                {isLow ? "⚠️ Low Stock" : "✓ Healthy"}
+                              </span>
+                            </div>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", background: "#f8fafc", padding: "10px", borderRadius: "10px", marginBottom: "12px" }}>
+                              <div>
+                                <span style={{ fontSize: "10.5px", color: "#64748b", display: "block" }}>Quantity Left</span>
+                                <strong style={{ fontSize: "15px", color: isLow ? "#dc2626" : "#0f172a" }}>
+                                  {qty} <span style={{ fontSize: "11px", fontWeight: "600", color: "#64748b" }}>{item.unit}</span>
+                                </strong>
+                              </div>
+                              <div>
+                                <span style={{ fontSize: "10.5px", color: "#64748b", display: "block" }}>Min Threshold</span>
+                                {editingStockIdx === item.id ? (
+                                  <input
+                                    type="number"
+                                    value={editStockMinLimit}
+                                    onChange={(e) => setEditStockMinLimit(e.target.value)}
+                                    style={{ width: "70px", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #cbd5e1", marginTop: "2px" }}
+                                  />
+                                ) : (
+                                  <strong style={{ fontSize: "15px", color: "#475569" }}>
+                                    {limit} <span style={{ fontSize: "11px", fontWeight: "600", color: "#64748b" }}>{item.unit}</span>
+                                  </strong>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Mobile Inline Actions Forms */}
+                            {loggingUsageIdx === item.id ? (
+                              <div style={{ background: "#f0fdf4", padding: "10px", borderRadius: "10px", border: "1px solid #bbf7d0", marginBottom: "6px" }}>
+                                <span style={{ fontSize: "11px", fontWeight: "800", color: "#166534", display: "block", marginBottom: "6px" }}>📉 Log Used Quantity</span>
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                  <input
+                                    type="number"
+                                    placeholder={`Used (${item.unit})`}
+                                    value={usageAmount}
+                                    onChange={(e) => setUsageAmount(e.target.value)}
+                                    style={{ flex: 1, padding: "8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #86efac", outline: "none" }}
+                                  />
+                                  <button
+                                    onClick={async () => {
+                                      const amount = parseFloat(usageAmount);
+                                      if (!amount || amount <= 0) return alert("Enter valid usage amount");
+                                      if (amount > qty) return alert("Amount exceeds current stock");
+
+                                      const newQty = qty - amount;
+                                      const dailyUsage = item.dailyUsage || [];
+                                      dailyUsage.push({ date: inventorySelectedDate, used: amount });
+
+                                      await updateStockItem(item.id, { qty: newQty, dailyUsage });
+                                      setLoggingUsageIdx(null);
+                                      setUsageAmount("");
+                                      setToastMsg(`Logged usage for ${item.name}!`);
+                                      setTimeout(() => setToastMsg(""), 3000);
+                                    }}
+                                    style={{ background: "#16a34a", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={() => setLoggingUsageIdx(null)}
+                                    style={{ background: "#94a3b8", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            ) : restockingIdx === item.id ? (
+                              <div style={{ background: "#eff6ff", padding: "10px", borderRadius: "10px", border: "1px solid #bfdbfe", marginBottom: "6px" }}>
+                                <span style={{ fontSize: "11px", fontWeight: "800", color: "#1e40af", display: "block", marginBottom: "6px" }}>📦 Add Stock Quantity</span>
+                                <div style={{ display: "flex", gap: "6px" }}>
+                                  <input
+                                    type="number"
+                                    placeholder={`Add (${item.unit})`}
+                                    value={restockAmount}
+                                    onChange={(e) => setRestockAmount(e.target.value)}
+                                    style={{ flex: 1, padding: "8px", fontSize: "12px", borderRadius: "6px", border: "1px solid #93c5fd", outline: "none" }}
+                                  />
+                                  <button
+                                    onClick={async () => {
+                                      const amount = parseFloat(restockAmount);
+                                      if (!amount || amount <= 0) return alert("Enter valid upload amount");
+
+                                      const newQty = qty + amount;
+                                      const uploadHistory = item.uploadHistory || [];
+                                      uploadHistory.push({ date: inventorySelectedDate, added: amount });
+
+                                      await updateStockItem(item.id, { qty: newQty, uploadHistory });
+                                      setRestockingIdx(null);
+                                      setRestockAmount("");
+                                      setToastMsg(`Restocked ${amount} ${item.unit} for ${item.name}!`);
+                                      setTimeout(() => setToastMsg(""), 3000);
+                                    }}
+                                    style={{ background: "#2563eb", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    onClick={() => setRestockingIdx(null)}
+                                    style={{ background: "#94a3b8", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            ) : editingStockIdx === item.id ? (
+                              <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end", marginBottom: "6px" }}>
+                                <button
+                                  onClick={async () => {
+                                    await updateStockItem(item.id, { minLimit: parseFloat(editStockMinLimit) || 10 });
+                                    setEditingStockIdx(null);
+                                    setToastMsg(`Updated limits for ${item.name}!`);
+                                    setTimeout(() => setToastMsg(""), 3000);
+                                  }}
+                                  style={{ flex: 1, background: "#16a34a", color: "#fff", border: "none", padding: "8px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                                >
+                                  Save Limit
+                                </button>
+                                <button
+                                  onClick={() => setEditingStockIdx(null)}
+                                  style={{ background: "#94a3b8", color: "#fff", border: "none", padding: "8px 14px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+                                <button
+                                  onClick={() => {
+                                    setEditingStockIdx(item.id);
+                                    setEditStockMinLimit(limit);
+                                  }}
+                                  style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1", padding: "7px 4px", borderRadius: "8px", fontSize: "10.5px", cursor: "pointer", fontWeight: "800", textAlign: "center" }}
+                                >
+                                  ✏️ Limit
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setRestockingIdx(item.id);
+                                    setRestockAmount("");
+                                  }}
+                                  style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", padding: "7px 4px", borderRadius: "8px", fontSize: "10.5px", cursor: "pointer", fontWeight: "800", textAlign: "center" }}
+                                >
+                                  ➕ Restock
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setLoggingUsageIdx(item.id);
+                                    setUsageAmount("");
+                                  }}
+                                  style={{ background: "#f0fdf4", color: "#15803d", border: "1px solid #bbf7d0", padding: "7px 4px", borderRadius: "8px", fontSize: "10.5px", cursor: "pointer", fontWeight: "800", textAlign: "center" }}
+                                >
+                                  📉 Usage
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {filteredInventory.length === 0 && (
+                        <div style={{ padding: "30px 14px", textAlign: "center", color: "#64748b", background: "#ffffff", borderRadius: "14px", border: "1px solid #e2e8f0", fontStyle: "italic" }}>
+                          No inventory items found for this category.
+                        </div>
+                      )}
+                    </div>
+
                     {/* Add Inventory Modal */}
                     {isAddInventoryModalOpen && (
-                      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1000 }}>
-                        <div style={{ background: "#fff", padding: "30px", borderRadius: "16px", width: "400px", maxWidth: "90%" }}>
-                          <h3 style={{ marginTop: 0, marginBottom: "20px", color: "#2c1b0d" }}>Upload New Inventory</h3>
-                          
+                      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, padding: "12px" }}>
+                        <div className="stock-modal-card" style={{ background: "#fff", padding: "24px", borderRadius: "20px", width: "100%", maxWidth: "420px", boxShadow: "0 20px 40px rgba(0,0,0,0.2)", boxSizing: "border-box" }}>
+                          <h3 style={{ marginTop: 0, marginBottom: "16px", color: "#2c1b0d", fontSize: "18px", fontWeight: "900" }}>Upload New Inventory</h3>
+
                           <div style={{ marginBottom: "12px" }}>
-                            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Category</label>
-                            <select 
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>Category</label>
+                            <select
                               value={newInventoryItem.category}
-                              onChange={(e) => setNewInventoryItem({...newInventoryItem, category: e.target.value})}
-                              style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                              onChange={(e) => setNewInventoryItem({ ...newInventoryItem, category: e.target.value })}
+                              style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1.5px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box" }}
                             >
                               {categories.filter(c => c !== "All").map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
                           </div>
-                          
+
                           <div style={{ marginBottom: "12px" }}>
-                            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Item Name</label>
-                            <input 
-                              type="text" 
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>Item Name</label>
+                            <input
+                              type="text"
                               value={newInventoryItem.name}
-                              onChange={(e) => setNewInventoryItem({...newInventoryItem, name: e.target.value})}
+                              onChange={(e) => setNewInventoryItem({ ...newInventoryItem, name: e.target.value })}
                               placeholder="e.g. Tea Leaves"
-                              style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                              style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1.5px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box" }}
                             />
                           </div>
 
                           <div style={{ marginBottom: "12px" }}>
-                            <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Unit (e.g. kg, Litre, Pcs)</label>
-                            <input 
-                              type="text" 
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>Unit (e.g. kg, Litre, Pcs)</label>
+                            <input
+                              type="text"
                               value={newInventoryItem.unit}
-                              onChange={(e) => setNewInventoryItem({...newInventoryItem, unit: e.target.value})}
+                              onChange={(e) => setNewInventoryItem({ ...newInventoryItem, unit: e.target.value })}
                               placeholder="e.g. kg"
-                              style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                              style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1.5px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box" }}
                             />
                           </div>
 
-                          <div style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Initial Qty</label>
-                              <input 
-                                type="number" 
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "20px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>Initial Qty</label>
+                              <input
+                                type="number"
                                 value={newInventoryItem.qty}
-                                onChange={(e) => setNewInventoryItem({...newInventoryItem, qty: e.target.value})}
-                                style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                                onChange={(e) => setNewInventoryItem({ ...newInventoryItem, qty: e.target.value })}
+                                style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1.5px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box" }}
                               />
                             </div>
-                            <div style={{ flex: 1 }}>
-                              <label style={{ display: "block", fontSize: "12px", fontWeight: "bold", marginBottom: "4px" }}>Min Alert Limit</label>
-                              <input 
-                                type="number" 
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>Min Alert Limit</label>
+                              <input
+                                type="number"
                                 value={newInventoryItem.minLimit}
-                                onChange={(e) => setNewInventoryItem({...newInventoryItem, minLimit: e.target.value})}
-                                style={{ width: "100%", padding: "8px", borderRadius: "8px", border: "1px solid #ddd" }}
+                                onChange={(e) => setNewInventoryItem({ ...newInventoryItem, minLimit: e.target.value })}
+                                style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1.5px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box" }}
                               />
                             </div>
                           </div>
 
                           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-                            <button 
+                            <button
                               onClick={() => setIsAddInventoryModalOpen(false)}
-                              style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "#f0f0f0", color: "#555", cursor: "pointer", fontWeight: "bold" }}
+                              style={{ padding: "10px 18px", borderRadius: "8px", border: "1px solid #e4e4e7", background: "#f4f4f5", color: "#52525b", cursor: "pointer", fontWeight: "800", fontSize: "12.5px" }}
                             >
                               Cancel
                             </button>
-                            <button 
+                            <button
                               onClick={async () => {
                                 if (!newInventoryItem.name) return alert("Item name is required!");
                                 await addStockItem({
@@ -2993,7 +3901,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                 setToastMsg("Inventory added!");
                                 setTimeout(() => setToastMsg(""), 3000);
                               }}
-                              style={{ padding: "8px 16px", borderRadius: "8px", border: "none", background: "#2c1b0d", color: "#fff", cursor: "pointer", fontWeight: "bold" }}
+                              style={{ padding: "10px 18px", borderRadius: "8px", border: "none", background: "#2c1b0d", color: "#fff", cursor: "pointer", fontWeight: "800", fontSize: "12.5px" }}
                             >
                               Add Item
                             </button>
@@ -3160,14 +4068,14 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               });
 
               return (
-                <div className="tab-body-wrapper" style={{ padding: "28px 32px" }}>
+                <div className="tab-body-wrapper history-tab-body">
 
                   {/* KITCHEN DISPATCH & PRODUCTION SLIP MODAL (ZERO MONEY) */}
                   {activeInvoice && (() => {
                     const cleanId = String(activeInvoice.id || "").replace("#", "");
 
                     return (
-                      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, overflowY: "auto", padding: "20px" }}>
+                      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.75)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, overflowY: "auto", padding: "12px" }}>
                         <style>{`
                           @media print {
                             @page {
@@ -3206,7 +4114,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         <div style={{ width: "100%", maxWidth: "720px", margin: "0 auto" }}>
 
                           {/* Close & Print Controls */}
-                          <div className="no-print" style={{ display: "flex", justifyContent: "space-between", marginBottom: "14px", alignItems: "center" }}>
+                          <div className="no-print" style={{ display: "flex", justifyContent: "space-between", marginBottom: "14px", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                             <button
                               type="button"
                               onClick={() => setActiveInvoice(null)}
@@ -3219,77 +4127,76 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               onClick={() => window.print()}
                               style={{ padding: "9px 22px", background: "#09090b", color: "#ffffff", border: "none", borderRadius: "10px", fontWeight: "800", cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}
                             >
-                              <span>🖨️</span> Print Kitchen Dispatch Slip
+                              <span>🖨️</span> Print Slip
                             </button>
                           </div>
 
                           {/* Printable Kitchen Slip Card */}
-                          <div id="printable-invoice-card" style={{ background: "#ffffff", padding: "40px", borderRadius: "16px", boxShadow: "0 10px 40px rgba(0,0,0,0.2)", border: "1px solid #e4e4e7", color: "#09090b", fontFamily: "system-ui, -apple-system, sans-serif" }}>
+                          <div id="printable-invoice-card" className="printable-slip-card" style={{ background: "#ffffff", padding: "30px 24px", borderRadius: "16px", boxShadow: "0 10px 40px rgba(0,0,0,0.2)", border: "1px solid #e4e4e7", color: "#09090b", fontFamily: "system-ui, -apple-system, sans-serif" }}>
 
                             {/* Header */}
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #09090b", paddingBottom: "20px", marginBottom: "24px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                                <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "52px", height: "52px", objectFit: "cover", borderRadius: "12px", border: "1px solid #e4e4e7" }} />
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #09090b", paddingBottom: "16px", marginBottom: "20px", gap: "10px", flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                                <img src="/logo.png" alt="Chai Chaska Logo" style={{ width: "46px", height: "46px", objectFit: "cover", borderRadius: "10px", border: "1px solid #e4e4e7" }} />
                                 <div>
-                                  <strong style={{ fontSize: "22px", color: "#09090b", letterSpacing: "0.5px", display: "block" }}>CHAI CHASKA</strong>
-                                  <span style={{ fontSize: "12px", color: "#71717a", fontWeight: "600" }}>Brewmaster Kitchen & Dispatch Slip</span>
+                                  <strong style={{ fontSize: "20px", color: "#09090b", letterSpacing: "0.5px", display: "block" }}>CHAI CHASKA</strong>
+                                  <span style={{ fontSize: "11px", color: "#71717a", fontWeight: "600" }}>Kitchen & Dispatch Slip</span>
                                 </div>
                               </div>
                               <div style={{ textAlign: "right" }}>
-                                <span style={{ fontSize: "10.5px", fontWeight: "900", letterSpacing: "1px", textTransform: "uppercase", display: "block", color: "#71717a" }}>PRODUCTION SLIP</span>
-                                <strong style={{ fontSize: "20px", color: "#09090b" }}>#{cleanId}</strong>
+                                <span style={{ fontSize: "10px", fontWeight: "900", letterSpacing: "1px", textTransform: "uppercase", display: "block", color: "#71717a" }}>PRODUCTION SLIP</span>
+                                <strong style={{ fontSize: "18px", color: "#09090b" }}>#{cleanId}</strong>
                               </div>
                             </div>
 
                             {/* Order Details Grid */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.5fr", gap: "14px", background: "#f8fafc", padding: "16px 20px", borderRadius: "12px", border: "1px solid #e2e8f0", marginBottom: "24px" }}>
+                            <div className="slip-details-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr 1.5fr", gap: "12px", background: "#f8fafc", padding: "14px 16px", borderRadius: "12px", border: "1px solid #e2e8f0", marginBottom: "20px" }}>
                               <div>
-                                <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Order Channel</span>
-                                <span style={{ fontSize: "12px", fontWeight: "850", padding: "3px 8px", borderRadius: "6px", background: activeInvoice.isOffline ? "#09090b" : "#e2e8f0", color: activeInvoice.isOffline ? "#ffffff" : "#09090b", display: "inline-block" }}>
+                                <span style={{ fontSize: "10px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Order Channel</span>
+                                <span style={{ fontSize: "11.5px", fontWeight: "850", padding: "3px 8px", borderRadius: "6px", background: activeInvoice.isOffline ? "#09090b" : "#e2e8f0", color: activeInvoice.isOffline ? "#ffffff" : "#09090b", display: "inline-block" }}>
                                   {activeInvoice.isOffline ? "🏪 Offline Counter" : "🏢 Online Desk"}
                                 </span>
                               </div>
                               <div>
-                                <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Payment Method</span>
-                                <strong style={{ fontSize: "12.5px", color: "#09090b", display: "block" }}>
+                                <span style={{ fontSize: "10px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Payment Method</span>
+                                <strong style={{ fontSize: "12px", color: "#09090b", display: "block" }}>
                                   {activeInvoice.paymentMethod === "Cash" ? "💵 Cash" : activeInvoice.paymentMethod === "Card" ? "💳 Card" : activeInvoice.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${activeInvoice.paymentMethod || "Online UPI"}`}
                                 </strong>
-                                <span style={{ fontSize: "10.5px", color: "#16a34a", fontWeight: "750" }}>{activeInvoice.paymentStatus || "Paid"}</span>
+                                <span style={{ fontSize: "10px", color: "#16a34a", fontWeight: "750" }}>{activeInvoice.paymentStatus || "Paid"}</span>
                               </div>
                               <div>
-                                <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Date & Time</span>
-                                <strong style={{ fontSize: "12.5px", color: "#09090b" }}>
+                                <span style={{ fontSize: "10px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Date & Time</span>
+                                <strong style={{ fontSize: "12px", color: "#09090b" }}>
                                   {activeInvoice.createdAt ? new Date(activeInvoice.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : activeInvoice.date}
                                 </strong>
                               </div>
                               <div>
-                                <span style={{ fontSize: "10.5px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Customer / Location</span>
-                                <strong style={{ fontSize: "13px", color: "#09090b", display: "block" }}>{activeInvoice.customer}</strong>
-                                <span style={{ fontSize: "11.5px", color: "#52525b" }}>📍 {activeInvoice.office}</span>
+                                <span style={{ fontSize: "10px", color: "#71717a", display: "block", textTransform: "uppercase", fontWeight: "800", marginBottom: "4px" }}>Customer / Location</span>
+                                <strong style={{ fontSize: "12.5px", color: "#09090b", display: "block" }}>{activeInvoice.customer}</strong>
+                                <span style={{ fontSize: "11px", color: "#52525b" }}>📍 {activeInvoice.office}</span>
                               </div>
                             </div>
 
                             {/* Itemized Kitchen Prep List */}
-                            <div style={{ marginBottom: "28px" }}>
+                            <div style={{ marginBottom: "20px", overflowX: "auto" }}>
                               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                                 <thead>
-                                  <tr style={{ background: "#09090b", color: "#ffffff", fontSize: "11.5px", textTransform: "uppercase" }}>
-                                    <th style={{ padding: "10px 16px", textAlign: "left", borderRadius: "8px 0 0 8px" }}>Item Description</th>
-                                    <th style={{ padding: "10px 16px", textAlign: "left" }}>Customization / Recipe</th>
-                                    <th style={{ padding: "10px 16px", textAlign: "center", borderRadius: "0 8px 8px 0" }}>Preparation Status</th>
+                                  <tr style={{ background: "#09090b", color: "#ffffff", fontSize: "11px", textTransform: "uppercase" }}>
+                                    <th style={{ padding: "8px 12px", textAlign: "left", borderRadius: "8px 0 0 8px" }}>Item Description</th>
+                                    <th style={{ padding: "8px 12px", textAlign: "left" }}>Recipe</th>
+                                    <th style={{ padding: "8px 12px", textAlign: "center", borderRadius: "0 8px 8px 0" }}>Status</th>
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  <tr style={{ borderBottom: "1px solid #e4e4e7", fontSize: "13px" }}>
-                                    <td style={{ padding: "16px" }}>
-                                      <strong style={{ fontSize: "14px", color: "#09090b", display: "block" }}>{activeInvoice.items}</strong>
-                                      <span style={{ fontSize: "11.5px", color: "#71717a" }}>Kitchen Target: Immediate Serving</span>
+                                  <tr style={{ borderBottom: "1px solid #e4e4e7", fontSize: "12.5px" }}>
+                                    <td style={{ padding: "12px" }}>
+                                      <strong style={{ fontSize: "13px", color: "#09090b", display: "block" }}>{activeInvoice.items}</strong>
                                     </td>
-                                    <td style={{ padding: "16px", fontSize: "12.5px", color: "#52525b" }}>
+                                    <td style={{ padding: "12px", fontSize: "12px", color: "#52525b" }}>
                                       {activeInvoice.customization || "Standard Kitchen Recipe"}
                                     </td>
-                                    <td style={{ padding: "16px", textAlign: "center" }}>
-                                      <span style={{ fontSize: "11px", fontWeight: "850", padding: "4px 10px", borderRadius: "6px", background: activeInvoice.status === "Delivered" || activeInvoice.status === "Completed" ? "#f4f4f5" : "#09090b", color: activeInvoice.status === "Delivered" || activeInvoice.status === "Completed" ? "#09090b" : "#ffffff", border: "1px solid #e4e4e7" }}>
+                                    <td style={{ padding: "12px", textAlign: "center" }}>
+                                      <span style={{ fontSize: "10.5px", fontWeight: "850", padding: "4px 8px", borderRadius: "6px", background: activeInvoice.status === "Delivered" || activeInvoice.status === "Completed" ? "#f4f4f5" : "#09090b", color: activeInvoice.status === "Delivered" || activeInvoice.status === "Completed" ? "#09090b" : "#ffffff", border: "1px solid #e4e4e7" }}>
                                         {activeInvoice.status}
                                       </span>
                                     </td>
@@ -3299,24 +4206,24 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             </div>
 
                             {/* Dispatch Confirmation Box */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px", background: "#fcfcfd", border: "1px solid #e4e4e7", padding: "16px 20px", borderRadius: "12px", marginBottom: "28px" }}>
+                            <div className="slip-dispatch-box" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "16px", background: "#fcfcfd", border: "1px solid #e4e4e7", padding: "14px 16px", borderRadius: "12px", marginBottom: "20px" }}>
                               <div>
-                                <span style={{ fontSize: "11px", fontWeight: "900", color: "#09090b", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>Kitchen Quality Standards</span>
-                                <p style={{ fontSize: "11.5px", color: "#71717a", margin: 0, lineHeight: 1.5 }}>
-                                  Freshly boiled milk & steeped whole tea leaves. Served at optimal brewing temperature (85°C - 90°C) in sanitized insulated flask/cups.
+                                <span style={{ fontSize: "10.5px", fontWeight: "900", color: "#09090b", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>Kitchen Quality Standards</span>
+                                <p style={{ fontSize: "11px", color: "#71717a", margin: 0, lineHeight: 1.4 }}>
+                                  Freshly boiled milk & steeped whole tea leaves. Served at optimal temperature.
                                 </p>
                               </div>
-                              <div style={{ textAlign: "right", borderLeft: "1px solid #e4e4e7", paddingLeft: "20px" }}>
-                                <span style={{ fontSize: "11px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "8px" }}>Brewmaster Sign</span>
-                                <strong style={{ fontSize: "14px", color: "#09090b", display: "block" }}>Master Tea Sommelier</strong>
-                                <span style={{ fontSize: "10.5px", color: "#a1a1aa" }}>Verified & Dispatched</span>
+                              <div style={{ textAlign: "right", borderLeft: "1px solid #e4e4e7", paddingLeft: "14px" }}>
+                                <span style={{ fontSize: "10px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>Brewmaster Sign</span>
+                                <strong style={{ fontSize: "13px", color: "#09090b", display: "block" }}>Master Tea Sommelier</strong>
+                                <span style={{ fontSize: "10px", color: "#a1a1aa" }}>Verified & Dispatched</span>
                               </div>
                             </div>
 
                             {/* Footer info */}
-                            <div style={{ borderTop: "1px solid #e4e4e7", paddingTop: "14px", display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#a1a1aa" }}>
+                            <div style={{ borderTop: "1px solid #e4e4e7", paddingTop: "12px", display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#a1a1aa", flexWrap: "wrap", gap: "6px" }}>
                               <span>🏢 Chai Chaska Central Corporate Hub</span>
-                              <span>📞 Central Kitchen Dispatch Unit</span>
+                              <span>📞 Kitchen Dispatch Unit</span>
                             </div>
 
                           </div>
@@ -3326,81 +4233,84 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   })()}
 
                   {/* Header Title & Description */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "22px", flexWrap: "wrap", gap: "14px" }}>
+                  <div className="history-header-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
                     <div>
-                      <h3 className="section-title" style={{ margin: 0, fontSize: "22px", fontWeight: "900", color: "#09090b" }}>Order History & Logs</h3>
-                      <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#71717a" }}>
-                        Complete operational logs of all offline counter orders and online corporate desk deliveries
+                      <h3 className="section-title" style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#09090b" }}>Order History & Logs</h3>
+                      <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#71717a" }}>
+                        Operational logs of offline counter orders and online desk deliveries
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setShowTodayStatsSidebar(true)}
+                      className="history-tally-btn"
                       style={{
                         background: "linear-gradient(135deg, #f59e0b, #d97706)",
                         color: "#ffffff",
                         border: "none",
-                        padding: "8px 18px",
+                        padding: "8px 16px",
                         borderRadius: "10px",
-                        fontSize: "13px",
+                        fontSize: "12.5px",
                         fontWeight: "800",
                         cursor: "pointer",
                         display: "flex",
                         alignItems: "center",
-                        gap: "8px",
+                        gap: "6px",
                         boxShadow: "0 2px 8px rgba(217, 119, 6, 0.3)",
-                        transition: "all 0.15s ease"
+                        transition: "all 0.15s ease",
+                        whiteSpace: "nowrap"
                       }}
                     >
-                      <span style={{ fontSize: "15px" }}>📊</span> Today's Orders & Product Tally
+                      <span style={{ fontSize: "14px" }}>📊</span> Today's Orders Tally
                     </button>
                   </div>
 
-                  {/* Top Stats Cards Grid (Black & White Theme - Zero Money) */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px", marginBottom: "24px" }} className="dashboard-stats-grid">
-                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>Total Orders Logged</span>
-                      <strong style={{ fontSize: "24px", fontWeight: "900", color: "#09090b" }}>{historyOrders.length}</strong>
-                      <span style={{ fontSize: "11px", color: "#a1a1aa", display: "block", marginTop: "2px" }}>All channels recorded</span>
+                  {/* Top Stats Cards Grid */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }} className="dashboard-stats-grid history-stats-grid">
+                    <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "2px" }}>Total Orders</span>
+                      <strong style={{ fontSize: "22px", fontWeight: "900", color: "#09090b" }}>{historyOrders.length}</strong>
+                      <span style={{ fontSize: "10px", color: "#a1a1aa", display: "block", marginTop: "2px" }}>All channels</span>
                     </div>
 
-                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>Completed & Served</span>
-                      <strong style={{ fontSize: "24px", fontWeight: "900", color: "#09090b" }}>{completedCount}</strong>
-                      <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: "750", display: "block", marginTop: "2px" }}>● Fulfilled successfully</span>
+                    <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "2px" }}>Completed</span>
+                      <strong style={{ fontSize: "22px", fontWeight: "900", color: "#09090b" }}>{completedCount}</strong>
+                      <span style={{ fontSize: "10px", color: "#16a34a", fontWeight: "750", display: "block", marginTop: "2px" }}>● Fulfilled</span>
                     </div>
 
-                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>🏪 Offline / Walk-in</span>
-                      <strong style={{ fontSize: "24px", fontWeight: "900", color: "#09090b" }}>{offlineCount}</strong>
-                      <span style={{ fontSize: "11px", color: "#71717a", display: "block", marginTop: "2px" }}>Counter pickup orders</span>
+                    <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "2px" }}>🏪 Offline</span>
+                      <strong style={{ fontSize: "22px", fontWeight: "900", color: "#09090b" }}>{offlineCount}</strong>
+                      <span style={{ fontSize: "10px", color: "#71717a", display: "block", marginTop: "2px" }}>Counter</span>
                     </div>
 
-                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
-                      <span style={{ fontSize: "11px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "4px" }}>🏢 Online Desk Orders</span>
-                      <strong style={{ fontSize: "24px", fontWeight: "900", color: "#09090b" }}>{onlineCount}</strong>
-                      <span style={{ fontSize: "11px", color: "#71717a", display: "block", marginTop: "2px" }}>Floor delivery requests</span>
+                    <div style={{ background: "#ffffff", padding: "14px 16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
+                      <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#71717a", textTransform: "uppercase", display: "block", marginBottom: "2px" }}>🏢 Online</span>
+                      <strong style={{ fontSize: "22px", fontWeight: "900", color: "#09090b" }}>{onlineCount}</strong>
+                      <span style={{ fontSize: "10px", color: "#71717a", display: "block", marginTop: "2px" }}>Desk delivery</span>
                     </div>
                   </div>
 
-                  {/* Filter Toolbar: Channel Filter + Date Filter + Search Bar + Layout Switcher */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "14px", background: "#ffffff", padding: "14px 18px", borderRadius: "16px", border: "1px solid #e2e8f0" }}>
+                  {/* Filter Toolbar */}
+                  <div className="history-filter-toolbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "10px", background: "#ffffff", padding: "12px 14px", borderRadius: "14px", border: "1px solid #e2e8f0" }}>
 
                     {/* Order Channel Tabs */}
-                    <div style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px" }}>
+                    <div className="history-channel-pills" style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px", overflowX: "auto", maxWidth: "100%" }}>
                       <button
                         type="button"
                         onClick={() => setHistoryTypeFilter("all")}
                         style={{
-                          padding: "7px 14px",
+                          padding: "6px 12px",
                           border: "none",
                           background: historyTypeFilter === "all" ? "#09090b" : "transparent",
                           color: historyTypeFilter === "all" ? "#ffffff" : "#52525b",
-                          borderRadius: "8px",
-                          fontSize: "12px",
+                          borderRadius: "7px",
+                          fontSize: "11.5px",
                           fontWeight: "800",
                           cursor: "pointer",
-                          transition: "all 0.15s ease"
+                          transition: "all 0.15s ease",
+                          whiteSpace: "nowrap"
                         }}
                       >
                         ☕ All ({historyOrders.length})
@@ -3409,58 +4319,60 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         type="button"
                         onClick={() => setHistoryTypeFilter("offline")}
                         style={{
-                          padding: "7px 14px",
+                          padding: "6px 12px",
                           border: "none",
                           background: historyTypeFilter === "offline" ? "#09090b" : "transparent",
                           color: historyTypeFilter === "offline" ? "#ffffff" : "#52525b",
-                          borderRadius: "8px",
-                          fontSize: "12px",
+                          borderRadius: "7px",
+                          fontSize: "11.5px",
                           fontWeight: "800",
                           cursor: "pointer",
-                          transition: "all 0.15s ease"
+                          transition: "all 0.15s ease",
+                          whiteSpace: "nowrap"
                         }}
                       >
-                        🏪 Offline / Counter ({offlineCount})
+                        🏪 Offline ({offlineCount})
                       </button>
                       <button
                         type="button"
                         onClick={() => setHistoryTypeFilter("online")}
                         style={{
-                          padding: "7px 14px",
+                          padding: "6px 12px",
                           border: "none",
                           background: historyTypeFilter === "online" ? "#09090b" : "transparent",
                           color: historyTypeFilter === "online" ? "#ffffff" : "#52525b",
-                          borderRadius: "8px",
-                          fontSize: "12px",
+                          borderRadius: "7px",
+                          fontSize: "11.5px",
                           fontWeight: "800",
                           cursor: "pointer",
-                          transition: "all 0.15s ease"
+                          transition: "all 0.15s ease",
+                          whiteSpace: "nowrap"
                         }}
                       >
-                        🏢 Online Desk ({onlineCount})
+                        🏢 Online ({onlineCount})
                       </button>
                     </div>
 
                     {/* Search Bar */}
-                    <div style={{ flexGrow: 1, maxWidth: "320px", minWidth: "220px", position: "relative" }}>
+                    <div className="history-search-box" style={{ flexGrow: 1, maxWidth: "300px", minWidth: "180px", position: "relative" }}>
                       <input
                         type="text"
-                        placeholder="Search ID, customer, item, desk..."
+                        placeholder="Search ID, customer, item..."
                         value={historySearchTerm}
                         onChange={(e) => setHistorySearchTerm(e.target.value)}
                         style={{
                           width: "100%",
-                          padding: "8px 14px 8px 34px",
-                          borderRadius: "10px",
+                          padding: "8px 12px 8px 32px",
+                          borderRadius: "8px",
                           border: "1.5px solid #e4e4e7",
-                          fontSize: "12.5px",
+                          fontSize: "12px",
                           background: "#f8fafc",
                           color: "#09090b",
                           outline: "none",
                           boxSizing: "border-box"
                         }}
                       />
-                      <span style={{ position: "absolute", left: "11px", top: "50%", transform: "translateY(-50%)", fontSize: "13px", color: "#a1a1aa" }}>🔍</span>
+                      <span style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", fontSize: "12px", color: "#a1a1aa" }}>🔍</span>
                       {historySearchTerm && (
                         <button
                           type="button"
@@ -3473,23 +4385,23 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     </div>
 
                     {/* Date Filters */}
-                    <div style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px" }}>
+                    <div className="history-date-filters" style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px", flexWrap: "wrap", alignItems: "center" }}>
                       {[
-                        { key: "all", label: "All Time" },
+                        { key: "all", label: "All" },
                         { key: "today", label: "Today" },
-                        { key: "7days", label: "Last 7 Days" }
+                        { key: "7days", label: "7D" }
                       ].map((item) => (
                         <button
                           key={item.key}
                           type="button"
                           onClick={() => setHistoryDateFilter(item.key)}
                           style={{
-                            padding: "6px 12px",
+                            padding: "6px 10px",
                             border: "none",
                             background: historyDateFilter === item.key ? "#09090b" : "transparent",
                             color: historyDateFilter === item.key ? "#ffffff" : "#52525b",
-                            borderRadius: "7px",
-                            fontSize: "11.5px",
+                            borderRadius: "6px",
+                            fontSize: "11px",
                             fontWeight: "800",
                             cursor: "pointer",
                             transition: "all 0.15s ease"
@@ -3498,35 +4410,20 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           {item.label}
                         </button>
                       ))}
-                      <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
-                      <input 
-                        type="date"
-                        value={(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? timeFilter : ""}
-                        onChange={(e) => setTimeFilter(e.target.value || "All")}
-                        style={{
-                          padding: "4px 8px",
-                          borderRadius: "6px",
-                          border: "1px solid #ddd",
-                          fontSize: "12px",
-                          color: "#333",
-                          cursor: "pointer",
-                          outline: "none"
-                        }}
-                      />
                     </div>
 
                     {/* Format Layout Toggle */}
-                    <div style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px" }}>
+                    <div className="history-view-toggle" style={{ display: "flex", background: "#f4f4f5", padding: "4px", borderRadius: "10px", gap: "4px" }}>
                       <button
                         type="button"
                         onClick={() => setHistoryViewMode("list")}
                         style={{
-                          padding: "6px 12px",
+                          padding: "6px 10px",
                           border: "none",
                           background: historyViewMode === "list" ? "#09090b" : "transparent",
                           color: historyViewMode === "list" ? "#ffffff" : "#52525b",
-                          borderRadius: "7px",
-                          fontSize: "11.5px",
+                          borderRadius: "6px",
+                          fontSize: "11px",
                           fontWeight: "800",
                           cursor: "pointer"
                         }}
@@ -3537,12 +4434,12 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         type="button"
                         onClick={() => setHistoryViewMode("grid")}
                         style={{
-                          padding: "6px 12px",
+                          padding: "6px 10px",
                           border: "none",
                           background: historyViewMode === "grid" ? "#09090b" : "transparent",
                           color: historyViewMode === "grid" ? "#ffffff" : "#52525b",
-                          borderRadius: "7px",
-                          fontSize: "11.5px",
+                          borderRadius: "6px",
+                          fontSize: "11px",
                           fontWeight: "800",
                           cursor: "pointer"
                         }}
@@ -3562,10 +4459,10 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                   {/* Render Empty State or Data */}
                   {filteredHistory.length === 0 ? (
-                    <div style={{ background: "#ffffff", borderRadius: "18px", border: "1px solid #e2e8f0", padding: "64px 24px", textAlign: "center" }}>
-                      <span style={{ fontSize: "42px", display: "block", marginBottom: "12px" }}>📜</span>
-                      <strong style={{ fontSize: "16px", color: "#09090b", display: "block", marginBottom: "6px" }}>No orders matching the current filter</strong>
-                      <p style={{ fontSize: "13px", color: "#71717a", margin: "0 auto 16px", maxWidth: "420px" }}>
+                    <div style={{ background: "#ffffff", borderRadius: "16px", border: "1px solid #e2e8f0", padding: "48px 20px", textAlign: "center" }}>
+                      <span style={{ fontSize: "36px", display: "block", marginBottom: "10px" }}>📜</span>
+                      <strong style={{ fontSize: "15px", color: "#09090b", display: "block", marginBottom: "4px" }}>No orders matching the current filter</strong>
+                      <p style={{ fontSize: "12px", color: "#71717a", margin: "0 auto 14px", maxWidth: "380px" }}>
                         Try switching the channel filter or adjusting the date range to see logged orders.
                       </p>
                       <button
@@ -3575,203 +4472,83 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           setHistoryDateFilter("all");
                           setHistorySearchTerm("");
                         }}
-                        style={{ background: "#09090b", color: "#ffffff", border: "none", padding: "8px 18px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}
+                        style={{ background: "#09090b", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}
                       >
                         Reset All Filters
                       </button>
                     </div>
-                  ) : historyViewMode === "grid" ? (
-                    /* GRID VIEW MODE */
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "16px" }}>
-                      {filteredHistory.map((h, i) => (
-                        <div key={i} style={{ background: "#ffffff", padding: "20px", borderRadius: "16px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-                          <div>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", borderBottom: "1px solid #f1f5f9", paddingBottom: "10px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                                <span style={{ fontSize: "12px", fontWeight: "900", color: "#ffffff", background: "#09090b", padding: "2px 7px", borderRadius: "5px" }}>
-                                  {h.id}
-                                </span>
-                                <span style={{
-                                  fontSize: "10.5px",
-                                  fontWeight: "800",
-                                  padding: "2px 6px",
-                                  borderRadius: "4px",
-                                  background: h.isOffline ? "#09090b" : "#f4f4f5",
-                                  color: h.isOffline ? "#ffffff" : "#09090b",
-                                  border: "1px solid #e4e4e7"
-                                }}>
-                                  {h.isOffline ? "🏪 Offline Walk-in" : "🏢 Desk Delivery"}
-                                </span>
-                                <span style={{
-                                  fontSize: "10.5px",
-                                  fontWeight: "750",
-                                  padding: "2px 6px",
-                                  borderRadius: "4px",
-                                  background: "#f8fafc",
-                                  color: "#52525b",
-                                  border: "1px solid #e2e8f0"
-                                }}>
-                                  {h.paymentMethod === "Cash" ? "💵 Cash" : h.paymentMethod === "Card" ? "💳 Card" : h.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${h.paymentMethod || "Online UPI"}`}
-                                </span>
-                              </div>
-                              <span style={{ fontSize: "11px", color: "#71717a", fontWeight: "600" }}>{h.date}</span>
-                            </div>
-
-                            <div style={{ display: "flex", gap: "12px", marginBottom: "14px" }}>
-                              <img
-                                src={h.image || "/logo.png"}
-                                alt={h.items}
-                                style={{ width: "50px", height: "50px", borderRadius: "10px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }}
-                              />
-                              <div style={{ flexGrow: 1, minWidth: 0 }}>
-                                <strong style={{ fontSize: "14px", color: "#09090b", display: "block", marginBottom: "2px" }}>👤 {h.customer}</strong>
-                                <p style={{ fontSize: "12.5px", color: "#27272a", fontWeight: "700", margin: "0 0 4px 0" }}>{h.items}</p>
-                                <span style={{ fontSize: "11px", color: "#71717a", display: "block" }}>⚙️ {h.customization}</span>
-                                <span style={{ fontSize: "11px", color: "#71717a", display: "block" }}>📍 {h.office}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px", borderTop: "1px solid #f1f5f9" }}>
-                            <span style={{
-                              fontSize: "11px",
-                              fontWeight: "850",
-                              padding: "4px 10px",
-                              borderRadius: "6px",
-                              background: h.status === "Delivered" || h.status === "Completed" ? "#f4f4f5" : "#09090b",
-                              color: h.status === "Delivered" || h.status === "Completed" ? "#09090b" : "#ffffff",
-                              border: "1px solid #e4e4e7"
-                            }}>
-                              {h.status}
-                            </span>
-
-                            <div style={{ display: "flex", gap: "8px" }}>
-                              <button
-                                type="button"
-                                onClick={() => setActiveInvoice(h)}
-                                style={{ background: "#ffffff", border: "1.5px solid #e4e4e7", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", color: "#09090b" }}
-                              >
-                                🖨️ Slip
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setToastMsg(`🔄 Re-opened order ${h.id} as active brewing request!`);
-                                  setTimeout(() => setToastMsg(""), 3000);
-                                }}
-                                style={{ background: "#09090b", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", cursor: "pointer", fontWeight: "800" }}
-                              >
-                                Re-open
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
                   ) : (
-                    /* LIST VIEW MODE (RESPONSIVE TABLE - ZERO MONEY) */
-                    <div style={{ background: "#ffffff", borderRadius: "18px", border: "1px solid #e2e8f0", overflow: "hidden", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left" }}>
-                        <thead>
-                          <tr style={{ background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0", fontSize: "11px", textTransform: "uppercase", color: "#52525b", letterSpacing: "0.5px" }}>
-                            <th style={{ padding: "16px 20px" }}>Order ID & Channel</th>
-                            <th style={{ padding: "16px 20px" }}>Payment</th>
-                            <th style={{ padding: "16px 20px" }}>Customer</th>
-                            <th style={{ padding: "16px 20px" }}>Items & Customization</th>
-                            <th style={{ padding: "16px 20px" }}>Destination / Desk</th>
-                            <th style={{ padding: "16px 20px" }}>Date & Time</th>
-                            <th style={{ padding: "16px 20px" }}>Status</th>
-                            <th style={{ padding: "16px 20px", textAlign: "right" }}>Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                    /* ORDERS DISPLAY: GRID OR LIST */
+                    <div className="history-orders-container">
+                      {historyViewMode === "grid" ? (
+                        <div className="history-orders-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px" }}>
                           {filteredHistory.map((h, i) => (
-                            <tr key={i} style={{ borderBottom: i === filteredHistory.length - 1 ? "none" : "1px solid #f1f5f9", fontSize: "13px", transition: "background 0.1s ease" }}>
-                              <td style={{ padding: "16px 20px" }}>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                                  <strong style={{ color: "#09090b", fontSize: "13px" }}>{h.id}</strong>
-                                  <span style={{
-                                    fontSize: "10.5px",
-                                    fontWeight: "800",
-                                    padding: "2px 6px",
-                                    borderRadius: "4px",
-                                    background: h.isOffline ? "#09090b" : "#f4f4f5",
-                                    color: h.isOffline ? "#ffffff" : "#09090b",
-                                    border: "1px solid #e4e4e7",
-                                    width: "fit-content"
-                                  }}>
-                                    {h.isOffline ? "🏪 Offline Walk-in" : "🏢 Desk Delivery"}
-                                  </span>
+                            <div key={i} className="history-order-card" style={{ background: "#ffffff", padding: "16px", borderRadius: "14px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", justifyContent: "space-between", gap: "10px" }}>
+                              <div>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", borderBottom: "1px solid #f1f5f9", paddingBottom: "8px", gap: "6px", flexWrap: "wrap" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: "11px", fontWeight: "900", color: "#ffffff", background: "#09090b", padding: "2px 6px", borderRadius: "4px" }}>
+                                      {h.id}
+                                    </span>
+                                    <span style={{
+                                      fontSize: "10px",
+                                      fontWeight: "800",
+                                      padding: "2px 6px",
+                                      borderRadius: "4px",
+                                      background: h.isOffline ? "#09090b" : "#f4f4f5",
+                                      color: h.isOffline ? "#ffffff" : "#09090b",
+                                      border: "1px solid #e4e4e7"
+                                    }}>
+                                      {h.isOffline ? "🏪 Offline" : "🏢 Online"}
+                                    </span>
+                                    <span style={{
+                                      fontSize: "10px",
+                                      fontWeight: "750",
+                                      padding: "2px 6px",
+                                      borderRadius: "4px",
+                                      background: "#f8fafc",
+                                      color: "#52525b",
+                                      border: "1px solid #e2e8f0"
+                                    }}>
+                                      {h.paymentMethod === "Cash" ? "💵 Cash" : h.paymentMethod === "Card" ? "💳 Card" : h.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${h.paymentMethod || "UPI"}`}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: "10.5px", color: "#71717a", fontWeight: "600" }}>{h.date}</span>
                                 </div>
-                              </td>
 
-                              <td style={{ padding: "16px 20px" }}>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                                  <span style={{
-                                    fontSize: "11px",
-                                    fontWeight: "800",
-                                    padding: "3px 8px",
-                                    borderRadius: "5px",
-                                    background: "#f4f4f5",
-                                    color: "#09090b",
-                                    border: "1px solid #e4e4e7",
-                                    width: "fit-content"
-                                  }}>
-                                    {h.paymentMethod === "Cash" ? "💵 Cash" : h.paymentMethod === "Card" ? "💳 Card" : h.paymentMethod === "Corporate Due" ? "🏢 Corporate Due" : `📱 ${h.paymentMethod || "Online UPI"}`}
-                                  </span>
-                                  <span style={{ fontSize: "10.5px", color: h.paymentStatus === "Paid" ? "#16a34a" : "#ca8a04", fontWeight: "750" }}>
-                                    ● {h.paymentStatus || "Paid"}
-                                  </span>
-                                </div>
-                              </td>
-
-                              <td style={{ padding: "16px 20px" }}>
-                                <strong style={{ color: "#09090b", display: "block" }}>{h.customer}</strong>
-                                <span style={{ fontSize: "11px", color: "#71717a" }}>{h.isOffline ? "Counter Guest" : "Corporate Partner"}</span>
-                              </td>
-
-                              <td style={{ padding: "16px 20px" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
                                   <img
                                     src={h.image || "/logo.png"}
                                     alt={h.items}
-                                    style={{ width: "38px", height: "38px", borderRadius: "8px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }}
+                                    style={{ width: "44px", height: "44px", borderRadius: "8px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }}
                                   />
-                                  <div>
-                                    <span style={{ fontWeight: "750", color: "#09090b", display: "block" }}>{h.items}</span>
-                                    <span style={{ fontSize: "11px", color: "#71717a" }}>{h.customization}</span>
+                                  <div style={{ flexGrow: 1, minWidth: 0 }}>
+                                    <strong style={{ fontSize: "13.5px", color: "#09090b", display: "block", marginBottom: "2px" }}>👤 {h.customer}</strong>
+                                    <p style={{ fontSize: "12px", color: "#27272a", fontWeight: "700", margin: "0 0 2px 0" }}>{h.items}</p>
+                                    <span style={{ fontSize: "10.5px", color: "#71717a", display: "block" }}>⚙️ {h.customization}</span>
+                                    <span style={{ fontSize: "10.5px", color: "#71717a", display: "block" }}>📍 {h.office}</span>
                                   </div>
                                 </div>
-                              </td>
+                              </div>
 
-                              <td style={{ padding: "16px 20px", color: "#52525b" }}>
-                                <span>📍 {h.office}</span>
-                              </td>
-
-                              <td style={{ padding: "16px 20px", color: "#71717a", fontSize: "12px" }}>
-                                <span>{h.date}</span>
-                              </td>
-
-                              <td style={{ padding: "16px 20px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "10px", borderTop: "1px solid #f1f5f9" }}>
                                 <span style={{
-                                  fontSize: "11px",
+                                  fontSize: "10.5px",
                                   fontWeight: "850",
-                                  padding: "4px 10px",
-                                  borderRadius: "6px",
+                                  padding: "3px 8px",
+                                  borderRadius: "5px",
                                   background: h.status === "Delivered" || h.status === "Completed" ? "#f4f4f5" : "#09090b",
                                   color: h.status === "Delivered" || h.status === "Completed" ? "#09090b" : "#ffffff",
                                   border: "1px solid #e4e4e7"
                                 }}>
                                   {h.status}
                                 </span>
-                              </td>
 
-                              <td style={{ padding: "16px 20px", textAlign: "right" }}>
-                                <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                                <div style={{ display: "flex", gap: "6px" }}>
                                   <button
                                     type="button"
                                     onClick={() => setActiveInvoice(h)}
-                                    style={{ background: "#ffffff", border: "1.5px solid #e4e4e7", padding: "6px 12px", borderRadius: "7px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", color: "#09090b" }}
+                                    style={{ background: "#ffffff", border: "1.5px solid #e4e4e7", padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer", color: "#09090b" }}
                                   >
                                     🖨️ Slip
                                   </button>
@@ -3781,16 +4558,139 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                       setToastMsg(`🔄 Re-opened order ${h.id} as active brewing request!`);
                                       setTimeout(() => setToastMsg(""), 3000);
                                     }}
-                                    style={{ background: "#09090b", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "7px", fontSize: "11.5px", cursor: "pointer", fontWeight: "800" }}
+                                    style={{ background: "#09090b", color: "#ffffff", border: "none", padding: "5px 10px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontWeight: "800" }}
                                   >
                                     Re-open
                                   </button>
                                 </div>
-                              </td>
-                            </tr>
+                              </div>
+                            </div>
                           ))}
-                        </tbody>
-                      </table>
+                        </div>
+                      ) : (
+                        <div className="history-table-wrapper" style={{ background: "#ffffff", borderRadius: "16px", border: "1px solid #e2e8f0", overflowX: "auto", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", minWidth: "600px" }}>
+                            <thead>
+                              <tr style={{ background: "#f8fafc", borderBottom: "1.5px solid #e2e8f0", fontSize: "10.5px", textTransform: "uppercase", color: "#52525b", letterSpacing: "0.5px" }}>
+                                <th style={{ padding: "12px 16px" }}>Order ID & Channel</th>
+                                <th style={{ padding: "12px 16px" }}>Payment</th>
+                                <th style={{ padding: "12px 16px" }}>Customer</th>
+                                <th style={{ padding: "12px 16px" }}>Items & Customization</th>
+                                <th style={{ padding: "12px 16px" }}>Destination / Desk</th>
+                                <th style={{ padding: "12px 16px" }}>Date & Time</th>
+                                <th style={{ padding: "12px 16px" }}>Status</th>
+                                <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filteredHistory.map((h, i) => (
+                                <tr key={i} style={{ borderBottom: i === filteredHistory.length - 1 ? "none" : "1px solid #f1f5f9", fontSize: "12.5px" }}>
+                                  <td style={{ padding: "12px 16px" }}>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                      <strong style={{ color: "#09090b", fontSize: "12px" }}>{h.id}</strong>
+                                      <span style={{
+                                        fontSize: "9.5px",
+                                        fontWeight: "800",
+                                        padding: "1px 5px",
+                                        borderRadius: "4px",
+                                        background: h.isOffline ? "#09090b" : "#f4f4f5",
+                                        color: h.isOffline ? "#ffffff" : "#09090b",
+                                        border: "1px solid #e4e4e7",
+                                        width: "fit-content"
+                                      }}>
+                                        {h.isOffline ? "🏪 Offline" : "🏢 Online"}
+                                      </span>
+                                    </div>
+                                  </td>
+
+                                  <td style={{ padding: "12px 16px" }}>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                                      <span style={{
+                                        fontSize: "10px",
+                                        fontWeight: "800",
+                                        padding: "2px 6px",
+                                        borderRadius: "4px",
+                                        background: "#f4f4f5",
+                                        color: "#09090b",
+                                        border: "1px solid #e4e4e7",
+                                        width: "fit-content"
+                                      }}>
+                                        {h.paymentMethod === "Cash" ? "💵 Cash" : h.paymentMethod === "Card" ? "💳 Card" : h.paymentMethod === "Corporate Due" ? "🏢 Due" : `📱 ${h.paymentMethod || "UPI"}`}
+                                      </span>
+                                      <span style={{ fontSize: "10px", color: h.paymentStatus === "Paid" ? "#16a34a" : "#ca8a04", fontWeight: "750" }}>
+                                        ● {h.paymentStatus || "Paid"}
+                                      </span>
+                                    </div>
+                                  </td>
+
+                                  <td style={{ padding: "12px 16px" }}>
+                                    <strong style={{ color: "#09090b", display: "block" }}>{h.customer}</strong>
+                                    <span style={{ fontSize: "10.5px", color: "#71717a" }}>{h.isOffline ? "Counter" : "Corporate"}</span>
+                                  </td>
+
+                                  <td style={{ padding: "12px 16px" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                      <img
+                                        src={h.image || "/logo.png"}
+                                        alt={h.items}
+                                        style={{ width: "32px", height: "32px", borderRadius: "6px", objectFit: "cover", border: "1px solid #e4e4e7", flexShrink: 0 }}
+                                      />
+                                      <div>
+                                        <span style={{ fontWeight: "750", color: "#09090b", display: "block" }}>{h.items}</span>
+                                        <span style={{ fontSize: "10px", color: "#71717a" }}>{h.customization}</span>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  <td style={{ padding: "12px 16px", color: "#52525b" }}>
+                                    <span>📍 {h.office}</span>
+                                  </td>
+
+                                  <td style={{ padding: "12px 16px", color: "#71717a", fontSize: "11px" }}>
+                                    <span>{h.date}</span>
+                                  </td>
+
+                                  <td style={{ padding: "12px 16px" }}>
+                                    <span style={{
+                                      fontSize: "10.5px",
+                                      fontWeight: "850",
+                                      padding: "3px 8px",
+                                      borderRadius: "5px",
+                                      background: h.status === "Delivered" || h.status === "Completed" ? "#f4f4f5" : "#09090b",
+                                      color: h.status === "Delivered" || h.status === "Completed" ? "#09090b" : "#ffffff",
+                                      border: "1px solid #e4e4e7"
+                                    }}>
+                                      {h.status}
+                                    </span>
+                                  </td>
+
+                                  <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                                    <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => setActiveInvoice(h)}
+                                        style={{ background: "#ffffff", border: "1.5px solid #e4e4e7", padding: "5px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer", color: "#09090b" }}
+                                      >
+                                        🖨️ Slip
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setToastMsg(`🔄 Re-opened order ${h.id} as active brewing request!`);
+                                          setTimeout(() => setToastMsg(""), 3000);
+                                        }}
+                                        style={{ background: "#09090b", color: "#ffffff", border: "none", padding: "5px 10px", borderRadius: "6px", fontSize: "11px", cursor: "pointer", fontWeight: "800" }}
+                                      >
+                                        Re-open
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -3877,7 +4777,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                 </button>
                               </div>
                             </div>
-                            
+
                             <div suppressHydrationWarning style={{ marginTop: "16px", padding: "12px", background: "#fcfaf7", borderRadius: "12px", border: "1px solid rgba(0,0,0,0.05)" }}>
                               <span style={{ fontSize: "11px", color: "#888", display: "block", marginBottom: "8px", textTransform: "uppercase", fontWeight: "bold" }}>📅 Delivery Tracker</span>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
@@ -3952,8 +4852,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
             })()}
 
             {activeTab === "leave" && (
-              <div className="tab-body-wrapper">
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "28px" }}>
+              <div className="tab-body-wrapper leave-tab-body">
+                <div className="leave-two-col-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "24px" }}>
 
                   {/* Left Column: Apply Leave Form */}
                   <div>
@@ -3973,32 +4873,34 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           setTimeout(() => setToastMsg(""), 3500);
                         }
                       }}
-                      style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "28px" }}
+                      style={{ background: "#ffffff", padding: "20px", borderRadius: "18px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "24px" }}
                     >
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px", marginBottom: "14px" }}>
+                      <div className="leave-dates-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
                         <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Start Date</label>
-                          <input type="date" value={leaveStart} onChange={(e) => setLeaveStart(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>Start Date</label>
+                          <input type="date" value={leaveStart} onChange={(e) => setLeaveStart(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12.5px", boxSizing: "border-box" }} />
                         </div>
                         <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>End Date</label>
-                          <input type="date" value={leaveEnd} onChange={(e) => setLeaveEnd(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>End Date</label>
+                          <input type="date" value={leaveEnd} onChange={(e) => setLeaveEnd(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12.5px", boxSizing: "border-box" }} />
                         </div>
                       </div>
 
-                      <div className="form-group" style={{ marginBottom: "20px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Reason for Leave</label>
-                        <input type="text" placeholder="e.g. Personal emergency, Kitchen maintenance" value={newLeaveReason} onChange={(e) => setNewLeaveReason(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "12.5px" }} />
+                      <div className="form-group" style={{ marginBottom: "18px" }}>
+                        <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>Reason for Leave</label>
+                        <input type="text" placeholder="e.g. Personal emergency, Kitchen maintenance" value={newLeaveReason} onChange={(e) => setNewLeaveReason(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12.5px", boxSizing: "border-box" }} />
                       </div>
 
-                      <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "12px", borderRadius: "8px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
+                      <button type="submit" style={{ width: "100%", background: "#09090b", color: "#ffffff", border: "none", padding: "12px", borderRadius: "8px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
                         SUBMIT LEAVE REQUEST
                       </button>
                     </form>
 
                     {/* Applied Leaves Log */}
                     <h3 className="section-title">Leave History & Status</h3>
-                    <div style={{ background: "#ffffff", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)", overflow: "hidden" }}>
+                    
+                    {/* Desktop Table */}
+                    <div className="leave-table-card desktop-only-view" style={{ background: "#ffffff", borderRadius: "18px", border: "1px solid rgba(44, 27, 13, 0.04)", overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12px" }}>
                         <thead>
                           <tr style={{ background: "#fbf9f6", borderBottom: "1px solid rgba(0,0,0,0.06)", color: "#666" }}>
@@ -4029,22 +4931,60 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               </td>
                             </tr>
                           ))}
+                          {leaveRequests.length === 0 && (
+                            <tr>
+                              <td colSpan="3" style={{ padding: "20px", textAlign: "center", color: "#888", fontStyle: "italic" }}>
+                                No leave requests recorded yet.
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
+
+                    {/* Mobile Leave Cards */}
+                    <div className="leave-mobile-cards-container mobile-only-view" style={{ display: "none", flexDirection: "column", gap: "10px" }}>
+                      {leaveRequests.map((req, i) => (
+                        <div key={req.id || i} style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: "800", color: "#09090b" }}>📅 {req.start} to {req.end}</span>
+                            <span style={{
+                              fontSize: "9.5px",
+                              padding: "2px 6px",
+                              borderRadius: "4px",
+                              fontWeight: "800",
+                              background: req.status === "Approved" ? "rgba(39,174,96,0.1)" : (req.status === "Rejected" ? "rgba(231,76,60,0.1)" : "rgba(241,196,15,0.12)"),
+                              color: req.status === "Approved" ? "#27ae60" : (req.status === "Rejected" ? "#e74c3c" : "#d35400")
+                            }}>
+                              {req.status}
+                            </span>
+                          </div>
+                          <p style={{ fontSize: "11.5px", color: "#52525b", margin: 0 }}>{req.reason}</p>
+                          {req.adminReason && (
+                            <span style={{ display: "block", marginTop: "4px", fontSize: "10px", color: "#d97706", fontWeight: "600" }}>Note: {req.adminReason}</span>
+                          )}
+                        </div>
+                      ))}
+                      {leaveRequests.length === 0 && (
+                        <div style={{ padding: "20px 12px", textAlign: "center", color: "#888", background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0", fontStyle: "italic", fontSize: "12px" }}>
+                          No leave requests recorded yet.
+                        </div>
+                      )}
+                    </div>
+
                   </div>
 
                   {/* Right Column: Shift Config */}
                   <div>
                     <h3 className="section-title">Shift Timing & Operations</h3>
-                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                      <div className="form-group" style={{ marginBottom: "20px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Daily Operations Window</label>
+                    <div style={{ background: "#ffffff", padding: "20px", borderRadius: "18px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
+                      <div className="form-group" style={{ marginBottom: "18px" }}>
+                        <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>Daily Operations Window</label>
                         <input
                           type="text"
                           value={workingHours}
                           onChange={(e) => setWorkingHours(e.target.value)}
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
+                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box" }}
                         />
                       </div>
 
@@ -4055,7 +4995,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           setToastMsg("🌱 Successfully saved shift timings!");
                           setTimeout(() => setToastMsg(""), 3000);
                         }}
-                        style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", cursor: "pointer" }}
+                        style={{ width: "100%", background: "#09090b", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}
                       >
                         Save Configuration
                       </button>
@@ -4067,8 +5007,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
             )}
 
             {activeTab === "profile" && (
-              <div className="tab-body-wrapper">
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
+              <div className="tab-body-wrapper profile-tab-body">
+                <div className="dashboard-double-row-grid profile-two-col-grid" style={{ marginBottom: "24px" }}>
 
                   {/* Left Column: Brewmaster Profile Details */}
                   <div>
@@ -4259,7 +5199,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   <div style={{ display: "grid", gridTemplateColumns: "1.1fr 0.9fr", gap: "24px", marginBottom: "24px" }} className="dashboard-double-row-grid">
                     {/* Left Column: Date, Customer & Destination */}
                     <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e2e8f0", boxShadow: "0 2px 8px rgba(0,0,0,0.02)", display: "flex", flexDirection: "column", gap: "18px" }}>
-                      
+
                       {/* DATE & TIME SELECTION SECTION */}
                       <div style={{ background: isPastOrder ? "#fffbeb" : "#f8fafc", padding: "16px", borderRadius: "14px", border: isPastOrder ? "1.5px solid #fcd34d" : "1.5px solid #e2e8f0" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
@@ -4274,14 +5214,14 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
                           <div>
                             <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "4px" }}>Order Date</label>
-                            <input 
+                            <input
                               type="date"
                               value={offlineOrderForm.orderDate || todayIso}
                               onChange={(e) => {
                                 const newDate = e.target.value;
                                 const isPast = newDate && newDate < todayIso;
-                                setOfflineOrderForm({ 
-                                  ...offlineOrderForm, 
+                                setOfflineOrderForm({
+                                  ...offlineOrderForm,
                                   orderDate: newDate,
                                   status: isPast ? "Delivered" : (offlineOrderForm.status || "Delivered")
                                 });
@@ -4292,7 +5232,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                           <div>
                             <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "4px" }}>Order Time</label>
-                            <input 
+                            <input
                               type="time"
                               value={offlineOrderForm.orderTime || "12:00"}
                               onChange={(e) => setOfflineOrderForm({ ...offlineOrderForm, orderTime: e.target.value })}
@@ -4342,7 +5282,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         </div>
 
                         <div style={{ marginBottom: "12px" }}>
-                          <input 
+                          <input
                             type="text"
                             value={offlineOrderForm.customerName}
                             onChange={e => setOfflineOrderForm({ ...offlineOrderForm, customerName: e.target.value })}
@@ -4353,7 +5293,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                         <div style={{ marginBottom: "14px" }}>
                           <label style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "12.5px", cursor: "pointer", fontWeight: "750", color: "#09090b" }}>
-                            <input 
+                            <input
                               type="checkbox"
                               checked={offlineOrderForm.walkIn}
                               onChange={e => setOfflineOrderForm({ ...offlineOrderForm, walkIn: e.target.checked, address: e.target.checked ? "Walk-in Counter" : "", phone: e.target.checked ? "Walk-in" : "" })}
@@ -4367,7 +5307,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "12px", marginBottom: "12px" }}>
                             <div>
                               <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Phone</label>
-                              <input 
+                              <input
                                 type="text"
                                 value={offlineOrderForm.phone}
                                 onChange={e => setOfflineOrderForm({ ...offlineOrderForm, phone: e.target.value })}
@@ -4377,7 +5317,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             </div>
                             <div>
                               <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Desk / Office</label>
-                              <input 
+                              <input
                                 type="text"
                                 value={offlineOrderForm.address}
                                 onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
@@ -4445,7 +5385,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "850", color: "#09090b" }}>Order Products & Chai</h4>
                             <span style={{ fontSize: "12px", color: "#71717a" }}>Selected Chai & Snacks</span>
                           </div>
-                          <button 
+                          <button
                             type="button"
                             onClick={() => setIsOfflineItemModalOpen(true)}
                             style={{ background: "#000000", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: "800", fontSize: "12.5px" }}
@@ -4476,7 +5416,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                   </div>
                                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                     <span style={{ fontSize: "12px", background: "#f4f4f5", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", color: "#09090b" }}>{item.qty}x</span>
-                                    <button 
+                                    <button
                                       type="button"
                                       onClick={() => {
                                         const updated = offlineOrderForm.items.filter((_, i) => i !== idx);
@@ -4504,7 +5444,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           </span>
                         </div>
 
-                        <button 
+                        <button
                           type="button"
                           onClick={async () => {
                             if (!offlineOrderForm.customerName || offlineOrderForm.items.length === 0) {
@@ -4546,17 +5486,17 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             try {
                               await createOrder(orderData);
                               setToastMsg(`✅ Offline Order added for ${orderDateVal} (₹${calculatedTotal})! Sales & Tally updated.`);
-                              setOfflineOrderForm({ 
-                                customerName: "", 
-                                address: "", 
-                                phone: "", 
-                                walkIn: true, 
-                                orderDate: todayIso, 
-                                orderTime: new Date().toTimeString().slice(0, 5), 
-                                status: "Delivered", 
-                                paymentMethod: "Cash", 
-                                paymentStatus: "Paid", 
-                                items: [] 
+                              setOfflineOrderForm({
+                                customerName: "",
+                                address: "",
+                                phone: "",
+                                walkIn: true,
+                                orderDate: todayIso,
+                                orderTime: new Date().toTimeString().slice(0, 5),
+                                status: "Delivered",
+                                paymentMethod: "Cash",
+                                paymentStatus: "Paid",
+                                items: []
                               });
                               setTimeout(() => setToastMsg(""), 4000);
                             } catch (e) {
@@ -4578,7 +5518,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
             {/* MODAL: SELECT CHAI & PRODUCTS FOR OFFLINE COUNTER (AUTO PRICE) */}
             {isOfflineItemModalOpen && (
-              <div 
+              <div
                 style={{
                   position: "fixed",
                   top: 0,
@@ -4594,15 +5534,16 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 }}
                 onClick={() => setIsOfflineItemModalOpen(false)}
               >
-                <div 
+                <div
+                  className="pos-modal-card"
                   onClick={e => e.stopPropagation()}
                   style={{
-                    width: "100%", 
-                    maxWidth: "700px", 
-                    maxHeight: "88vh", 
-                    padding: "24px 28px", 
-                    borderRadius: "20px", 
-                    border: "1px solid #e4e4e7", 
+                    width: "100%",
+                    maxWidth: "700px",
+                    maxHeight: "88vh",
+                    padding: "24px 28px",
+                    borderRadius: "20px",
+                    border: "1px solid #e4e4e7",
                     background: "#ffffff",
                     boxShadow: "0 25px 60px -15px rgba(0,0,0,0.3)",
                     display: "flex",
@@ -4637,7 +5578,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     </button>
                   </div>
 
-                  <div style={{ maxHeight: "440px", overflowY: "auto", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", paddingRight: "10px" }}>
+                  <div className="pos-modal-product-grid" style={{ maxHeight: "440px", overflowY: "auto", display: "grid", gap: "12px", paddingRight: "10px" }}>
                     {productsList.length === 0 ? <p style={{ color: "#71717a" }}>Loading menu items...</p> : productsList.map(prod => {
                       const prodPrice = typeof prod.price === "number" ? prod.price : parseFloat(String(prod.price || prod.basePrice || 40).replace(/[^\d.]/g, "")) || 40;
                       const existing = offlineOrderForm.items.find(i => i.id === prod.id);
@@ -4654,7 +5595,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           </div>
                           {existing ? (
                             <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "#ffffff", borderRadius: "8px", padding: "4px", border: "1px solid #86efac" }}>
-                              <button 
+                              <button
                                 type="button"
                                 onClick={() => {
                                   let updated;
@@ -4671,7 +5612,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                 -
                               </button>
                               <span style={{ fontSize: "13px", fontWeight: "900", width: "20px", textAlign: "center", color: "#09090b" }}>{existing.qty}</span>
-                              <button 
+                              <button
                                 type="button"
                                 onClick={() => {
                                   const updated = offlineOrderForm.items.map(i => i.id === prod.id ? { ...i, qty: i.qty + 1 } : i);
@@ -4684,7 +5625,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               </button>
                             </div>
                           ) : (
-                            <button 
+                            <button
                               type="button"
                               onClick={() => {
                                 const m = getProductMeta(prod.name, prod.image || prod.imagePath || prod.img, prod.category);
@@ -4706,7 +5647,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     <div style={{ fontSize: "13px", color: "#09090b", flexGrow: 1, paddingRight: "20px" }}>
                       {offlineOrderForm.items.length > 0 ? (
                         <span>
-                          <strong>Selected: </strong> 
+                          <strong>Selected: </strong>
                           {offlineOrderForm.items.map(i => `${i.qty}x ${i.name} (₹${(i.priceNum || 40) * i.qty})`).join(", ")}
                           <strong style={{ marginLeft: "8px", color: "#16a34a" }}>• Total: ₹{offlineOrderForm.items.reduce((s, it) => s + (it.priceNum || 40) * it.qty, 0)}</strong>
                         </span>
@@ -4714,7 +5655,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         <span style={{ color: "#71717a" }}>No items selected yet. Tap '+ Add' to select.</span>
                       )}
                     </div>
-                    <button 
+                    <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -5199,14 +6140,14 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
       {incomingOrder && (
         <div className="bw-alert-overlay">
           <div className="bw-alert-modal">
-            
+
             {/* Top Indicator Bar */}
             <div className="bw-alert-top-badge">
               <div className="bw-pulsing-circle">
                 <span className="bw-pulsing-dot" />
               </div>
               <span className="bw-badge-label">🚨 LIVE ORDER RECEIVED • RINGTONE RINGING</span>
-              <button 
+              <button
                 type="button"
                 onClick={stopAlertRinging}
                 className="bw-mute-pill-btn"
@@ -5329,7 +6270,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   ✕
                 </button>
               </div>
-              
+
               <div className="custom-scrollbar" style={{ flex: 1, overflowY: "auto", paddingRight: "8px" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "14px" }}>
                   <thead style={{ position: "sticky", top: 0, background: "#f8f9fa", zIndex: 1 }}>
@@ -5370,7 +6311,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   </tbody>
                 </table>
               </div>
-              
+
               <div style={{ marginTop: "20px", display: "flex", justifyContent: "flex-end", borderTop: "1px solid #f2eee9", paddingTop: "14px" }}>
                 <button
                   onClick={() => setActiveStatsModal(null)}
@@ -5397,24 +6338,24 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
         const totalPendingSum = allPendingOrders.reduce((acc, o) => {
           const rawVal = o.total || o.price || o.amount || 0;
-    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
+          const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
           return acc + (isNaN(val) ? 0 : val);
         }, 0);
 
         const groupedByCustomer = allPendingOrders.reduce((acc, o) => {
           const custName = o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}`.trim() : "Walk-in Customer");
           if (!acc[custName]) {
-            acc[custName] = { 
-              customer: custName, 
-              phone: o.phone || o.address?.phone || "N/A", 
-              totalAmount: 0, 
-              count: 0, 
+            acc[custName] = {
+              customer: custName,
+              phone: o.phone || o.address?.phone || "N/A",
+              totalAmount: 0,
+              count: 0,
               orders: [],
               lastDate: o.createdAt || 0
             };
           }
           const rawVal = o.total || o.price || o.amount || 0;
-    const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
+          const val = typeof rawVal === "string" ? parseFloat(rawVal.replace(/[^\d\.]/g, "")) : parseFloat(rawVal);
           acc[custName].totalAmount += (isNaN(val) ? 0 : val);
           acc[custName].count += 1;
           acc[custName].orders.push(o);
@@ -5426,7 +6367,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
         return (
           <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.65)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000, backdropFilter: "blur(4px)", padding: "16px" }}>
             <div style={{ background: "#ffffff", borderRadius: "20px", width: "1250px", maxWidth: "98vw", maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)", overflow: "hidden" }}>
-              
+
               {/* MODAL HEADER */}
               <div style={{ padding: "20px 28px", borderBottom: "1px solid #f0ebe4", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fcfaf8" }}>
                 <div>
@@ -5694,6 +6635,19 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
           </div>
         );
       })()}
+
+      {/* EDIT ORDER MODAL (POPUP TO ADD/REMOVE ITEMS & SYNC WHATSAPP) */}
+      <EditOrderModal
+        isOpen={isEditOrderModalOpen}
+        order={editingOrder}
+        onClose={() => setIsEditOrderModalOpen(false)}
+        onSaveSuccess={(upd) => {
+          if (selectedQueueOrder && (selectedQueueOrder.id === upd.id || selectedQueueOrder.orderId === upd.orderId)) {
+            setSelectedQueueOrder(upd);
+          }
+        }}
+        productsList={productsList}
+      />
 
       {/* Styled JSX */}
       <style>{`
@@ -7338,15 +8292,16 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
           margin-left: 16px;
         }
 
-        /* Sidebar Styles */
+        /* Modern Sliding Sidebar Styles */
         .queue-sidebar-overlay {
           position: fixed;
           top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.4);
+          background: rgba(15, 23, 42, 0.45);
+          backdrop-filter: blur(4px);
           z-index: 999;
           opacity: 0;
           visibility: hidden;
-          transition: opacity 0.3s;
+          transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .queue-sidebar-overlay.open {
           opacity: 1;
@@ -7355,80 +8310,1513 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
         .queue-sidebar-panel {
           position: fixed;
-          top: 0; right: -400px;
+          top: 0; right: -560px;
           width: 100%;
-          max-width: 400px;
+          max-width: 520px;
           height: 100vh;
-          background: #ffffff;
+          background: #f8fafc;
           z-index: 1000;
-          box-shadow: -4px 0 20px rgba(0,0,0,0.1);
-          transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: -10px 0 40px rgba(0,0,0,0.18);
+          transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
           overflow-y: auto;
+          display: flex;
+          flex-direction: column;
         }
         .queue-sidebar-panel.open {
           right: 0;
         }
 
-        .queue-sidebar-content {
-          padding: 30px;
-          position: relative;
+        .queue-sidebar-panel::-webkit-scrollbar {
+          width: 6px;
+        }
+        .queue-sidebar-panel::-webkit-scrollbar-track {
+          background: #f1f5f9;
+        }
+        .queue-sidebar-panel::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 4px;
         }
 
-        .sidebar-close-btn {
-          position: absolute;
-          top: 20px; right: 20px;
-          background: none; border: none;
-          font-size: 20px;
-          cursor: pointer;
-          color: #888;
+        .queue-sidebar-content-modern {
+          padding: 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
         }
 
-        .queue-sidebar-content h2 {
-          font-size: 22px;
-          margin-bottom: 24px;
-          color: #2c1b0d;
+        /* Modern Sidebar Header */
+        .modern-sidebar-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding-bottom: 14px;
+          border-bottom: 1px solid #e2e8f0;
         }
-
-        .sidebar-detail-group {
-          margin-bottom: 20px;
-          padding-bottom: 20px;
-          border-bottom: 1px solid rgba(0,0,0,0.05);
+        .sidebar-header-title-box {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
         }
-
-        .sidebar-detail-group label {
-          display: block;
-          font-size: 12px;
-          text-transform: uppercase;
-          color: #888;
-          margin-bottom: 6px;
+        .sidebar-order-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #1e293b;
+          color: #ffffff;
+          padding: 5px 12px;
+          border-radius: 20px;
+          font-weight: 800;
+          font-size: 13px;
           letter-spacing: 0.5px;
         }
-
-        .sidebar-detail-group p {
+        .channel-indicator {
+          font-size: 10px;
+          color: #cbd5e1;
+          border-right: 1px solid rgba(255,255,255,0.25);
+          padding-right: 6px;
+        }
+        .order-status-pill-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 4px 10px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 800;
+          border: 1px solid transparent;
+        }
+        .status-live-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          display: inline-block;
+        }
+        .sidebar-modern-close-btn {
+          width: 34px;
+          height: 34px;
+          border-radius: 50%;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          color: #64748b;
           font-size: 15px;
-          color: #2c1b0d;
-          margin: 0 0 10px 0;
+          font-weight: 700;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .sidebar-modern-close-btn:hover {
+          background: #fee2e2;
+          color: #ef4444;
+          border-color: #fca5a5;
+          transform: rotate(90deg);
         }
 
-        .sidebar-select, .sidebar-input {
+        /* Order Meta Card */
+        .sidebar-meta-card {
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          padding: 16px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+        }
+        .sidebar-meta-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .sidebar-meta-item {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .sidebar-meta-item.text-right {
+          text-align: right;
+        }
+        .meta-label {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          font-weight: 700;
+          color: #94a3b8;
+        }
+        .meta-value-bold {
+          font-size: 14px;
+          font-weight: 800;
+          color: #1e293b;
+        }
+        .meta-value {
+          font-size: 13px;
+          font-weight: 600;
+          color: #475569;
+        }
+        .meta-value-accent {
+          font-size: 13px;
+          font-weight: 700;
+          color: #d97706;
+        }
+        .meta-value-sub {
+          font-size: 12px;
+          font-weight: 600;
+          color: #64748b;
+        }
+        .sidebar-meta-divider {
+          height: 1px;
+          background: #f1f5f9;
+          margin: 10px 0;
+        }
+
+        /* Section Cards */
+        .sidebar-section-card {
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          padding: 16px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .sidebar-section-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .sidebar-section-title {
+          font-size: 14px;
+          font-weight: 800;
+          color: #1e293b;
+          margin: 0;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .sidebar-section-sub {
+          margin: 2px 0 0 0;
+          font-size: 11px;
+          color: #64748b;
+        }
+        .items-count-badge {
+          background: #f1f5f9;
+          color: #475569;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 6px;
+        }
+
+        /* Items List with Images */
+        .sidebar-items-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .sidebar-item-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 10px;
+          background: #f8fafc;
+          border: 1px solid #edf2f7;
+          border-radius: 12px;
+          transition: all 0.15s ease;
+        }
+        .sidebar-item-row:hover {
+          background: #f1f5f9;
+          border-color: #cbd5e1;
+        }
+        .sidebar-item-img-wrap {
+          position: relative;
+          width: 56px;
+          height: 56px;
+          flex-shrink: 0;
+        }
+        .sidebar-item-img {
           width: 100%;
-          padding: 10px 14px;
+          height: 100%;
+          object-fit: cover;
+          border-radius: 10px;
+          border: 1px solid #e2e8f0;
+          background: #ffffff;
+        }
+        .sidebar-item-qty-badge {
+          position: absolute;
+          bottom: -4px;
+          right: -4px;
+          background: #2c1b0d;
+          color: #ffffff;
+          font-size: 10px;
+          font-weight: 800;
+          padding: 1px 5px;
           border-radius: 8px;
-          border: 1px solid rgba(0,0,0,0.1);
-          font-size: 15px;
+          border: 1.5px solid #ffffff;
+        }
+        .sidebar-item-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 0;
+        }
+        .sidebar-item-title-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 6px;
+        }
+        .sidebar-item-name {
+          font-size: 13px;
+          font-weight: 800;
+          color: #1e293b;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .sidebar-item-price {
+          font-size: 13px;
+          font-weight: 800;
+          color: #16a34a;
+          flex-shrink: 0;
+        }
+        .sidebar-item-pills {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 5px;
+        }
+        .item-pill {
+          font-size: 10.5px;
+          font-weight: 700;
+          padding: 2px 7px;
+          border-radius: 6px;
+        }
+        .sugar-pill {
+          background: #fef3c7;
+          color: #92400e;
+        }
+        .milk-pill {
+          background: #e0e7ff;
+          color: #3730a3;
+        }
+        .notes-pill {
+          background: #f3e8ff;
+          color: #7e22ce;
+        }
+
+        /* Status Action Panel */
+        .status-action-card {
+          border: 1.5px solid #cbd5e1;
+        }
+        .auto-whatsapp-tag {
+          font-size: 10px;
+          background: #dcfce7;
+          color: #15803d;
+          border: 1px solid #86efac;
+          padding: 3px 8px;
+          border-radius: 20px;
+          font-weight: 800;
+        }
+        .status-quick-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+          gap: 8px;
+        }
+        .status-chip-btn {
+          padding: 9px 8px;
+          border-radius: 10px;
+          font-size: 12px;
+          font-weight: 800;
+          border: 1.5px solid #e2e8f0;
+          cursor: pointer;
+          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+        }
+        .status-chip-btn:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 3px 8px rgba(0,0,0,0.06);
+        }
+        .status-chip-btn.active {
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .sidebar-select.modern {
+          width: 100%;
+          padding: 11px 14px;
+          border-radius: 10px;
+          border: 1.5px solid #cbd5e1;
+          font-size: 13px;
+          font-weight: 700;
+          color: #1e293b;
+          background: #f8fafc;
+          outline: none;
+          cursor: pointer;
+        }
+
+        /* Online vs Offline Settlement */
+        .online-settled-card {
+          background: #f0fdf4;
+          border: 1px solid #bbf7d0;
+        }
+        .online-settled-flex {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .online-settled-icon {
+          font-size: 26px;
+        }
+        .online-settled-title {
+          font-size: 13px;
+          font-weight: 800;
+          color: #15803d;
+        }
+        .online-settled-desc {
+          font-size: 11.5px;
+          color: #166534;
+          margin-top: 2px;
+        }
+
+        .offline-settlement-card {
+          background: #fffbeb;
+          border: 1px solid #fde68a;
+        }
+        .payment-due-badge {
+          font-size: 10px;
+          font-weight: 800;
+          padding: 3px 8px;
+          border-radius: 6px;
+        }
+        .payment-due-badge.paid {
+          background: #15803d;
+          color: #ffffff;
+        }
+        .payment-due-badge.pending {
+          background: #fef3c7;
+          color: #92400e;
+          border: 1px solid #fcd34d;
+        }
+        .payment-methods-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          margin-top: 4px;
+        }
+        .payment-method-chip {
+          padding: 9px 8px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 800;
+          border: 1px solid #e2e8f0;
+          background: #ffffff;
           color: #2c1b0d;
-          background: #fdfdfd;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          text-align: center;
+        }
+        .payment-method-chip.selected {
+          border: 2px solid #2c1b0d;
+          background: #2c1b0d;
+          color: #ffffff;
+        }
+
+        /* Delivery Window */
+        .quick-time-buttons {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .quick-time-pill {
+          padding: 5px 10px;
+          background: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 11px;
+          font-weight: 700;
+          color: #475569;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .quick-time-pill:hover {
+          background: #2c1b0d;
+          color: #ffffff;
+          border-color: #2c1b0d;
+        }
+        .delivery-time-input-row {
+          display: flex;
+          gap: 8px;
+        }
+        .sidebar-input.modern {
+          flex: 1;
+          padding: 10px 14px;
+          border-radius: 10px;
+          border: 1px solid #cbd5e1;
+          font-size: 13px;
+          color: #1e293b;
+          background: #f8fafc;
           outline: none;
         }
-
-        .sidebar-save-btn {
+        .sidebar-save-btn.modern {
           background: #2c1b0d;
-          color: #fff;
+          color: #ffffff;
           border: none;
-          border-radius: 8px;
-          padding: 0 20px;
-          font-weight: 600;
+          border-radius: 10px;
+          padding: 0 18px;
+          font-weight: 800;
+          font-size: 12.5px;
           cursor: pointer;
+          transition: background 0.25s ease;
+          white-space: nowrap;
+        }
+        .sidebar-save-btn.modern.saved {
+          background: #16a34a;
+        }
+
+        /* ORDER QUEUE DESIGN SYSTEM */
+        .queue-stats-carousel-wrapper {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 14px;
+          margin-bottom: 20px;
+        }
+        @media (max-width: 1024px) {
+          .queue-stats-carousel-wrapper {
+            display: flex;
+            overflow-x: auto;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 8px;
+            gap: 12px;
+            scrollbar-width: thin;
+          }
+          .queue-stats-carousel-wrapper::-webkit-scrollbar {
+            height: 4px;
+          }
+          .queue-stats-carousel-wrapper::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+          }
+          .queue-stat-card {
+            flex: 0 0 240px;
+            min-width: 240px;
+            scroll-snap-align: start;
+          }
+        }
+        .queue-stat-card {
+          background: #ffffff;
+          padding: 16px 18px;
+          border-radius: 16px;
+          border: 1px solid #f1f5f9;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .queue-stat-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+        }
+        .queue-stat-icon-wrap {
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+          background: #18181b;
+          color: #ffffff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .queue-stat-content {
+          flex: 1;
+          min-width: 0;
+        }
+        .queue-stat-top-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 2px;
+        }
+        .queue-stat-title {
+          font-size: 11.5px;
+          font-weight: 700;
+          color: #64748b;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .queue-stat-trend {
+          font-size: 10px;
+          font-weight: 800;
+          padding: 2px 6px;
+          border-radius: 10px;
+          white-space: nowrap;
+        }
+        .queue-stat-trend.up {
+          background: #dcfce7;
+          color: #16a34a;
+        }
+        .queue-stat-value {
+          font-size: 20px;
+          font-weight: 900;
+          color: #0f172a;
+          line-height: 1.2;
+        }
+        .queue-stat-sub {
+          font-size: 10.5px;
+          color: #94a3b8;
+          font-weight: 600;
+          display: block;
+        }
+
+        /* Queue Filter Bar */
+        .queue-filter-card {
+          background: #ffffff;
+          border-radius: 16px;
+          border: 1px solid #f1f5f9;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+          padding: 16px 20px;
+          margin-bottom: 20px;
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 16px;
+          flex-wrap: wrap;
+        }
+        .queue-filter-grid {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          flex-wrap: wrap;
+          flex: 1;
+        }
+        .queue-filter-col {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .queue-filter-label {
+          font-size: 11px;
+          font-weight: 800;
+          color: #64748b;
+          text-transform: capitalize;
+        }
+        .queue-input-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+        }
+        .queue-input-icon {
+          position: absolute;
+          left: 10px;
+          font-size: 13px;
+          pointer-events: none;
+          color: #94a3b8;
+        }
+        .queue-search-input {
+          padding: 8px 30px 8px 32px;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 10px;
+          font-size: 12.5px;
+          font-weight: 600;
+          color: #1e293b;
+          width: 210px;
+          outline: none;
+          transition: all 0.2s ease;
+        }
+        .queue-search-input:focus {
+          border-color: #0f172a;
+          background: #ffffff;
+          box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
+        }
+        .queue-clear-search-btn {
+          position: absolute;
+          right: 8px;
+          background: none;
+          border: none;
+          color: #94a3b8;
+          font-size: 12px;
+          cursor: pointer;
+          padding: 2px 4px;
+        }
+        .queue-select-input {
+          padding: 8px 12px;
+          background: #f8fafc;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 10px;
+          font-size: 12.5px;
+          font-weight: 700;
+          color: #1e293b;
+          outline: none;
+          cursor: pointer;
+          min-width: 130px;
+          transition: all 0.2s ease;
+        }
+        .queue-select-input:focus {
+          border-color: #0f172a;
+          background: #ffffff;
+        }
+        .queue-actions-group {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .queue-add-btn {
+          background: #18181b;
+          color: #ffffff;
+          border: none;
+          padding: 9px 18px;
+          border-radius: 10px;
+          font-size: 13px;
+          font-weight: 800;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+          transition: all 0.15s ease;
+        }
+        .queue-add-btn:hover {
+          background: #27272a;
+          transform: translateY(-1px);
+        }
+        .queue-refresh-btn {
+          width: 38px;
+          height: 38px;
+          background: #ffffff;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 14px;
+          transition: all 0.15s ease;
+        }
+        .queue-refresh-btn:hover {
+          background: #f8fafc;
+          border-color: #cbd5e1;
+        }
+
+        /* Queue Table Card */
+        .queue-table-card {
+          background: #ffffff;
+          border-radius: 16px;
+          border: 1px solid #f1f5f9;
+          box-shadow: 0 4px 16px rgba(0,0,0,0.03);
+          overflow: hidden;
+        }
+        .queue-table-scroll {
+          width: 100%;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+        .queue-modern-table {
+          width: 100%;
+          border-collapse: collapse;
+          text-align: left;
+          font-size: 13px;
+        }
+        .queue-modern-table th {
+          background: #f8fafc;
+          color: #64748b;
+          font-weight: 800;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          padding: 14px 16px;
+          border-bottom: 1.5px solid #e2e8f0;
+          white-space: nowrap;
+        }
+        .queue-modern-table td {
+          padding: 14px 16px;
+          border-bottom: 1px solid #f1f5f9;
+          vertical-align: middle;
+        }
+        .queue-table-row {
+          cursor: pointer;
+          transition: background 0.15s ease;
+        }
+        .queue-table-row:hover {
+          background: #f8fafc;
+        }
+        .queue-table-row.row-selected {
+          background: #f0fdf4;
+        }
+        .queue-checkbox {
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
+          accent-color: #18181b;
+        }
+        .queue-customer-avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 10px;
+          object-fit: cover;
+          border: 1px solid #e2e8f0;
+          flex-shrink: 0;
+        }
+        .queue-channel-pill {
+          font-size: 10px;
+          padding: 2px 6px;
+          border-radius: 6px;
+          font-weight: 800;
+        }
+        .queue-channel-pill.counter {
+          background: #fef3c7;
+          color: #92400e;
+        }
+        .queue-channel-pill.online {
+          background: #e0f2fe;
+          color: #0369a1;
+        }
+        .queue-time-badge {
+          font-size: 11px;
+          font-weight: 700;
+          color: #ea580c;
+          background: #fff7ed;
+          padding: 3px 8px;
+          border-radius: 6px;
+          white-space: nowrap;
+        }
+        .queue-status-dropdown {
+          appearance: none;
+          -webkit-appearance: none;
+          padding: 6px 14px;
+          border-radius: 20px;
+          font-size: 11.5px;
+          font-weight: 800;
+          cursor: pointer;
+          outline: none;
+          border: 1.5px solid transparent;
+          transition: all 0.15s ease;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        }
+        .queue-status-dropdown:hover {
+          transform: translateY(-1px);
+        }
+        .queue-edit-btn {
+          background: #f8fafc;
+          color: #334155;
+          border: 1.5px solid #cbd5e1;
+          border-radius: 8px;
+          padding: 5px 10px;
+          font-size: 11.5px;
+          font-weight: 800;
+          cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .queue-edit-btn:hover {
+          background: #18181b;
+          color: #ffffff;
+          border-color: #18181b;
+        }
+        .queue-view-btn {
+          background: none;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+          color: #64748b;
+          cursor: pointer;
+        }
+        .queue-view-btn:hover {
+          background: #f1f5f9;
+          color: #0f172a;
+        }
+
+        /* MOBILE RESPONSIVE CARDS & ZERO SIDE-SPACE */
+        @media (max-width: 768px) {
+          .dashboard-main {
+            padding: 6px 2px !important;
+            margin: 0 !important;
+            width: 100% !important;
+            max-width: 100vw !important;
+            box-sizing: border-box !important;
+          }
+          .dashboard-container {
+            padding: 6px 4px 95px 4px !important;
+            margin: 0 !important;
+            width: 100% !important;
+            max-width: 100vw !important;
+            box-sizing: border-box !important;
+          }
+          .dashboard-content {
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+          }
+          .tab-body-wrapper {
+            padding: 8px 4px !important;
+            margin: 0 !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+
+          /* Dashboard Page Mobile Polish */
+          .dashboard-tab-body {
+            padding: 6px 2px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .dashboard-metrics-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 10px !important;
+            margin-bottom: 14px !important;
+          }
+          .dashboard-time-filter-wrap {
+            width: 100% !important;
+            justify-content: space-between !important;
+            box-sizing: border-box !important;
+            overflow-x: auto !important;
+            padding: 6px !important;
+          }
+          .dashboard-summary-grid {
+            display: grid !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 10px !important;
+            margin-bottom: 16px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .dashboard-split-grid {
+            display: grid !important;
+            grid-template-columns: 1fr !important;
+            gap: 14px !important;
+            margin-bottom: 16px !important;
+            width: 100% !important;
+          }
+          .dashboard-double-row-grid {
+            grid-template-columns: 1fr !important;
+            gap: 14px !important;
+            margin-bottom: 16px !important;
+          }
+
+          /* POS & Shop Mobile Polish */
+          .offline-tab-body {
+            padding: 6px 2px !important;
+          }
+          .pos-modal-card {
+            width: 96vw !important;
+            max-width: 96vw !important;
+            max-height: 92vh !important;
+            padding: 16px 12px !important;
+            border-radius: 16px !important;
+          }
+          .pos-modal-product-grid {
+            grid-template-columns: 1fr !important;
+            gap: 8px !important;
+            max-height: 52vh !important;
+          }
+
+          /* Settings & Profile Mobile Polish */
+          .profile-tab-body {
+            padding: 6px 2px !important;
+          }
+          .profile-two-col-grid {
+            grid-template-columns: 1fr !important;
+            gap: 14px !important;
+          }
+
+          /* Inventory (Stock) Mobile Polish */
+          .stock-tab-body {
+            padding: 6px 2px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .stock-header-controls {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 10px !important;
+          }
+          .stock-categories-scroll {
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .stock-actions-wrap {
+            width: 100% !important;
+            justify-content: space-between !important;
+          }
+          .stock-date-picker-wrap {
+            flex: 1 !important;
+          }
+          .stock-upload-btn {
+            flex: 1 !important;
+            justify-content: center !important;
+          }
+          .stock-table-card {
+            display: none !important;
+          }
+          .stock-mobile-cards-container {
+            display: flex !important;
+          }
+
+          /* Order History Mobile Polish */
+          .history-tab-body {
+            padding: 6px 2px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .history-header-bar {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 10px !important;
+          }
+          .history-tally-btn {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+          .history-stats-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 8px !important;
+          }
+          .history-filter-toolbar {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+          }
+          .history-channel-pills {
+            width: 100% !important;
+            justify-content: space-between !important;
+          }
+          .history-search-box {
+            max-width: 100% !important;
+            width: 100% !important;
+          }
+          .history-date-filters {
+            width: 100% !important;
+            justify-content: space-between !important;
+          }
+          .history-view-toggle {
+            width: 100% !important;
+            justify-content: space-around !important;
+          }
+          .history-orders-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .slip-details-grid {
+            grid-template-columns: 1fr 1fr !important;
+            gap: 8px !important;
+          }
+          .slip-dispatch-box {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+          .slip-dispatch-box > div:last-child {
+            border-left: none !important;
+            border-top: 1px solid #e4e4e7 !important;
+            padding-left: 0 !important;
+            padding-top: 10px !important;
+            text-align: left !important;
+          }
+
+          /* Leave & Shift Mobile Polish */
+          .leave-tab-body {
+            padding: 6px 2px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .leave-two-col-grid {
+            grid-template-columns: 1fr !important;
+            gap: 16px !important;
+          }
+          .leave-dates-row {
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+          }
+          .leave-table-card {
+            display: none !important;
+          }
+          .leave-mobile-cards-container {
+            display: flex !important;
+          }
+
+          /* Queue Filter Controls Mobile Polish */
+          .queue-filter-card {
+            padding: 12px 10px !important;
+            margin-bottom: 12px !important;
+            border-radius: 12px !important;
+          }
+          .queue-filter-grid {
+            gap: 8px !important;
+            width: 100% !important;
+          }
+          .queue-filter-col {
+            width: 100% !important;
+            min-width: 100% !important;
+          }
+          .queue-search-input {
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .queue-select-input {
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .queue-actions-group {
+            width: 100% !important;
+            justify-content: space-between !important;
+          }
+          .queue-add-btn {
+            flex: 1 !important;
+            justify-content: center !important;
+          }
+          
+          /* Show mobile cards, hide table on mobile */
+          .queue-table-card {
+            display: none !important;
+          }
+          .queue-mobile-cards-container {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 10px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .queue-mobile-order-card {
+            background: #ffffff;
+            border-radius: 14px;
+            border: 1px solid #e2e8f0;
+            padding: 12px 14px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+          }
+          .queue-mobile-order-card:active {
+            transform: scale(0.99);
+          }
+          .mob-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+          }
+          .mob-card-avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            object-fit: cover;
+            border: 1px solid #e2e8f0;
+            flex-shrink: 0;
+          }
+          .mob-card-items-box {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 8px 10px;
+            border: 1px solid #f1f5f9;
+          }
+          .mob-card-footer {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          }
+        }
+
+        /* NEW ORDER PULSING GLOW & ANIMATION */
+        @keyframes newOrderGlowPulse {
+          0% {
+            background-color: #fffdf5 !important;
+            box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4) !important;
+            border-color: #f59e0b !important;
+          }
+          50% {
+            background-color: #fef3c7 !important;
+            box-shadow: 0 0 16px 4px rgba(245, 158, 11, 0.35) !important;
+            border-color: #d97706 !important;
+          }
+          100% {
+            background-color: #fffdf5 !important;
+            box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4) !important;
+            border-color: #f59e0b !important;
+          }
+        }
+
+        .new-order-received-glow {
+          animation: newOrderGlowPulse 2.2s infinite ease-in-out !important;
+          border-left: 5px solid #d97706 !important;
+        }
+
+        .new-order-badge-pulse {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          background: #d97706;
+          color: #ffffff;
+          font-size: 9.5px;
+          font-weight: 900;
+          padding: 2px 7px;
+          border-radius: 6px;
+          letter-spacing: 0.4px;
+          animation: pulseBadge 1.5s infinite ease-in-out;
+        }
+
+        @keyframes pulseBadge {
+          0% { transform: scale(0.96); opacity: 0.9; }
+          50% { transform: scale(1.04); opacity: 1; }
+          100% { transform: scale(0.96); opacity: 0.9; }
+        }
+
+        /* MODERN MOBILE BOTTOM NAVIGATION BAR & DRAWER (HIDDEN BY DEFAULT ON DESKTOP) */
+        .brewmaster-mobile-bottom-bar,
+        .mob-drawer-backdrop {
+          display: none !important;
+        }
+
+        @media (max-width: 768px) {
+          .brewmaster-mobile-bottom-bar {
+            display: flex !important;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 68px;
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-top: 1px solid #e2e8f0;
+            box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.08);
+            z-index: 9998;
+            align-items: center;
+            justify-content: space-around;
+            padding: 0 6px calc(env(safe-area-inset-bottom, 0px) + 2px);
+          }
+
+          .mob-nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: none;
+            border: none;
+            padding: 6px 0;
+            cursor: pointer;
+            gap: 3px;
+            color: #64748b;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            outline: none;
+          }
+
+          .mob-nav-item:active {
+            transform: scale(0.92);
+          }
+
+          .mob-nav-item.active {
+            color: #0f172a;
+          }
+
+          .mob-nav-icon-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 28px;
+          }
+
+          .mob-nav-emoji {
+            font-size: 20px;
+            transition: transform 0.2s;
+          }
+
+          .mob-nav-item.active .mob-nav-emoji {
+            transform: translateY(-2px);
+          }
+
+          .mob-nav-label {
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: -0.2px;
+            line-height: 1;
+          }
+
+          .mob-nav-item.active .mob-nav-label {
+            font-weight: 850;
+            color: #0f172a;
+          }
+
+          .mob-nav-badge-pill {
+            position: absolute;
+            top: -4px;
+            right: -6px;
+            background: #ef4444;
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 900;
+            padding: 1px 5px;
+            border-radius: 999px;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+            animation: pulseBadge 1.5s infinite;
+          }
+
+          /* Center Floating + Button */
+          .mob-nav-center-wrap {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+          }
+
+          .mob-nav-center-btn {
+            position: absolute;
+            top: -22px;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #18181b 0%, #27272a 100%);
+            border: 3.5px solid #ffffff;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0,0,0,0.06);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            outline: none;
+          }
+
+          .mob-nav-center-btn:active {
+            transform: scale(0.92);
+          }
+
+          .mob-nav-center-btn.open {
+            background: #ef4444;
+            transform: rotate(45deg);
+            box-shadow: 0 8px 20px rgba(239, 68, 68, 0.35);
+          }
+
+          .mob-nav-plus-icon {
+            font-size: 26px;
+            font-weight: 300;
+            line-height: 1;
+            margin-top: -2px;
+          }
+
+          /* BOTTOM SLIDER DRAWER */
+          .mob-drawer-backdrop {
+            display: flex !important;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 99999;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.3s;
+            align-items: flex-end;
+          }
+
+          .mob-drawer-backdrop.open {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+          }
+
+          .mob-drawer-sheet {
+            width: 100%;
+            background: #ffffff;
+            border-radius: 24px 24px 0 0;
+            padding: 12px 18px 34px;
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.25);
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            max-height: 85vh;
+            overflow-y: auto;
+            box-sizing: border-box;
+          }
+
+          .mob-drawer-sheet.open {
+            transform: translateY(0);
+          }
+
+          .mob-drawer-drag-handle {
+            width: 44px;
+            height: 4px;
+            background: #cbd5e1;
+            border-radius: 4px;
+            margin: 0 auto 12px;
+          }
+
+          .mob-drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #f1f5f9;
+            margin-bottom: 14px;
+          }
+
+          .mob-drawer-title {
+            font-size: 17px;
+            font-weight: 900;
+            color: #0f172a;
+            margin: 0;
+          }
+
+          .mob-drawer-sub {
+            font-size: 11.5px;
+            color: #64748b;
+            margin: 2px 0 0;
+          }
+
+          .mob-drawer-close-btn {
+            background: #f1f5f9;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            color: #64748b;
+            cursor: pointer;
+            font-weight: 800;
+          }
+
+          .mob-drawer-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+
+          .mob-drawer-card {
+            background: #f8fafc;
+            border: 1.5px solid #f1f5f9;
+            border-radius: 14px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.15s ease;
+            position: relative;
+          }
+
+          .mob-drawer-card:active {
+            transform: scale(0.97);
+            background: #f1f5f9;
+          }
+
+          .mob-drawer-card.active {
+            background: #ffffff;
+            border-color: #0f172a;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+          }
+
+          .mob-drawer-card.logout {
+            border-color: #fee2e2;
+            background: #fff5f5;
+          }
+
+          .mob-drawer-card-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+          }
+
+          .mob-drawer-card-info {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            flex: 1;
+          }
+
+          .mob-drawer-card-info strong {
+            font-size: 12.5px;
+            font-weight: 800;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .mob-drawer-card-info span {
+            font-size: 10.5px;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+
+          .mob-drawer-card-badge {
+            position: absolute;
+            top: 6px;
+            right: 8px;
+            background: #ef4444;
+            color: #ffffff;
+            font-size: 9px;
+            font-weight: 900;
+            padding: 1px 5px;
+            border-radius: 6px;
+          }
+
+          .dashboard-container {
+            padding-bottom: 95px !important;
+          }
+        }
+
+        @media (min-width: 769px) {
+          .brewmaster-mobile-bottom-bar,
+          .mob-drawer-backdrop,
+          .mob-drawer-sheet,
+          .queue-mobile-cards-container,
+          .stock-mobile-cards-container,
+          .leave-mobile-cards-container,
+          .mobile-only-view {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }
+          .dashboard-sidebar {
+            display: flex !important;
+            width: 260px !important;
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            z-index: 1000 !important;
+          }
+          .dashboard-container {
+            margin-left: 260px !important;
+            width: calc(100% - 260px) !important;
+            padding-bottom: 24px !important;
+          }
+          .queue-table-card,
+          .stock-table-card,
+          .leave-table-card,
+          .desktop-only-view {
+            display: block !important;
+          }
         }
 
       `}</style>
