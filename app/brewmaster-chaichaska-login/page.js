@@ -316,7 +316,7 @@ export default function AdminDashboard() {
     walkIn: true,
     orderDate: new Date().toLocaleDateString('en-CA'),
     orderTime: new Date().toTimeString().slice(0, 5),
-    status: "Delivered",
+    status: "Received",
     paymentMethod: "Cash",
     paymentStatus: "Paid",
     items: []
@@ -5271,60 +5271,113 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       {/* CUSTOMER & DESTINATION */}
                       <div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
-                          <label style={{ fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase" }}>Customer Details</label>
+                          <label style={{ fontSize: "11.5px", fontWeight: "800", color: "#52525b", textTransform: "uppercase" }}>
+                            Customer Details <span style={{ color: "#e11d48" }}>*</span>
+                          </label>
                           <button
                             type="button"
-                            onClick={() => setOfflineOrderForm({ ...offlineOrderForm, customerName: "Counter Walk-in Guest", walkIn: true, address: "Walk-in Counter", phone: "Walk-in" })}
+                            onClick={() => setOfflineOrderForm({ ...offlineOrderForm, customerName: "Counter Walk-in Guest", walkIn: true, address: "Walk-in Counter" })}
                             style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "2px 8px", fontSize: "11px", color: "#475569", fontWeight: "700", cursor: "pointer" }}
                           >
-                            + Fast Counter Guest
+                            + Fast Guest Name
                           </button>
                         </div>
 
+                        {/* Customer Name */}
                         <div style={{ marginBottom: "12px" }}>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "4px" }}>
+                            Customer Name <span style={{ color: "#e11d48" }}>*</span>
+                          </label>
                           <input
                             type="text"
                             value={offlineOrderForm.customerName}
                             onChange={e => setOfflineOrderForm({ ...offlineOrderForm, customerName: e.target.value })}
                             style={{ width: "100%", padding: "10px 14px", borderRadius: "10px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13.5px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
-                            placeholder="Customer Name (e.g. Rahul Sharma or Walk-in)"
+                            placeholder="e.g. Rahul Sharma"
                           />
                         </div>
 
-                        <div style={{ marginBottom: "14px" }}>
+                        {/* Mobile Number (REQUIRED +91 PREFIX) */}
+                        <div style={{ marginBottom: "12px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <label style={{ fontSize: "11px", fontWeight: "800", color: "#09090b", textTransform: "uppercase", display: "flex", alignItems: "center", gap: "4px" }}>
+                              📱 Mobile Number <span style={{ color: "#e11d48" }}>* (Required)</span>
+                            </label>
+                            <span style={{ fontSize: "10.5px", color: "#16a34a", fontWeight: "700" }}>💬 Auto WhatsApp Msg</span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "stretch", width: "100%" }}>
+                            <span style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              padding: "10px 12px",
+                              background: "#f1f5f9",
+                              border: (!offlineOrderForm.phone || offlineOrderForm.phone.replace(/\D/g, '').length < 10) ? "1.5px solid #fca5a5" : "1.5px solid #86efac",
+                              borderRight: "none",
+                              borderRadius: "10px 0 0 10px",
+                              fontSize: "13.5px",
+                              fontWeight: "800",
+                              color: "#0f172a",
+                              userSelect: "none"
+                            }}>
+                              🇮🇳 +91
+                            </span>
+                            <input
+                              type="tel"
+                              value={offlineOrderForm.phone}
+                              onChange={e => {
+                                let raw = e.target.value.replace(/\D/g, '');
+                                if (raw.startsWith('91') && raw.length > 10) {
+                                  raw = raw.slice(2);
+                                } else if (raw.startsWith('0') && raw.length > 10) {
+                                  raw = raw.slice(1);
+                                }
+                                setOfflineOrderForm({ ...offlineOrderForm, phone: raw.slice(0, 10) });
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: "10px 14px",
+                                borderRadius: "0 10px 10px 0",
+                                border: (!offlineOrderForm.phone || offlineOrderForm.phone.replace(/\D/g, '').length < 10) ? "1.5px solid #fca5a5" : "1.5px solid #86efac",
+                                background: (!offlineOrderForm.phone || offlineOrderForm.phone.replace(/\D/g, '').length < 10) ? "#fff5f5" : "#f0fdf4",
+                                fontSize: "14px",
+                                color: "#09090b",
+                                fontWeight: "700",
+                                letterSpacing: "0.5px",
+                                outline: "none",
+                                boxSizing: "border-box"
+                              }}
+                              placeholder="Enter 10-digit mobile (e.g. 9876543210)"
+                            />
+                          </div>
+                          <span style={{ fontSize: "11px", color: "#71717a", display: "block", marginTop: "4px" }}>
+                            An instant WhatsApp confirmation message with order details will be sent to +91 {offlineOrderForm.phone || "XXXXXXXXXX"} upon placing.
+                          </span>
+                        </div>
+
+                        {/* Walk-in vs Delivery Toggle */}
+                        <div style={{ marginBottom: "12px", background: "#f8fafc", padding: "10px 12px", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
                           <label style={{ display: "flex", alignItems: "center", gap: "10px", fontSize: "12.5px", cursor: "pointer", fontWeight: "750", color: "#09090b" }}>
                             <input
                               type="checkbox"
                               checked={offlineOrderForm.walkIn}
-                              onChange={e => setOfflineOrderForm({ ...offlineOrderForm, walkIn: e.target.checked, address: e.target.checked ? "Walk-in Counter" : "", phone: e.target.checked ? "Walk-in" : "" })}
+                              onChange={e => setOfflineOrderForm({ ...offlineOrderForm, walkIn: e.target.checked, address: e.target.checked ? "Walk-in Counter" : "" })}
                               style={{ width: "16px", height: "16px", accentColor: "#000000" }}
                             />
-                            Walk-in / Counter Pickup (No delivery needed)
+                            Walk-in / Counter Pickup (Direct Counter Handover)
                           </label>
                         </div>
 
                         {!offlineOrderForm.walkIn && (
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: "12px", marginBottom: "12px" }}>
-                            <div>
-                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Phone</label>
-                              <input
-                                type="text"
-                                value={offlineOrderForm.phone}
-                                onChange={e => setOfflineOrderForm({ ...offlineOrderForm, phone: e.target.value })}
-                                style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
-                                placeholder="+91 98000 00000"
-                              />
-                            </div>
-                            <div>
-                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Desk / Office</label>
-                              <input
-                                type="text"
-                                value={offlineOrderForm.address}
-                                onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
-                                style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
-                                placeholder="e.g. Floor 2, Cabin 204"
-                              />
-                            </div>
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#52525b", textTransform: "uppercase", marginBottom: "4px" }}>Desk / Office Location</label>
+                            <input
+                              type="text"
+                              value={offlineOrderForm.address}
+                              onChange={e => setOfflineOrderForm({ ...offlineOrderForm, address: e.target.value })}
+                              style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "13px", color: "#09090b", outline: "none", boxSizing: "border-box" }}
+                              placeholder="e.g. Floor 2, Cabin 204"
+                            />
                           </div>
                         )}
                       </div>
@@ -5338,9 +5391,9 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             onChange={(e) => setOfflineOrderForm({ ...offlineOrderForm, status: e.target.value })}
                             style={{ width: "100%", padding: "9px 12px", borderRadius: "8px", border: "1.5px solid #e4e4e7", background: "#f8fafc", fontSize: "12.5px", color: "#09090b", fontWeight: "700", outline: "none" }}
                           >
-                            <option value="Delivered">✅ Delivered (Completed)</option>
                             <option value="Received">📥 Received (Kitchen Queue)</option>
                             <option value="Preparing">🫖 Preparing (Brewing)</option>
+                            <option value="Delivered">✅ Delivered (Completed)</option>
                           </select>
                         </div>
 
@@ -5447,8 +5500,21 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         <button
                           type="button"
                           onClick={async () => {
-                            if (!offlineOrderForm.customerName || offlineOrderForm.items.length === 0) {
-                              setToastMsg("❌ Please enter customer name and select at least one product!");
+                            if (!offlineOrderForm.customerName || !offlineOrderForm.customerName.trim()) {
+                              setToastMsg("❌ Please enter customer name!");
+                              setTimeout(() => setToastMsg(""), 3000);
+                              return;
+                            }
+
+                            const cleanPhoneDigits = String(offlineOrderForm.phone || "").replace(/\D/g, "");
+                            if (!cleanPhoneDigits || cleanPhoneDigits.length < 10) {
+                              setToastMsg("❌ Mobile number is required (at least 10 digits) to place order & send WhatsApp!");
+                              setTimeout(() => setToastMsg(""), 4000);
+                              return;
+                            }
+
+                            if (offlineOrderForm.items.length === 0) {
+                              setToastMsg("❌ Please select at least one product!");
                               setTimeout(() => setToastMsg(""), 3000);
                               return;
                             }
@@ -5460,11 +5526,15 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             const formattedDate = new Date(createdAtTimestamp).toLocaleDateString('en-GB');
                             const isPast = orderDateVal < todayIso;
                             const finalStatus = offlineOrderForm.status || (isPast ? "Delivered" : "Received");
+                            const tenDigitNumber = cleanPhoneDigits.slice(-10);
+                            const customerPhoneFormatted = `+91${tenDigitNumber}`;
 
                             const orderData = {
                               customer: offlineOrderForm.customerName.trim(),
-                              phone: offlineOrderForm.phone || (offlineOrderForm.walkIn ? "Walk-in" : ""),
+                              phone: customerPhoneFormatted,
+                              mobile: customerPhoneFormatted,
                               address: offlineOrderForm.address || (offlineOrderForm.walkIn ? "Counter Walk-in" : "Direct Pickup"),
+                              office: offlineOrderForm.address || (offlineOrderForm.walkIn ? "Counter Walk-in" : "Direct Pickup"),
                               walkIn: Boolean(offlineOrderForm.walkIn),
                               isOffline: true,
                               offlineAdded: true,
@@ -5484,8 +5554,33 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             };
 
                             try {
-                              await createOrder(orderData);
-                              setToastMsg(`✅ Offline Order added for ${orderDateVal} (₹${calculatedTotal})! Sales & Tally updated.`);
+                              const createdOrderId = await createOrder(orderData);
+                              const assignedId = typeof createdOrderId === 'string' ? createdOrderId : (createdOrderId?.id || `ORD-${Date.now().toString().slice(-6)}`);
+
+                              // Send Instant WhatsApp Notification to +91 mobile number
+                              try {
+                                fetch('/api/send-whatsapp', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    to: customerPhoneFormatted,
+                                    orderId: assignedId,
+                                    status: finalStatus === "Delivered" ? "Delivered" : "placed",
+                                    customerName: offlineOrderForm.customerName.trim(),
+                                    totalAmount: calculatedTotal,
+                                    items: orderData.item,
+                                    itemsList: orderData.items,
+                                    location: orderData.address,
+                                    paymentMethod: orderData.paymentMethod,
+                                    paymentStatus: orderData.paymentStatus,
+                                    date: formattedDate
+                                  })
+                                }).catch(err => console.warn("WhatsApp notification error:", err));
+                              } catch (e) {
+                                console.warn("WhatsApp dispatch error:", e);
+                              }
+
+                              setToastMsg(`✅ Offline Order #${assignedId} placed (₹${calculatedTotal}) & WhatsApp sent to ${customerPhoneFormatted}!`);
                               setOfflineOrderForm({
                                 customerName: "",
                                 address: "",
@@ -5493,12 +5588,12 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                 walkIn: true,
                                 orderDate: todayIso,
                                 orderTime: new Date().toTimeString().slice(0, 5),
-                                status: "Delivered",
+                                status: "Received",
                                 paymentMethod: "Cash",
                                 paymentStatus: "Paid",
                                 items: []
                               });
-                              setTimeout(() => setToastMsg(""), 4000);
+                              setTimeout(() => setToastMsg(""), 4500);
                             } catch (e) {
                               setToastMsg("❌ Error creating order: " + e.message);
                               setTimeout(() => setToastMsg(""), 3000);
@@ -9809,7 +9904,13 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
           .dashboard-container {
             margin-left: 260px !important;
             width: calc(100% - 260px) !important;
-            padding-bottom: 24px !important;
+            padding: 28px 36px 48px 36px !important;
+          }
+          .dashboard-main {
+            padding: 0 !important;
+          }
+          .tab-body-wrapper {
+            padding: 16px 0 !important;
           }
           .queue-table-card,
           .stock-table-card,

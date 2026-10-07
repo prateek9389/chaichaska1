@@ -8512,7 +8512,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
           margin-left: 200px;
           margin-right: 0;
           flex-grow: 1;
-          padding: 24px;
+          padding: 28px 36px 48px 36px;
           box-sizing: border-box;
           width: calc(100% - 200px);
         }
@@ -10635,6 +10635,9 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
           }
           .queue-table-card {
             display: block !important;
+          }
+          .dashboard-container {
+            padding: 28px 36px 48px 36px !important;
           }
         }
 
