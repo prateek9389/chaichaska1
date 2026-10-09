@@ -200,50 +200,7 @@ export default function EditOrderModal({
 
       await updateOrder(order.id, updates);
 
-      // Auto-dispatch WhatsApp Update Notification
-      const targetPhone = order.phone || (typeof order.address === "object" ? order.address?.phone : "") || "";
-      const cleaned = cleanPhoneForApi(targetPhone);
-      
-      if (cleaned) {
-        try {
-          const itemLines = items.map((it) => `• ${it.name} × ${it.quantity} (₹${(it.price || 0) * it.quantity})`).join("\n");
-          const customMsg = `🔔 *Order Updated | Chai Chaska*
-
-Hi *${order.customer || "Customer"}*,
-Your order *#${order.orderId || (order.id ? (typeof order.id === "string" ? order.id.slice(-6).toUpperCase() : order.id) : "N/A")}* items have been updated by our cafe team:
-
-*Updated Items:*
-${itemLines}
-
-💰 *Updated Total:* ₹${subtotal}
-🕒 *Status:* *${order.status || "Preparing"}*
-
-Track live: https://www.chaichaska.co.in/orders
-
-Thank you for choosing Chai Chaska! 🫖`;
-
-          await fetch("/api/send-whatsapp", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              to: cleaned,
-              orderId: order.orderId || order.id,
-              status: order.status || "Updated",
-              customerName: order.customer || "Customer",
-              totalAmount: totalFormatted,
-              items: itemSummary,
-              itemsList: items,
-              image: resolvedItemImage,
-              location: order.office || order.address || "Desk Delivery",
-              customMessage: customMsg
-            })
-          });
-        } catch (waErr) {
-          console.error("WhatsApp dispatch error on order edit:", waErr);
-        }
-      }
-
-      setToastMessage("Order updated & WhatsApp notification sent!");
+      setToastMessage("Order updated successfully!");
       if (onSaveSuccess) {
         onSaveSuccess({ ...order, ...updates });
       }

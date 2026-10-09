@@ -5584,29 +5584,6 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               const createdOrderId = await createOrder(orderData);
                               const assignedId = typeof createdOrderId === 'string' ? createdOrderId : (createdOrderId?.id || `ORD-${Date.now().toString().slice(-6)}`);
 
-                              // Send Instant WhatsApp Notification to +91 mobile number
-                              try {
-                                fetch('/api/send-whatsapp', {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({
-                                    to: customerPhoneFormatted,
-                                    orderId: assignedId,
-                                    status: finalStatus === "Delivered" ? "Delivered" : "placed",
-                                    customerName: offlineOrderForm.customerName.trim(),
-                                    totalAmount: calculatedTotal,
-                                    items: orderData.item,
-                                    itemsList: orderData.items,
-                                    location: orderData.address,
-                                    paymentMethod: orderData.paymentMethod,
-                                    paymentStatus: orderData.paymentStatus,
-                                    date: formattedDate
-                                  })
-                                }).catch(err => console.warn("WhatsApp notification error:", err));
-                              } catch (e) {
-                                console.warn("WhatsApp dispatch error:", e);
-                              }
-
                               setToastMsg(`✅ Offline Order #${assignedId} placed (₹${calculatedTotal}) & WhatsApp sent to ${customerPhoneFormatted}!`);
                               setOfflineOrderForm({
                                 customerName: "",

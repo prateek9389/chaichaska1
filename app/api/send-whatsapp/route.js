@@ -21,25 +21,30 @@ export async function POST(req) {
     const name = customerName || 'Customer';
     const amountStr = totalAmount ? `₹${String(totalAmount).replace(/[^\d.]/g, '')}` : '';
 
-    let message = '';
     const normStatus = String(status || '').toLowerCase();
+    const isOrderPlaced = !normStatus || normStatus.includes('received') || normStatus.includes('placed') || normStatus.includes('new');
     const isDelivered = normStatus.includes('deliver') || normStatus.includes('served') || normStatus.includes('completed');
 
+    // ONLY allow Custom Messages, Order Placed (Message #1), and Order Delivered (Message #2)
+    if (!customMessage && !isOrderPlaced && !isDelivered) {
+      return Response.json({ success: true, skipped: true, message: 'Intermediate update messages disabled: only Order Placed (with image) and Order Delivered messages are sent.' });
+    }
+
+    let message = '';
     if (customMessage) {
       message = customMessage;
-    } else if (normStatus.includes('order_updated') || normStatus.includes('items updated') || normStatus.includes('modified') || normStatus.includes('item updated')) {
-      message = `🔔 *Order Updated | Chai Chaska*
+    } else if (isDelivered) {
+      message = `✅ *Order Delivered | Chai Chaska*
 
 Hi *${name}*,
-Your order *${displayOrderId}* has been updated by our team!
+Thank you for ordering with Chai Chaska! Your order *${displayOrderId}* has been delivered hot & fresh! ☕✨
 
-${items ? `📦 *Updated Items:* ${items}\n` : ''}${amountStr ? `💰 *New Total Amount:* ${amountStr}\n` : ''}🕒 *Status:* *${status || 'Updated'}*
+${amountStr ? `💰 *Total Paid:* ${amountStr}\n` : ''}⭐ *How was your Chai experience?*
+Please take 10 seconds to share your review or rate your order:
+👉 https://www.chaichaska.co.in/orders
 
-Track your order live:
-https://www.chaichaska.co.in/orders
-
-Thank you for choosing Chai Chaska! 🫖`;
-    } else if (normStatus.includes('received') || normStatus.includes('placed')) {
+Enjoy your authentic chai break! 🫖`;
+    } else {
       message = `☕ *Order Confirmed | Chai Chaska*
 
 Hi *${name}*,
@@ -51,55 +56,6 @@ Track your order live:
 https://www.chaichaska.co.in/orders
 
 Thank you for choosing Chai Chaska! 🫖`;
-    } else if (normStatus.includes('prepar') || normStatus.includes('brew')) {
-      message = `🔥 *Your Chai is Brewing | Chai Chaska*
-
-Hi *${name}*,
-Great news! Our Brewmaster has started preparing your fresh hot tea for order *${displayOrderId}*! 🫖
-
-${items ? `📦 *Items:* ${items}\n` : ''}🕒 *Status:* *Freshly Brewing on Stove* 🔥
-⏱️ *Estimated Window:* ~4-5 Mins
-
-Track your order live:
-https://www.chaichaska.co.in/orders`;
-    } else if (normStatus.includes('delivery') || normStatus.includes('shipped') || normStatus.includes('out')) {
-      message = `🚀 *Out for Delivery | Chai Chaska*
-
-Hi *${name}*,
-Your order *${displayOrderId}* is ready and our runner is delivering it to your desk right now! 🏃💨
-
-${location ? `📍 *Destination:* ${location}\n` : ''}🕒 *Status:* *Out for Delivery* 🚚
-
-Get ready for a refreshing chai break! ☕`;
-    } else if (isDelivered) {
-      message = `✅ *Order Delivered | Chai Chaska*
-
-Hi *${name}*,
-Thank you for ordering with Chai Chaska! Your order *${displayOrderId}* has been served hot & fresh at your desk! ☕✨
-
-${amountStr ? `💰 *Total Paid:* ${amountStr}\n` : ''}⭐ *How was your Chai experience?*
-Please take 10 seconds to share your review or rate your order:
-👉 https://www.chaichaska.co.in/orders
-
-Enjoy your authentic chai break! 🫖`;
-    } else if (normStatus.includes('cancel')) {
-      message = `❌ *Order Cancelled | Chai Chaska*
-
-Hi *${name}*,
-Your order *${displayOrderId}* has been marked as *Cancelled*.
-
-If you need any assistance, please contact support or re-order at:
-https://www.chaichaska.co.in/shop`;
-    } else {
-      message = `☕ *Order Update | Chai Chaska*
-
-Hi *${name}*,
-Your order *${displayOrderId}* status has been updated:
-📍 *Current Status:* *${status || 'Updated'}*
-${amountStr ? `💰 *Total Amount:* ${amountStr}\n` : ''}
-Track live: https://www.chaichaska.co.in/orders
-
-Thank you for choosing Chai Chaska!`;
     }
 
     const config = (await getWhatsAppConfig()) || DEFAULT_WHATSAPP_CONFIG;
@@ -118,7 +74,7 @@ Thank you for choosing Chai Chaska!`;
       'apikey': apiKey
     };
 
-    // 1. IF DELIVERED: SEND CLEAN TEXT-ONLY THANK YOU MESSAGE (NO IMAGE / NO PDF ATTACHMENT)
+    // 1. IF DELIVERED: SEND CLEAN TEXT-ONLY THANK YOU MESSAGE (NO IMAGE)
     if (isDelivered) {
       try {
         const textUrl = `${baseUrl}/message/sendText/${encodeURIComponent(instance)}`;
@@ -143,7 +99,7 @@ Thank you for choosing Chai Chaska!`;
       }
     }
 
-    // 2. IF NOT DELIVERED: SEND AUTHENTIC PRODUCT IMAGE + CAPTION
+    // 2. IF ORDER PLACED: SEND AUTHENTIC PRODUCT IMAGE + CAPTION
     let resolvedImage = null;
     let mimeType = 'image/jpeg';
 
