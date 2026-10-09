@@ -271,8 +271,10 @@ export default function AdminDashboard() {
   const parseOrderPrice = (o) => {
     if (!o) return 0;
     if (typeof o.priceNum === "number" && !isNaN(o.priceNum) && o.priceNum > 0) return o.priceNum;
-    const raw = o.total || o.price || o.amount || o.totalPrice || 0;
-    if (typeof raw === "number" && !isNaN(raw)) return raw;
+    if (typeof o.amount === "number" && !isNaN(o.amount) && o.amount > 0) return o.amount;
+    if (typeof o.price === "number" && !isNaN(o.price) && o.price > 0) return o.price;
+    const raw = o.total || o.totalPrice || o.price || o.amount || 0;
+    if (typeof raw === "number" && !isNaN(raw) && raw > 0) return raw;
     if (typeof raw === "string") {
       const num = parseFloat(raw.replace(/[^\d.]/g, ""));
       if (!isNaN(num) && num > 0) return num;
@@ -8316,8 +8318,11 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
         order={editingOrder}
         onClose={() => setIsEditOrderModalOpen(false)}
         onSaveSuccess={(upd) => {
-          if (selectedQueueOrder && (selectedQueueOrder.id === upd.id || selectedQueueOrder.orderId === upd.orderId)) {
-            setSelectedQueueOrder(upd);
+          if (upd) {
+            setOrders(prev => prev.map(o => (o.id === upd.id || o.orderId === upd.orderId) ? { ...o, ...upd } : o));
+            if (selectedQueueOrder && (selectedQueueOrder.id === upd.id || selectedQueueOrder.orderId === upd.orderId)) {
+              setSelectedQueueOrder(prev => ({ ...prev, ...upd }));
+            }
           }
         }}
         productsList={productsList}

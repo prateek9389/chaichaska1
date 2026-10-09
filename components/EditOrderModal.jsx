@@ -52,10 +52,28 @@ export default function EditOrderModal({
         order.items.map((it) => {
           const itemName = it.name || it.item || "Item";
           const meta = getProductMeta(itemName, it.image || it.img, it.category);
+          let itemPrice = typeof it.price === "number" ? it.price : (parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0);
+
+          if (itemPrice === 0) {
+            const matchProd = dbProducts.find(p => (p.name || p.title || "").toLowerCase() === itemName.toLowerCase())
+              || (Array.isArray(productsList) ? productsList.find(p => (p.name || p.title || "").toLowerCase() === itemName.toLowerCase()) : null);
+            if (matchProd) {
+              itemPrice = typeof matchProd.price === "number" ? matchProd.price : (parseFloat(String(matchProd.price || 0).replace(/[^\d.]/g, "")) || 0);
+            }
+          }
+          if (itemPrice === 0) {
+            const lower = itemName.toLowerCase();
+            if (lower.includes("cold coffee")) itemPrice = 70;
+            else if (lower.includes("hot coffee") || lower.includes("coffee")) itemPrice = 40;
+            else if (lower.includes("chai") || lower.includes("tea")) itemPrice = 20;
+            else if (lower.includes("bun maska")) itemPrice = 50;
+            else if (lower.includes("biscuit") || lower.includes("namkeen") || lower.includes("lahori")) itemPrice = 10;
+          }
+
           return {
             name: itemName,
-            price: Number(it.price) || 0,
-            quantity: Number(it.quantity) || Number(it.qty) || 1,
+            price: itemPrice,
+            quantity: parseInt(it.quantity || it.qty) || 1,
             image: meta.image || it.image || it.img || "/products/chai-chaska.jpg",
             sugar: it.sugar || "Regular",
             milk: it.milk || "Standard",
@@ -64,20 +82,54 @@ export default function EditOrderModal({
         })
       );
     } else {
-      const rawPrice = order.amount || (typeof order.total === "string" ? parseFloat(order.total.replace(/[^\d.]/g, "")) : order.total) || 40;
-      const itemName = order.item || "Chai Selection";
-      const meta = getProductMeta(itemName, order.image || order.img);
-      setItems([
-        {
-          name: itemName,
-          price: Number(rawPrice) || 40,
-          quantity: Number(order.quantity) || 1,
+      const rawTotalNum = typeof order.amount === "number" ? order.amount : (parseFloat(String(order.total || order.price || order.priceNum || 0).replace(/[^\d.]/g, "")) || 0);
+      const itemStr = order.item || "Chai Selection";
+      const parts = itemStr.split(/[,+]/).map(s => s.trim()).filter(Boolean);
+      
+      const parsedItems = parts.map(part => {
+        const match = part.match(/^(.*?)(?:\s*x\s*(\d+))?$/i);
+        const name = match && match[1] ? match[1].trim() : part;
+        const qty = match && match[2] ? parseInt(match[2]) : (parseInt(order.quantity) || 1);
+        const meta = getProductMeta(name, order.image || order.img);
+        
+        let itemPrice = 0;
+        const matchProd = dbProducts.find(p => (p.name || p.title || "").toLowerCase() === name.toLowerCase())
+          || (Array.isArray(productsList) ? productsList.find(p => (p.name || p.title || "").toLowerCase() === name.toLowerCase()) : null);
+        if (matchProd) {
+          itemPrice = typeof matchProd.price === "number" ? matchProd.price : (parseFloat(String(matchProd.price || 0).replace(/[^\d.]/g, "")) || 0);
+        }
+        if (itemPrice === 0) {
+          const lower = name.toLowerCase();
+          if (lower.includes("cold coffee")) itemPrice = 70;
+          else if (lower.includes("hot coffee") || lower.includes("coffee")) itemPrice = 40;
+          else if (lower.includes("chai") || lower.includes("tea")) itemPrice = 20;
+          else if (lower.includes("bun maska")) itemPrice = 50;
+          else if (lower.includes("biscuit") || lower.includes("namkeen") || lower.includes("lahori")) itemPrice = 10;
+          else if (parts.length === 1 && rawTotalNum > 0) {
+            itemPrice = Math.round(rawTotalNum / qty);
+          }
+        }
+        
+        return {
+          name,
+          price: itemPrice || 20,
+          quantity: qty,
           image: meta.image || order.image || order.img || "/products/chai-chaska.jpg",
           sugar: order.sugar || "Regular",
           milk: order.milk || "Standard",
           notes: ""
-        }
-      ]);
+        };
+      });
+
+      setItems(parsedItems.length > 0 ? parsedItems : [{
+        name: "Chai Selection",
+        price: rawTotalNum || 20,
+        quantity: 1,
+        image: "/products/chai-chaska.jpg",
+        sugar: "Regular",
+        milk: "Standard",
+        notes: ""
+      }]);
     }
   }, [order, isOpen]);
 
@@ -124,7 +176,11 @@ export default function EditOrderModal({
   });
 
   // Calculate Subtotal & Total
-  const subtotal = items.reduce((acc, it) => acc + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0);
+  const subtotal = items.reduce((acc, it) => {
+    const p = typeof it.price === "number" ? it.price : (parseFloat(String(it.price || 0).replace(/[^\d.]/g, "")) || 0);
+    const q = parseInt(it.quantity) || 1;
+    return acc + (p * q);
+  }, 0);
 
   // Add Item to Order
   const handleAddItem = (prod) => {
@@ -134,6 +190,7 @@ export default function EditOrderModal({
         const updated = [...prev];
         updated[existingIdx] = {
           ...updated[existingIdx],
+          price: Number(prod.price) || Number(updated[existingIdx].price) || 0,
           quantity: (Number(updated[existingIdx].quantity) || 1) + 1
         };
         return updated;
@@ -183,19 +240,45 @@ export default function EditOrderModal({
     setIsSaving(true);
 
     try {
+      const calculatedSubtotal = items.reduce((acc, it) => {
+        const p = typeof it.price === "number" ? it.price : (parseFloat(String(it.price || 0).replace(/[^\d.]/g, "")) || 0);
+        const q = parseInt(it.quantity) || 1;
+        return acc + (p * q);
+      }, 0);
+
       const firstItem = items[0];
       const resolvedItemImage = firstItem?.image || getProductMeta(firstItem?.name || items[0]?.name).image;
 
       const itemSummary = items.map((i) => `${i.name} x${i.quantity}`).join(", ");
-      const totalFormatted = `₹${subtotal}`;
+      const totalFormatted = `₹${calculatedSubtotal}`;
+      const totalQty = items.reduce((acc, it) => acc + (parseInt(it.quantity) || 1), 0);
+
+      const cleanedItems = items.map(it => ({
+        name: it.name,
+        price: typeof it.price === 'number' ? it.price : (parseFloat(String(it.price || 0).replace(/[^\d.]/g, '')) || 0),
+        priceNum: typeof it.price === 'number' ? it.price : (parseFloat(String(it.price || 0).replace(/[^\d.]/g, '')) || 0),
+        quantity: parseInt(it.quantity) || 1,
+        qty: parseInt(it.quantity) || 1,
+        image: it.image || "",
+        sugar: it.sugar || "Regular",
+        milk: it.milk || "Standard",
+        notes: it.notes || ""
+      }));
+
       const updates = {
-        items: items,
+        items: cleanedItems,
         item: itemSummary,
         total: totalFormatted,
-        amount: subtotal,
+        totalPrice: totalFormatted,
+        amount: calculatedSubtotal,
+        price: calculatedSubtotal,
+        priceNum: calculatedSubtotal,
         subtotal: totalFormatted,
+        quantity: totalQty,
+        qty: totalQty,
         image: resolvedItemImage,
-        img: resolvedItemImage
+        img: resolvedItemImage,
+        updatedAt: Date.now()
       };
 
       await updateOrder(order.id, updates);
@@ -208,7 +291,7 @@ export default function EditOrderModal({
       setTimeout(() => {
         setIsSaving(false);
         onClose();
-      }, 800);
+      }, 600);
     } catch (e) {
       console.error("Error saving updated order:", e);
       alert("Failed to update order. Please try again.");
