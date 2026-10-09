@@ -633,7 +633,7 @@ export default function ShopPage() {
             <div className="sidebar-group">
               <div className="group-header">
                 <span className="group-title">Categories</span>
-                <span className="group-badge">{availableCategories.length - 1} types</span>
+                <span className="group-badge" suppressHydrationWarning>{availableCategories.length - 1} types</span>
               </div>
               <div className="category-options-list">
                 {availableCategories.map((cat) => {
@@ -651,7 +651,7 @@ export default function ShopPage() {
                       <span className="cat-name">
                         {cat === "All" ? "✨ All Products" : cat}
                       </span>
-                      <span className="cat-count">{count}</span>
+                      <span className="cat-count" suppressHydrationWarning>{count}</span>
                     </button>
                   );
                 })}

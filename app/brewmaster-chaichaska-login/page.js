@@ -2043,8 +2043,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     </div>
                   </div>
 
-                  {/* TOP ROW: SUMMARY CARDS (DYNAMICALLY FILTERED) */}
-                  <div className="dashboard-summary-grid" style={{ marginBottom: "24px" }}>
+                  {/* TOP ROW: SUMMARY CARDS (SIDE-BY-SIDE RESPONSIVE GRID) */}
+                  <div className="dashboard-summary-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px", width: "100%", boxSizing: "border-box" }}>
                     {[
                       { label: "Total Orders", value: `${totalOrdersCount}`, icon: "🧾", color: "#e8f5e9", text: "#2e7d32" },
                       { label: "Pending Orders", value: `${receivedOrdersCount + preparingOrdersCount}`, icon: "⏳", color: "#fff3e0", text: "#ef6c00", modal: "pending" },
@@ -2157,8 +2157,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     </div>
                   </div>
 
-                  {/* MIDDLE ROW: SPLIT COLUMNS (MATCHING ADMIN DASHBOARD 1:1) */}
-                  <div className="dashboard-split-grid" style={{ marginBottom: "24px" }}>
+                  {/* MIDDLE ROW: SPLIT COLUMNS (SIDE-BY-SIDE ON DESKTOP) */}
+                  <div className="dashboard-split-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "20px", marginBottom: "24px", width: "100%", boxSizing: "border-box" }}>
 
                     {/* LEFT: High Demanding Products */}
                     <div style={{ background: "#ffffff", borderRadius: "12px", padding: "20px", border: "1px solid #eaeaea", boxShadow: "0 2px 8px rgba(0,0,0,0.02)" }}>
@@ -2319,7 +2319,13 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
             {/* TAB: ORDER QUEUE */}
             {activeTab === "queue" && (() => {
-              const activeQueueOrders = orders.filter(o => o.priority !== "Subscription" && o.status !== "Cancelled" && o.status !== "Cancelled by User" && o.status !== "Refunded");
+              const activeQueueOrders = orders.filter(o => {
+                if (o.priority === "Subscription" || o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
+                if (queueDateFilter && queueDateFilter !== "all" && queueDateFilter !== "All") {
+                  return isOrderMatchingDateFilter(o, queueDateFilter);
+                }
+                return true;
+              });
               const receivedCount = activeQueueOrders.filter(o => (o.status || "Received") === "Received").length;
               const prepCount = activeQueueOrders.filter(o => o.status === "Preparing" || o.status === "Pending").length;
               const outCount = activeQueueOrders.filter(o => o.status === "Out for Delivery" || o.status === "Shipped").length;
@@ -2556,6 +2562,27 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                     {/* Right-aligned Actions */}
                     <div className="queue-actions-group">
+                      <div className="queue-date-picker-wrap" title="Filter Queue by Date">
+                        <span className="queue-date-picker-icon">📅</span>
+                        <input
+                          type="date"
+                          value={queueDateFilter === "all" || queueDateFilter === "All" ? "" : queueDateFilter}
+                          onChange={(e) => setQueueDateFilter(e.target.value || "all")}
+                          className="queue-calendar-input"
+                          title="Pick date to filter orders"
+                        />
+                        {queueDateFilter !== "all" && queueDateFilter !== "All" && (
+                          <button
+                            type="button"
+                            onClick={() => setQueueDateFilter("all")}
+                            className="queue-clear-date-btn"
+                            title="Clear date filter (Show all dates)"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => setIsOfflineItemModalOpen(true)}
@@ -9060,6 +9087,59 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
           display: flex;
           align-items: center;
           gap: 10px;
+        }
+        .queue-date-picker-wrap {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #ffffff;
+          border: 1.5px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 6px 10px;
+          height: 38px;
+          transition: all 0.2s ease;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        }
+        .queue-date-picker-wrap:focus-within,
+        .queue-date-picker-wrap:hover {
+          border-color: #0f172a;
+          background: #ffffff;
+        }
+        .queue-date-picker-icon {
+          font-size: 14px;
+          line-height: 1;
+        }
+        .queue-calendar-input {
+          border: none;
+          background: transparent;
+          font-size: 12.5px;
+          font-weight: 600;
+          color: #1e293b;
+          outline: none;
+          cursor: pointer;
+          font-family: inherit;
+          padding: 0;
+        }
+        .queue-clear-date-btn {
+          border: none;
+          background: #fee2e2;
+          color: #ef4444;
+          border-radius: 50%;
+          width: 18px;
+          height: 18px;
+          font-size: 10px;
+          font-weight: 800;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          transition: all 0.15s ease;
+        }
+        .queue-clear-date-btn:hover {
+          background: #fecaca;
+          color: #dc2626;
+          transform: scale(1.1);
         }
         .queue-add-btn {
           background: #18181b;

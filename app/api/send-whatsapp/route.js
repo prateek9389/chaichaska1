@@ -75,11 +75,9 @@ Get ready for a refreshing chai break! ☕`;
       message = `✅ *Order Delivered | Chai Chaska*
 
 Hi *${name}*,
-Your Chai Chaska order *${displayOrderId}* has been served hot & fresh at your desk! ☕✨
+Thank you for ordering with Chai Chaska! Your order *${displayOrderId}* has been served hot & fresh at your desk! ☕✨
 
-${amountStr ? `💰 *Total Paid:* ${amountStr}\n` : ''}📄 *Your Official Tax Invoice is attached above.*
-
-⭐ *How was your Chai experience?*
+${amountStr ? `💰 *Total Paid:* ${amountStr}\n` : ''}⭐ *How was your Chai experience?*
 Please take 10 seconds to share your review or rate your order:
 👉 https://www.chaichaska.co.in/orders
 
@@ -120,50 +118,28 @@ Thank you for choosing Chai Chaska!`;
       'apikey': apiKey
     };
 
-    // 1. IF DELIVERED: GENERATE AND SEND BEAUTIFUL PDF INVOICE
-    if (isDelivered && config.mode !== 'local') {
+    // 1. IF DELIVERED: SEND CLEAN TEXT-ONLY THANK YOU MESSAGE (NO IMAGE / NO PDF ATTACHMENT)
+    if (isDelivered) {
       try {
-        const orderForPdf = {
-          orderId: displayOrderId,
-          customer: name,
-          phone: formattedTo,
-          office: location || 'Desk Delivery',
-          total: amountStr || totalAmount || '₹0',
-          item: items || 'Chai Chaska Selection',
-          itemsList: itemsList || [],
-          paymentMethod: paymentMethod || 'Cash on Delivery',
-          paymentStatus: paymentStatus || 'Paid',
-          createdAt: date ? new Date(date).getTime() : Date.now()
-        };
-
-        const pdfBuffer = await generateInvoicePdfBuffer(orderForPdf);
-        const base64Pdf = `data:application/pdf;base64,${pdfBuffer.toString('base64')}`;
-
-        const mediaUrl = `${baseUrl}/message/sendMedia/${encodeURIComponent(instance)}`;
+        const textUrl = `${baseUrl}/message/sendText/${encodeURIComponent(instance)}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 25000);
+        const timeout = setTimeout(() => controller.abort(), 20000);
 
-        const invoiceRes = await fetch(mediaUrl, {
+        const textRes = await fetch(textUrl, {
           method: 'POST',
           headers: headers,
           body: JSON.stringify({
             number: formattedTo,
-            mediatype: 'document',
-            mimetype: 'application/pdf',
-            media: base64Pdf,
-            caption: message,
-            fileName: `ChaiChaska_Invoice_${displayOrderId.replace(/[^a-zA-Z0-9_-]/g, '')}.pdf`
+            text: message
           }),
           signal: controller.signal
         });
         clearTimeout(timeout);
 
-        if (invoiceRes.ok) {
-          const invoiceData = await invoiceRes.json().catch(() => ({ success: true }));
-          return Response.json({ success: true, status: invoiceRes.status, data: invoiceData, invoicePdfSent: true });
-        }
-      } catch (pdfErr) {
-        console.warn('PDF Invoice send failed, falling back to standard notification:', pdfErr.message);
+        const textData = await textRes.json().catch(() => ({ success: textRes.ok }));
+        return Response.json({ success: textRes.ok, status: textRes.status, data: textData, deliveredTextSent: true });
+      } catch (delivErr) {
+        console.warn('Delivered text WhatsApp send failed:', delivErr.message);
       }
     }
 
