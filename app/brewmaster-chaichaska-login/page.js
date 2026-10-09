@@ -6,7 +6,7 @@ import { db, auth } from "@/lib/firebase";
 import { collection, onSnapshot, addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import { getProductMeta } from "@/lib/productMeta";
-import { onOrdersSnapshot, updateOrder, updateStockItem, addStockItem, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, getProfileSettings, updateProfileSettings, onProductsSnapshot, createOrder, getMenuItems, getCombos, getRestockHistory, getFeedback } from "@/lib/firestore";
+import { onOrdersSnapshot, updateOrder, updateStockItem, addStockItem, addRestockRequest, onRestockRequestsSnapshot, onLeaveRequestsSnapshot, addLeaveRequest, onBrewmastersSnapshot, getProfileSettings, onProfileSettingsSnapshot, updateProfileSettings, onProductsSnapshot, createOrder, getMenuItems, getCombos, getRestockHistory, getFeedback } from "@/lib/firestore";
 import { loginWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import EditOrderModal from "@/components/EditOrderModal";
@@ -793,8 +793,27 @@ export default function AdminDashboard() {
   const [feedbackList, setFeedbackList] = useState([]);
 
   // Settings & Working Hours
-  const [leaveStart, setLeaveStart] = useState("2026-07-10");
-  const [leaveEnd, setLeaveEnd] = useState("2026-07-12");
+  const [workingHours, setWorkingHours] = useState("8:00 AM - 6:00 PM");
+  const [shopName, setShopName] = useState("Chai Chaska Jaipur HQ");
+  const [brewmasterName, setBrewmasterName] = useState("Chai Maker");
+  const [brewmasterContact, setBrewmasterContact] = useState("+91 98765 43210");
+  const [brewmasterBio, setBrewmasterBio] = useState("Specialist in traditional spice infusions, kulhad brewing, and custom spice blends with 6+ years of corporate hospitality experience.");
+
+  // Brewmaster Identity & Leave System
+  const [brewmasters, setBrewmasters] = useState([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [selectedBmDetails, setSelectedBmDetails] = useState(null);
+  const [leaveStart, setLeaveStart] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  });
+  const [leaveEnd, setLeaveEnd] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().split('T')[0];
+  });
+  const [selectedLeaveType, setSelectedLeaveType] = useState("Casual Leave");
   const [newLeaveReason, setNewLeaveReason] = useState("");
   const [leaveRequests, setLeaveRequests] = useState([]);
 
@@ -808,15 +827,9 @@ export default function AdminDashboard() {
     ...restockRequests
       .map((r, i) => ({ id: r.id || `restock-${i}`, text: `Restock Req: ${r.item} (${r.qty})`, time: r.date || "New" })),
     ...leaveRequests
-      .filter(l => l.status === "Pending")
-      .map((l, i) => ({ id: l.id || `leave-${i}`, text: `Leave: ${l.start} to ${l.end}`, time: "New" }))
+      .filter(l => l.status === "Pending" || l.status === "Pending Approval")
+      .map((l, i) => ({ id: l.id || `leave-${i}`, text: `Leave: ${l.startDate || l.start} to ${l.endDate || l.end}`, time: "New" }))
   ].filter(n => !readNotifications.includes(n.id));
-
-  const [workingHours, setWorkingHours] = useState("8:00 AM - 6:00 PM");
-  const [shopName, setShopName] = useState("Chai Chaska Jaipur HQ");
-  const [brewmasterName, setBrewmasterName] = useState("Chai Maker");
-  const [brewmasterContact, setBrewmasterContact] = useState("+91 98765 43210");
-  const [brewmasterBio, setBrewmasterBio] = useState("Specialist in traditional spice infusions, kulhad brewing, and custom spice blends with 6+ years of corporate hospitality experience.");
 
   // Realtime Incoming Alert states
   const [incomingOrder, setIncomingOrder] = useState(null);
@@ -914,6 +927,24 @@ export default function AdminDashboard() {
       setLeaveRequests(data);
     });
     const unsubProducts = onProductsSnapshot((data) => setProductsList(data));
+    const unsubProfile = onProfileSettingsSnapshot((data) => {
+      if (data) {
+        if (data.brewmasterName) setBrewmasterName(data.brewmasterName);
+        if (data.brewmasterContact) setBrewmasterContact(data.brewmasterContact);
+        if (data.brewmasterBio) setBrewmasterBio(data.brewmasterBio);
+        if (data.shopName) setShopName(data.shopName);
+        if (data.workingHours) setWorkingHours(data.workingHours);
+      }
+    });
+    const unsubBrew = onBrewmastersSnapshot((data) => {
+      setBrewmasters(data);
+      setSelectedEmployeeId((prevId) => {
+        const activeId = prevId || (data.length > 0 ? data[0].employeeId : "");
+        const matched = data.find((b) => b.employeeId === activeId) || (data.length > 0 ? data[0] : null);
+        setSelectedBmDetails(matched);
+        return activeId;
+      });
+    });
     getMenuItems().then(setMenuItems);
     getCombos().then(setCombos);
     getRestockHistory().then(setRestockHistory);
@@ -924,6 +955,8 @@ export default function AdminDashboard() {
       unsubStock();
       unsubRestock();
       unsubLeave();
+      unsubBrew();
+      unsubProfile();
       unsubProducts();
       unsubAuth();
     };
@@ -4880,160 +4913,440 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               );
             })()}
 
-            {activeTab === "leave" && (
-              <div className="tab-body-wrapper leave-tab-body">
-                <div className="leave-two-col-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "24px" }}>
+            {activeTab === "leave" && (() => {
+              const diffDays = (() => {
+                if (leaveStart && leaveEnd) {
+                  const s = new Date(leaveStart);
+                  const e = new Date(leaveEnd);
+                  const diff = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+                  return diff > 0 ? diff : 1;
+                }
+                return 1;
+              })();
 
-                  {/* Left Column: Apply Leave Form */}
-                  <div>
-                    <h3 className="section-title">Leave Request Hub</h3>
+              const activeBm = selectedBmDetails || brewmasters.find(b => b.employeeId === selectedEmployeeId) || (brewmasters.length > 0 ? brewmasters[0] : {
+                employeeId: "BM-001",
+                name: brewmasterName || "Head Brewmaster",
+                role: "Head Brewmaster",
+                phone: brewmasterContact || "+91 96676 23123",
+                status: "Active"
+              });
 
-                    <form
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        if (!newLeaveReason || !leaveStart || !leaveEnd) return;
-                        try {
-                          await addLeaveRequest({ start: leaveStart, end: leaveEnd, reason: newLeaveReason, status: "Pending Approval" });
-                          setNewLeaveReason("");
-                          setToastMsg("🌱 Applied for leave! Request submitted to building administrator.");
-                          setTimeout(() => setToastMsg(""), 3500);
-                        } catch (err) {
-                          setToastMsg("❌ Error applying leave: " + err.message);
-                          setTimeout(() => setToastMsg(""), 3500);
-                        }
-                      }}
-                      style={{ background: "#ffffff", padding: "20px", borderRadius: "18px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "24px" }}
-                    >
-                      <div className="leave-dates-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "14px" }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>Start Date</label>
-                          <input type="date" value={leaveStart} onChange={(e) => setLeaveStart(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12.5px", boxSizing: "border-box" }} />
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>End Date</label>
-                          <input type="date" value={leaveEnd} onChange={(e) => setLeaveEnd(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12.5px", boxSizing: "border-box" }} />
-                        </div>
-                      </div>
-
-                      <div className="form-group" style={{ marginBottom: "18px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>Reason for Leave</label>
-                        <input type="text" placeholder="e.g. Personal emergency, Kitchen maintenance" value={newLeaveReason} onChange={(e) => setNewLeaveReason(e.target.value)} required style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "12.5px", boxSizing: "border-box" }} />
-                      </div>
-
-                      <button type="submit" style={{ width: "100%", background: "#09090b", color: "#ffffff", border: "none", padding: "12px", borderRadius: "8px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
-                        SUBMIT LEAVE REQUEST
-                      </button>
-                    </form>
-
-                    {/* Applied Leaves Log */}
-                    <h3 className="section-title">Leave History & Status</h3>
-                    
-                    {/* Desktop Table */}
-                    <div className="leave-table-card desktop-only-view" style={{ background: "#ffffff", borderRadius: "18px", border: "1px solid rgba(44, 27, 13, 0.04)", overflowX: "auto" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12px" }}>
-                        <thead>
-                          <tr style={{ background: "#fbf9f6", borderBottom: "1px solid rgba(0,0,0,0.06)", color: "#666" }}>
-                            <th style={{ padding: "12px 16px" }}>Leave Dates</th>
-                            <th style={{ padding: "12px 16px" }}>Reason</th>
-                            <th style={{ padding: "12px 16px", textAlign: "right" }}>Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {leaveRequests.map((req, i) => (
-                            <tr key={req.id || i} style={{ borderBottom: i === leaveRequests.length - 1 ? "none" : "1px solid rgba(0,0,0,0.04)" }}>
-                              <td style={{ padding: "12px 16px" }}>{req.start} to {req.end}</td>
-                              <td style={{ padding: "12px 16px", color: "#555" }}>{req.reason}</td>
-                              <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
-                                  <span style={{
-                                    fontSize: "9.5px",
-                                    padding: "4px 8px",
-                                    borderRadius: "4px",
-                                    fontWeight: "bold",
-                                    background: req.status === "Approved" ? "rgba(39,174,96,0.1)" : (req.status === "Rejected" ? "rgba(231,76,60,0.1)" : "rgba(241,196,15,0.12)"),
-                                    color: req.status === "Approved" ? "#27ae60" : (req.status === "Rejected" ? "#e74c3c" : "#d35400")
-                                  }}>
-                                    {req.status}
-                                  </span>
-                                  {req.adminReason && <span style={{ fontSize: "10px", color: "#666" }}>Admin Note: {req.adminReason}</span>}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                          {leaveRequests.length === 0 && (
-                            <tr>
-                              <td colSpan="3" style={{ padding: "20px", textAlign: "center", color: "#888", fontStyle: "italic" }}>
-                                No leave requests recorded yet.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+              return (
+                <div className="tab-body-wrapper leave-tab-body" style={{ padding: "0 0 40px 0" }}>
+                  {/* Top Header */}
+                  <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "22px", background: "#ffffff", padding: "20px 24px", borderRadius: "20px", border: "1px solid rgba(44,27,13,0.06)", boxShadow: "0 4px 16px rgba(44,27,13,0.02)" }}>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "850", color: "#09090b", display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span>🏖️</span> Brewmaster Leave & Holiday Application
+                      </h2>
+                      <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#71717a" }}>
+                        Select your Employee ID to auto-fill your profile details, choose holiday dates, and submit for Admin approval.
+                      </p>
                     </div>
 
-                    {/* Mobile Leave Cards */}
-                    <div className="leave-mobile-cards-container mobile-only-view" style={{ display: "none", flexDirection: "column", gap: "10px" }}>
-                      {leaveRequests.map((req, i) => (
-                        <div key={req.id || i} style={{ background: "#ffffff", padding: "12px 14px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                            <span style={{ fontSize: "11px", fontWeight: "800", color: "#09090b" }}>📅 {req.start} to {req.end}</span>
-                            <span style={{
-                              fontSize: "9.5px",
-                              padding: "2px 6px",
-                              borderRadius: "4px",
-                              fontWeight: "800",
-                              background: req.status === "Approved" ? "rgba(39,174,96,0.1)" : (req.status === "Rejected" ? "rgba(231,76,60,0.1)" : "rgba(241,196,15,0.12)"),
-                              color: req.status === "Approved" ? "#27ae60" : (req.status === "Rejected" ? "#e74c3c" : "#d35400")
-                            }}>
-                              {req.status}
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <span style={{
+                        background: "#f4f4f5",
+                        color: "#09090b",
+                        border: "1px solid #e4e4e7",
+                        padding: "8px 16px",
+                        borderRadius: "10px",
+                        fontWeight: "800",
+                        fontSize: "12.5px"
+                      }}>
+                        🏢 Operating Hours: {workingHours || "8:00 AM - 6:00 PM"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="leave-two-col-grid" style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "24px" }}>
+
+                    {/* Left Column: Apply Leave Form */}
+                    <div>
+                      <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid #e4e4e7", boxShadow: "0 4px 16px rgba(0,0,0,0.02)", marginBottom: "24px" }}>
+                        <h3 style={{ margin: "0 0 16px", fontSize: "16px", fontWeight: "900", color: "#09090b", display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span>📝</span> Submit Leave / Holiday Request
+                        </h3>
+
+                        <form
+                          onSubmit={async (e) => {
+                            e.preventDefault();
+                            if (!newLeaveReason.trim() || !leaveStart || !leaveEnd) {
+                              setToastMsg("❌ Please fill all leave details!");
+                              setTimeout(() => setToastMsg(""), 3000);
+                              return;
+                            }
+
+                            const empIdToUse = selectedEmployeeId || (activeBm?.employeeId) || "BM-001";
+                            const bmNameToUse = (activeBm?.name) || brewmasterName || "Brewmaster";
+                            const bmPhoneToUse = (activeBm?.phone) || brewmasterContact || "";
+
+                            try {
+                              await addLeaveRequest({
+                                employeeId: empIdToUse,
+                                brewmasterName: bmNameToUse,
+                                phone: bmPhoneToUse,
+                                start: leaveStart,
+                                end: leaveEnd,
+                                days: diffDays,
+                                leaveType: selectedLeaveType,
+                                reason: newLeaveReason.trim(),
+                                status: "Pending Approval"
+                              });
+
+                              setNewLeaveReason("");
+                              setToastMsg(`🌱 Leave request for ${bmNameToUse} (${empIdToUse}) submitted to Admin!`);
+                              setTimeout(() => setToastMsg(""), 4000);
+                            } catch (err) {
+                              setToastMsg("❌ Error applying leave: " + err.message);
+                              setTimeout(() => setToastMsg(""), 3500);
+                            }
+                          }}
+                          style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+                        >
+                          {/* 1. SELECT EMPLOYEE ID */}
+                          <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "14px", border: "1.5px solid #e2e8f0" }}>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#0f172a", marginBottom: "6px" }}>
+                              🆔 Select Your Brewmaster Employee ID <span style={{ color: "#e11d48" }}>*</span>
+                            </label>
+
+                            <select
+                              value={selectedEmployeeId || (activeBm?.employeeId || "")}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setSelectedEmployeeId(val);
+                                const found = brewmasters.find(b => b.employeeId === val);
+                                setSelectedBmDetails(found || null);
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "11px 14px",
+                                borderRadius: "10px",
+                                border: "1.5px solid #cbd5e1",
+                                background: "#ffffff",
+                                fontSize: "13.5px",
+                                fontWeight: "800",
+                                color: "#09090b",
+                                outline: "none",
+                                cursor: "pointer",
+                                boxSizing: "border-box"
+                              }}
+                            >
+                              {brewmasters.length === 0 ? (
+                                <option value="BM-001">BM-001 - Head Brewmaster (Default)</option>
+                              ) : (
+                                brewmasters.map(bm => (
+                                  <option key={bm.id} value={bm.employeeId}>
+                                    {bm.employeeId} — {bm.name} ({bm.role || "Brewmaster"})
+                                  </option>
+                                ))
+                              )}
+                            </select>
+
+                            {/* Auto-filled details preview badge */}
+                            {activeBm && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "12px", background: "#ffffff", padding: "10px 14px", borderRadius: "10px", border: "1px solid #86efac" }}>
+                                <div style={{ width: "36px", height: "36px", borderRadius: "8px", background: "#09090b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: "bold" }}>
+                                  👨‍🍳
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <strong style={{ fontSize: "13.5px", color: "#09090b" }}>{activeBm.name}</strong>
+                                    <span style={{ fontSize: "11px", fontWeight: "850", background: "#f4f4f5", padding: "1px 6px", borderRadius: "4px" }}>
+                                      {activeBm.employeeId}
+                                    </span>
+                                  </div>
+                                  <span style={{ fontSize: "11px", color: "#64748b" }}>
+                                    {activeBm.role || "Brewmaster"} • {activeBm.phone || "No phone"} • Hours: {workingHours || "8:00 AM - 6:00 PM"}
+                                  </span>
+                                </div>
+                                <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#16a34a", background: "#ecfdf5", padding: "3px 8px", borderRadius: "6px" }}>
+                                  ✓ Verified
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 2. LEAVE TYPE SELECTOR */}
+                          <div>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "6px" }}>
+                              Leave / Holiday Category
+                            </label>
+                            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                              {["Casual Leave", "Sick Leave", "Emergency Leave", "Festival / Holiday", "Personal Vacation"].map(type => (
+                                <button
+                                  key={type}
+                                  type="button"
+                                  onClick={() => setSelectedLeaveType(type)}
+                                  style={{
+                                    padding: "6px 12px",
+                                    borderRadius: "8px",
+                                    border: selectedLeaveType === type ? "1.5px solid #09090b" : "1px solid #e4e4e7",
+                                    background: selectedLeaveType === type ? "#09090b" : "#ffffff",
+                                    color: selectedLeaveType === type ? "#ffffff" : "#52525b",
+                                    fontWeight: "800",
+                                    fontSize: "11.5px",
+                                    cursor: "pointer"
+                                  }}
+                                >
+                                  {type}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* 3. LEAVE DATES ROW */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>
+                                Start Date <span style={{ color: "#e11d48" }}>*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={leaveStart}
+                                onChange={(e) => setLeaveStart(e.target.value)}
+                                required
+                                style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "13px", fontWeight: "600", boxSizing: "border-box", outline: "none" }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>
+                                End Date <span style={{ color: "#e11d48" }}>*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={leaveEnd}
+                                onChange={(e) => setLeaveEnd(e.target.value)}
+                                required
+                                style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "13px", fontWeight: "600", boxSizing: "border-box", outline: "none" }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* DURATION BADGE */}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f4f4f5", padding: "8px 12px", borderRadius: "8px" }}>
+                            <span style={{ fontSize: "12px", color: "#52525b", fontWeight: "600" }}>Total Leave Duration:</span>
+                            <span style={{ fontSize: "13px", fontWeight: "900", color: "#09090b" }}>
+                              {diffDays} {diffDays === 1 ? "Day" : "Days"} ({selectedLeaveType})
                             </span>
                           </div>
-                          <p style={{ fontSize: "11.5px", color: "#52525b", margin: 0 }}>{req.reason}</p>
-                          {req.adminReason && (
-                            <span style={{ display: "block", marginTop: "4px", fontSize: "10px", color: "#d97706", fontWeight: "600" }}>Note: {req.adminReason}</span>
-                          )}
+
+                          {/* 4. REASON */}
+                          <div>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#52525b", marginBottom: "4px" }}>
+                              Reason for Leave <span style={{ color: "#e11d48" }}>*</span>
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Family function, Medical checkup, Festive holiday"
+                              value={newLeaveReason}
+                              onChange={(e) => setNewLeaveReason(e.target.value)}
+                              required
+                              style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box", outline: "none" }}
+                            />
+                          </div>
+
+                          {/* SUBMIT BUTTON */}
+                          <button
+                            type="submit"
+                            style={{
+                              width: "100%",
+                              background: "#09090b",
+                              color: "#ffffff",
+                              border: "none",
+                              padding: "13px",
+                              borderRadius: "10px",
+                              fontWeight: "900",
+                              fontSize: "13.5px",
+                              cursor: "pointer",
+                              letterSpacing: "0.5px",
+                              boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
+                            }}
+                          >
+                            SUBMIT LEAVE REQUEST ({diffDays} DAYS) 🚀
+                          </button>
+                        </form>
+                      </div>
+
+                      {/* Applied Leaves Log Table */}
+                      <h3 className="section-title" style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: "900", color: "#09090b" }}>
+                        📋 My Leave Applications & Real-Time Status ({leaveRequests.length})
+                      </h3>
+
+                      {/* Desktop Table */}
+                      <div className="leave-table-card desktop-only-view" style={{ background: "#ffffff", borderRadius: "18px", border: "1px solid #e4e4e7", overflowX: "auto", boxShadow: "0 4px 16px rgba(0,0,0,0.02)" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12.5px" }}>
+                          <thead>
+                            <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", color: "#64748b", fontWeight: "800", textTransform: "uppercase", fontSize: "11px" }}>
+                              <th style={{ padding: "12px 16px" }}>Staff & ID</th>
+                              <th style={{ padding: "12px 16px" }}>Leave Dates & Type</th>
+                              <th style={{ padding: "12px 16px" }}>Reason</th>
+                              <th style={{ padding: "12px 16px", textAlign: "right" }}>Live Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {leaveRequests.map((req, i) => {
+                              const isApproved = req.status === "Approved";
+                              const isRejected = req.status === "Rejected";
+                              const isPending = !isApproved && !isRejected;
+
+                              return (
+                                <tr key={req.id || i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                                  <td style={{ padding: "12px 16px" }}>
+                                    <strong style={{ fontSize: "13px", color: "#09090b", display: "block" }}>
+                                      {req.brewmasterName || "Brewmaster"}
+                                    </strong>
+                                    <span style={{ fontSize: "11px", fontWeight: "850", color: "#09090b", background: "#f4f4f5", padding: "1px 6px", borderRadius: "4px" }}>
+                                      {req.employeeId || "BM-001"}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: "12px 16px" }}>
+                                    <div style={{ fontWeight: "750", color: "#09090b" }}>
+                                      📅 {req.start} to {req.end}
+                                    </div>
+                                    <span style={{ fontSize: "11px", color: "#71717a" }}>
+                                      {req.leaveType || "Casual Leave"} ({req.days || 1} {req.days === 1 ? "day" : "days"})
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: "12px 16px", color: "#334155", maxWidth: "180px" }}>
+                                    "{req.reason}"
+                                  </td>
+                                  <td style={{ padding: "12px 16px", textAlign: "right" }}>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
+                                      <span style={{
+                                        fontSize: "10.5px",
+                                        padding: "4px 10px",
+                                        borderRadius: "6px",
+                                        fontWeight: "850",
+                                        background: isApproved ? "#ecfdf5" : isRejected ? "#fef2f2" : "#fffbeb",
+                                        color: isApproved ? "#065f46" : isRejected ? "#991b1b" : "#b45309",
+                                        border: isApproved ? "1px solid #a7f3d0" : isRejected ? "1px solid #fecaca" : "1px solid #fde68a"
+                                      }}>
+                                        {isApproved ? "✅ APPROVED" : isRejected ? "❌ REJECTED" : "⏳ PENDING"}
+                                      </span>
+                                      {req.adminReason && (
+                                        <span style={{ fontSize: "10.5px", color: "#64748b" }}>
+                                          Admin Note: {req.adminReason}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                            {leaveRequests.length === 0 && (
+                              <tr>
+                                <td colSpan="4" style={{ padding: "30px", textAlign: "center", color: "#888", fontStyle: "italic" }}>
+                                  No leave requests recorded yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile Leave Cards */}
+                      <div className="leave-mobile-cards-container mobile-only-view" style={{ display: "none", flexDirection: "column", gap: "10px" }}>
+                        {leaveRequests.map((req, i) => (
+                          <div key={req.id || i} style={{ background: "#ffffff", padding: "14px", borderRadius: "12px", border: "1px solid #e2e8f0", boxShadow: "0 2px 6px rgba(0,0,0,0.02)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                              <div>
+                                <strong style={{ fontSize: "13px", color: "#09090b" }}>{req.brewmasterName || "Brewmaster"}</strong>
+                                <span style={{ fontSize: "10.5px", fontWeight: "800", background: "#f4f4f5", padding: "1px 6px", borderRadius: "4px", marginLeft: "6px" }}>
+                                  {req.employeeId || "BM-001"}
+                                </span>
+                              </div>
+                              <span style={{
+                                fontSize: "10px",
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontWeight: "850",
+                                background: req.status === "Approved" ? "#ecfdf5" : req.status === "Rejected" ? "#fef2f2" : "#fffbeb",
+                                color: req.status === "Approved" ? "#065f46" : req.status === "Rejected" ? "#991b1b" : "#b45309"
+                              }}>
+                                {req.status || "Pending"}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: "12px", color: "#09090b", fontWeight: "700", marginBottom: "4px" }}>
+                              📅 {req.start} to {req.end} ({req.leaveType || "Leave"})
+                            </div>
+                            <p style={{ fontSize: "12px", color: "#52525b", margin: 0 }}>"{req.reason}"</p>
+                            {req.adminReason && (
+                              <span style={{ display: "block", marginTop: "4px", fontSize: "10.5px", color: "#d97706", fontWeight: "700" }}>
+                                Note: {req.adminReason}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                    </div>
+
+                    {/* Right Column: Shift Timing & Guidelines */}
+                    <div>
+                      <h3 className="section-title" style={{ margin: "0 0 14px 0", fontSize: "16px", fontWeight: "900", color: "#09090b" }}>
+                        ⏰ Station Shift & Leave Policy
+                      </h3>
+                      <div style={{ background: "#ffffff", padding: "22px", borderRadius: "18px", border: "1px solid #e4e4e7", boxShadow: "0 4px 16px rgba(0,0,0,0.02)", marginBottom: "20px" }}>
+                        <div style={{ marginBottom: "16px" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#71717a", display: "block" }}>Station Operating Hours</span>
+                          <div style={{ fontSize: "18px", fontWeight: "900", color: "#09090b", marginTop: "4px" }}>
+                            {workingHours || "07:00 AM - 11:00 PM"}
+                          </div>
                         </div>
-                      ))}
-                      {leaveRequests.length === 0 && (
-                        <div style={{ padding: "20px 12px", textAlign: "center", color: "#888", background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0", fontStyle: "italic", fontSize: "12px" }}>
-                          No leave requests recorded yet.
+
+                        <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                            <span style={{ fontSize: "16px" }}>📌</span>
+                            <span style={{ fontSize: "12px", color: "#334155", lineHeight: 1.4 }}>
+                              Submit planned leaves at least <strong>24 hours in advance</strong> so the station manager can adjust brewing batches.
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                            <span style={{ fontSize: "16px" }}>⚡</span>
+                            <span style={{ fontSize: "12px", color: "#334155", lineHeight: 1.4 }}>
+                              Emergency leaves are immediately marked for review upon submission.
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                            <span style={{ fontSize: "16px" }}>✅</span>
+                            <span style={{ fontSize: "12px", color: "#334155", lineHeight: 1.4 }}>
+                              Once the building admin approves, the live status updates on this screen automatically.
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Active Brewmaster Card */}
+                      {activeBm && (
+                        <div style={{ background: "linear-gradient(135deg, #09090b 0%, #27272a 100%)", color: "#ffffff", padding: "22px", borderRadius: "18px", boxShadow: "0 8px 24px rgba(0,0,0,0.15)" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#a1a1aa", display: "block", marginBottom: "4px" }}>
+                            My Brewmaster Profile
+                          </span>
+                          <h4 style={{ margin: "0 0 4px", fontSize: "18px", fontWeight: "900", color: "#ffffff" }}>
+                            {activeBm.name}
+                          </h4>
+                          <span style={{ fontSize: "12.5px", color: "#e4e4e7", fontWeight: "700", display: "block" }}>
+                            🆔 Employee ID: {activeBm.employeeId}
+                          </span>
+                          <span style={{ fontSize: "11.5px", color: "#a1a1aa", display: "block", marginTop: "2px" }}>
+                            Role: {activeBm.role || "Head Brewmaster"} • Hours: {workingHours || "8:00 AM - 6:00 PM"}
+                          </span>
+                          {activeBm.address && (
+                            <div style={{ marginTop: "12px", background: "rgba(255,255,255,0.08)", padding: "8px 12px", borderRadius: "8px", fontSize: "11px", color: "#d4d4d8" }}>
+                              🏠 Address: {activeBm.address}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
 
                   </div>
-
-                  {/* Right Column: Shift Config */}
-                  <div>
-                    <h3 className="section-title">Shift Timing & Operations</h3>
-                    <div style={{ background: "#ffffff", padding: "20px", borderRadius: "18px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                      <div className="form-group" style={{ marginBottom: "18px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "800", textTransform: "uppercase", color: "#52525b" }}>Daily Operations Window</label>
-                        <input
-                          type="text"
-                          value={workingHours}
-                          onChange={(e) => setWorkingHours(e.target.value)}
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #e4e4e7", fontSize: "13px", boxSizing: "border-box" }}
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await updateProfileSettings({ workingHours });
-                          setToastMsg("🌱 Successfully saved shift timings!");
-                          setTimeout(() => setToastMsg(""), 3000);
-                        }}
-                        style={{ width: "100%", background: "#09090b", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}
-                      >
-                        Save Configuration
-                      </button>
-                    </div>
-                  </div>
-
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {activeTab === "profile" && (
               <div className="tab-body-wrapper profile-tab-body">

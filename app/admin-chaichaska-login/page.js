@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { getProductMeta } from "@/lib/productMeta";
-import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, updateLeaveRequest, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback, getRestockHistory } from "@/lib/firestore";
+import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, getLeaveRequests, addLeaveRequest, updateLeaveRequest, deleteLeaveRequest, onBrewmastersSnapshot, getBrewmasters, addBrewmaster, updateBrewmaster, deleteBrewmaster, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback, getRestockHistory } from "@/lib/firestore";
 import { loginWithEmail, signUpWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -11,6 +11,107 @@ import { collection, addDoc, query, orderBy, onSnapshot, doc, getDoc, getDocs, u
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
 import WhatsAppSettings from "@/components/WhatsAppSettings";
 import EditOrderModal from "@/components/EditOrderModal";
+
+function getOrderDateString(order) {
+  if (!order) return "";
+
+  // 1. Direct orderDate if present (e.g. YYYY-MM-DD or DD/MM/YYYY)
+  if (order.orderDate && typeof order.orderDate === 'string') {
+    const trimmed = order.orderDate.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const parts = trimmed.split('/');
+    if (parts.length === 3) {
+      const d = parts[0].padStart(2, '0');
+      const m = parts[1].padStart(2, '0');
+      const y = parts[2];
+      return `${y}-${m}-${d}`;
+    }
+  }
+
+  // 2. createdAt timestamp or Firestore Timestamp
+  let timestamp = null;
+  if (order.createdAt) {
+    if (typeof order.createdAt === 'number') {
+      timestamp = order.createdAt;
+    } else if (order.createdAt?.seconds) {
+      timestamp = order.createdAt.seconds * 1000;
+    } else if (typeof order.createdAt?.toDate === 'function') {
+      timestamp = order.createdAt.toDate().getTime();
+    } else if (typeof order.createdAt === 'string') {
+      const parsed = Date.parse(order.createdAt);
+      if (!isNaN(parsed)) timestamp = parsed;
+    }
+  }
+
+  // 3. date string field (e.g. "25/09/2026 17:52", "2026-09-25", "Just now")
+  if (!timestamp && order.date && typeof order.date === 'string') {
+    const ds = order.date.trim();
+    if (ds === "Just now") {
+      timestamp = Date.now();
+    } else if (/^\d{4}-\d{2}-\d{2}/.test(ds)) {
+      return ds.slice(0, 10);
+    } else {
+      const match = ds.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+      if (match) {
+        const d = match[1].padStart(2, '0');
+        const m = match[2].padStart(2, '0');
+        const y = match[3];
+        return `${y}-${m}-${d}`;
+      }
+      const parsed = Date.parse(ds);
+      if (!isNaN(parsed)) timestamp = parsed;
+    }
+  }
+
+  if (timestamp && !isNaN(timestamp)) {
+    const d = new Date(timestamp);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  return "";
+}
+
+function isOrderMatchingDateFilter(order, dateFilter) {
+  if (!dateFilter || dateFilter === "all" || dateFilter === "All") return true;
+
+  const orderDateStr = getOrderDateString(order);
+  if (!orderDateStr) return false;
+
+  const now = new Date();
+  const formatYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayStr = formatYMD(now);
+
+  if (dateFilter === "today" || dateFilter === "Daily") {
+    return orderDateStr === todayStr;
+  }
+
+  if (dateFilter === "yesterday") {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    return orderDateStr === formatYMD(y);
+  }
+
+  if (dateFilter === "7days" || dateFilter === "Weekly") {
+    const past7 = new Date(now);
+    past7.setDate(past7.getDate() - 6);
+    return orderDateStr >= formatYMD(past7) && orderDateStr <= todayStr;
+  }
+
+  if (dateFilter === "Monthly") {
+    const orderParts = orderDateStr.split('-');
+    return parseInt(orderParts[0], 10) === now.getFullYear() && parseInt(orderParts[1], 10) === (now.getMonth() + 1);
+  }
+
+  // Exact date match (e.g. "2026-09-30" or "2026-09-25")
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateFilter)) {
+    return orderDateStr === dateFilter;
+  }
+
+  return true;
+}
 
 export default function AdminDashboard() {
   const router = useRouter();
@@ -172,6 +273,7 @@ export default function AdminDashboard() {
   const [editingOrder, setEditingOrder] = useState(null);
   const [isEditOrderModalOpen, setIsEditOrderModalOpen] = useState(false);
   const [queueSearchTerm, setQueueSearchTerm] = useState("");
+  const [queueDateFilter, setQueueDateFilter] = useState("all");
   const [queueStatusFilter, setQueueStatusFilter] = useState("all");
   const [queueChannelFilter, setQueueChannelFilter] = useState("all");
   const [queueLocationFilter, setQueueLocationFilter] = useState("all");
@@ -800,12 +902,109 @@ export default function AdminDashboard() {
   const [attendanceViewMode, setAttendanceViewMode] = useState("daily"); // "daily" | "monthly"
   const [empSearch, setEmpSearch] = useState("");
   const [empRoleFilter, setEmpRoleFilter] = useState("All");
+  const [filterSpecificEmployeeId, setFilterSpecificEmployeeId] = useState("All");
+  const [selectedTraceEmployee, setSelectedTraceEmployee] = useState(null);
+  const [empCustomTimeMap, setEmpCustomTimeMap] = useState({});
+
+  // ================= BREWMASTER IDENTITY & STAFF STATE =================
+  const [brewmasters, setBrewmasters] = useState([]);
+  const [showAddBrewmasterModal, setShowAddBrewmasterModal] = useState(false);
+  const [editingBrewmaster, setEditingBrewmaster] = useState(null);
+  const [bmEmployeeId, setBmEmployeeId] = useState("");
+  const [bmName, setBmName] = useState("");
+  const [bmPhone, setBmPhone] = useState("");
+  const [bmAddress, setBmAddress] = useState("");
+  const [bmAadhaarNumber, setBmAadhaarNumber] = useState("");
+  const [bmAadhaarDoc, setBmAadhaarDoc] = useState("");
+  const [bmRole, setBmRole] = useState("Head Brewmaster");
+  const [bmShift, setBmShift] = useState("Morning (07:00 AM - 03:00 PM)");
+  const [bmSalary, setBmSalary] = useState("");
+  const [bmJoiningDate, setBmJoiningDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [bmStatus, setBmStatus] = useState("Active");
+  const [isUploadingAadhaar, setIsUploadingAadhaar] = useState(false);
+  const [previewAadhaarDoc, setPreviewAadhaarDoc] = useState(null);
+  const [bmSearchTerm, setBmSearchTerm] = useState("");
+  const [bmRoleFilterTab, setBmRoleFilterTab] = useState("All");
 
   const [leaveStart, setLeaveStart] = useState("2026-07-10");
   const [leaveEnd, setLeaveEnd] = useState("2026-07-12");
   const [newLeaveReason, setNewLeaveReason] = useState("");
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [adminLeaveReasons, setAdminLeaveReasons] = useState({});
+  const [leaveFilterTab, setLeaveFilterTab] = useState("All");
+  const [leaveSearchTerm, setLeaveSearchTerm] = useState("");
+  const [isRefreshingLeaves, setIsRefreshingLeaves] = useState(false);
+  const [showAdminAddLeaveModal, setShowAdminAddLeaveModal] = useState(false);
+  const [adminLeaveBmId, setAdminLeaveBmId] = useState("");
+  const [adminLeaveType, setAdminLeaveType] = useState("Casual Leave");
+  const [adminLeaveStartDate, setAdminLeaveStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [adminLeaveEndDate, setAdminLeaveEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [adminLeaveReasonText, setAdminLeaveReasonText] = useState("");
+  const [adminLeaveStatusVal, setAdminLeaveStatusVal] = useState("Approved");
+
+  const pendingLeaveCount = leaveRequests.filter(l => l.status === "Pending Approval" || l.status === "Pending" || !l.status).length;
+  const approvedLeaveCount = leaveRequests.filter(l => l.status === "Approved").length;
+  const rejectedLeaveCount = leaveRequests.filter(l => l.status === "Rejected").length;
+
+  const handleRefreshLeaveRequests = async () => {
+    setIsRefreshingLeaves(true);
+    try {
+      const data = await getLeaveRequests();
+      setLeaveRequests(data);
+      setToastMsg(`🔄 Leave requests synchronized (${data.length} total)`);
+      setTimeout(() => setToastMsg(""), 3000);
+    } catch (e) {
+      console.error(e);
+      setToastMsg("❌ Failed to refresh leave requests: " + e.message);
+      setTimeout(() => setToastMsg(""), 3000);
+    }
+    setIsRefreshingLeaves(false);
+  };
+
+  const handleAdminCreateLeave = async (e) => {
+    e.preventDefault();
+    if (!adminLeaveReasonText.trim() || !adminLeaveStartDate || !adminLeaveEndDate) {
+      setToastMsg("❌ Please fill all leave dates and reason!");
+      setTimeout(() => setToastMsg(""), 3000);
+      return;
+    }
+    const targetBm = brewmasters.find(b => b.employeeId === adminLeaveBmId) || (brewmasters.length > 0 ? brewmasters[0] : {
+      employeeId: "BM-001",
+      name: "Brewmaster Staff",
+      phone: "+91 96676 23123"
+    });
+
+    const s = new Date(adminLeaveStartDate);
+    const eDate = new Date(adminLeaveEndDate);
+    const days = Math.max(1, Math.round((eDate - s) / (1000 * 60 * 60 * 24)) + 1);
+
+    const payload = {
+      employeeId: targetBm.employeeId || "BM-001",
+      brewmasterName: targetBm.name || "Brewmaster",
+      phone: targetBm.phone || "",
+      start: adminLeaveStartDate,
+      end: adminLeaveEndDate,
+      days,
+      leaveType: adminLeaveType,
+      reason: adminLeaveReasonText.trim(),
+      status: adminLeaveStatusVal,
+      adminReason: adminLeaveStatusVal === "Approved" ? "Directly granted/approved by Admin" : "",
+      createdAt: Date.now()
+    };
+
+    try {
+      const created = await addLeaveRequest(payload);
+      setLeaveRequests(prev => [created, ...prev.filter(l => l.id !== created.id)]);
+      setShowAdminAddLeaveModal(false);
+      setAdminLeaveReasonText("");
+      setToastMsg(`✅ Leave for ${targetBm.name} (${targetBm.employeeId}) successfully recorded!`);
+      setTimeout(() => setToastMsg(""), 3500);
+    } catch (err) {
+      setToastMsg("❌ Error adding leave: " + err.message);
+      setTimeout(() => setToastMsg(""), 3500);
+    }
+  };
+
   const [workingHours, setWorkingHours] = useState("8:00 AM - 6:00 PM");
   const [shopName, setShopName] = useState("Chai Chaska Jaipur HQ");
   const [brewmasterName, setBrewmasterName] = useState("Admin");
@@ -840,8 +1039,8 @@ export default function AdminDashboard() {
     ...restockRequests
       .map((r, i) => ({ id: r.id || `restock-${i}`, text: `Restock Req: ${r.item} (${r.qty})`, time: r.date || "New" })),
     ...leaveRequests
-      .filter(l => l.status === "Pending")
-      .map((l, i) => ({ id: l.id || `leave-${i}`, text: `Leave: ${l.start} to ${l.end}`, time: "New" }))
+      .filter(l => l.status === "Pending" || l.status === "Pending Approval")
+      .map((l, i) => ({ id: l.id || `leave-${i}`, text: `Leave: ${l.employeeId ? `[${l.employeeId}] ` : ""}${l.brewmasterName || "Staff"} (${l.start} to ${l.end})`, time: "New" }))
   ].filter(n => !readNotifications.includes(n.id));
 
   useEffect(() => {
@@ -888,12 +1087,14 @@ export default function AdminDashboard() {
     const unsubProducts = onProductsSnapshot((data) => setProductsList(data));
     const unsubRestock = onRestockRequestsSnapshot((data) => setRestockRequests(data));
     const unsubLeave = onLeaveRequestsSnapshot((data) => setLeaveRequests(data));
+    const unsubBrew = onBrewmastersSnapshot((data) => setBrewmasters(data));
     getRestockHistory().then(setRestockHistory);
     return () => {
       unsubOrders();
       unsubProducts();
       unsubRestock();
       unsubLeave();
+      unsubBrew();
       unsubStock();
       unsubAuth();
     };
@@ -1197,6 +1398,137 @@ export default function AdminDashboard() {
     }
   };
 
+  // ================= BREWMASTER ACTION HANDLERS =================
+  const handleOpenAddBrewmasterModal = () => {
+    setEditingBrewmaster(null);
+    let maxNum = 0;
+    brewmasters.forEach((b) => {
+      const match = (b.employeeId || "").match(/^BM-(\d+)$/i);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    const autoId = `BM-${String(maxNum + 1).padStart(3, "0")}`;
+    setBmEmployeeId(autoId);
+    setBmName("");
+    setBmPhone("");
+    setBmAddress("");
+    setBmAadhaarNumber("");
+    setBmAadhaarDoc("");
+    setBmRole("Head Brewmaster");
+    setBmShift("Morning (07:00 AM - 03:00 PM)");
+    setBmSalary("");
+    setBmJoiningDate(new Date().toISOString().split('T')[0]);
+    setBmStatus("Active");
+    setShowAddBrewmasterModal(true);
+  };
+
+  const handleOpenEditBrewmasterModal = (bm) => {
+    setEditingBrewmaster(bm);
+    setBmEmployeeId(bm.employeeId || "");
+    setBmName(bm.name || "");
+    setBmPhone(bm.phone || "");
+    setBmAddress(bm.address || "");
+    setBmAadhaarNumber(bm.aadhaarNumber || "");
+    setBmAadhaarDoc(bm.aadhaarDoc || "");
+    setBmRole(bm.role || "Head Brewmaster");
+    setBmShift(bm.shift || "Morning (07:00 AM - 03:00 PM)");
+    setBmSalary(bm.salary || "");
+    setBmJoiningDate(bm.joiningDate || new Date().toISOString().split('T')[0]);
+    setBmStatus(bm.status || "Active");
+    setShowAddBrewmasterModal(true);
+  };
+
+  const handleAadhaarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingAadhaar(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (res.ok && json.url) {
+        setBmAadhaarDoc(json.url);
+        setToastMsg("✅ Aadhaar Card uploaded successfully!");
+      } else {
+        // Fallback to FileReader base64
+        const reader = new FileReader();
+        reader.onload = () => {
+          setBmAadhaarDoc(reader.result);
+          setToastMsg("✅ Aadhaar Card attached!");
+        };
+        reader.readAsDataURL(file);
+      }
+    } catch (err) {
+      console.warn("Upload fallback to base64:", err);
+      const reader = new FileReader();
+      reader.onload = () => {
+        setBmAadhaarDoc(reader.result);
+        setToastMsg("✅ Aadhaar Card attached!");
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsUploadingAadhaar(false);
+      setTimeout(() => setToastMsg(""), 3000);
+    }
+  };
+
+  const handleSaveBrewmaster = async (e) => {
+    e.preventDefault();
+    if (!bmName.trim()) {
+      setToastMsg("⚠️ Please enter Brewmaster name.");
+      setTimeout(() => setToastMsg(""), 3000);
+      return;
+    }
+
+    try {
+      const data = {
+        employeeId: bmEmployeeId.trim() || `BM-${String(Date.now()).slice(-4)}`,
+        name: bmName.trim(),
+        phone: bmPhone.trim(),
+        address: bmAddress.trim(),
+        aadhaarNumber: bmAadhaarNumber.trim(),
+        aadhaarDoc: bmAadhaarDoc,
+        role: bmRole,
+        shift: bmShift,
+        salary: bmSalary ? String(bmSalary) : "",
+        joiningDate: bmJoiningDate,
+        status: bmStatus || "Active",
+      };
+
+      if (editingBrewmaster && editingBrewmaster.id) {
+        await updateBrewmaster(editingBrewmaster.id, data);
+        setToastMsg(`✅ Brewmaster ${bmName} (${data.employeeId}) updated!`);
+      } else {
+        await addBrewmaster(data);
+        setToastMsg(`✨ Brewmaster ${bmName} registered with Employee ID ${data.employeeId}!`);
+      }
+      setShowAddBrewmasterModal(false);
+      setEditingBrewmaster(null);
+      setTimeout(() => setToastMsg(""), 3500);
+    } catch (err) {
+      setToastMsg(`❌ Error: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 4000);
+    }
+  };
+
+  const handleDeleteBrewmaster = async (bmId, bmName, empId) => {
+    if (!confirm(`Are you sure you want to remove Brewmaster "${bmName}" (${empId})?`)) return;
+    try {
+      await deleteBrewmaster(bmId);
+      setToastMsg(`🗑️ Removed Brewmaster "${bmName}" (${empId}).`);
+      setTimeout(() => setToastMsg(""), 3500);
+    } catch (err) {
+      setToastMsg(`❌ Error: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 4000);
+    }
+  };
+
   const handleDeleteEmployee = async (empId, name) => {
     if (!confirm(`Are you sure you want to remove employee "${name}"?`)) return;
     try {
@@ -1212,7 +1544,6 @@ export default function AdminDashboard() {
   const handleMarkAttendance = async (emp, status) => {
     const docId = `${emp.id}_${selectedAttendanceDate}`;
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     try {
       await setDoc(doc(db, "attendance", docId), {
@@ -1221,7 +1552,6 @@ export default function AdminDashboard() {
         role: emp.role,
         date: selectedAttendanceDate,
         status: status,
-        time: timeStr,
         updatedAt: now.toISOString()
       }, { merge: true });
 
@@ -1241,7 +1571,6 @@ export default function AdminDashboard() {
       return;
     }
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     try {
       for (const emp of activeEmps) {
@@ -1252,7 +1581,6 @@ export default function AdminDashboard() {
           role: emp.role,
           date: selectedAttendanceDate,
           status: "present",
-          time: timeStr,
           updatedAt: now.toISOString()
         }, { merge: true });
       }
@@ -1942,8 +2270,23 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 <span className="btn-emoji">👥</span> Staff & Attendance
               </button>
 
-              <button onClick={() => setActiveTab("leave")} className={`menu-icon-btn ${activeTab === "leave" ? "active" : ""}`}>
-                <span className="btn-emoji">🚪</span> Leave & Shift
+              <button onClick={() => setActiveTab("leave")} className={`menu-icon-btn ${activeTab === "leave" ? "active" : ""}`} style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span className="btn-emoji">🏖️</span> Leave & Shift Requests
+                </span>
+                {pendingLeaveCount > 0 && (
+                  <span style={{
+                    background: "#dc2626",
+                    color: "#ffffff",
+                    fontSize: "10.5px",
+                    fontWeight: "900",
+                    padding: "2px 7px",
+                    borderRadius: "10px",
+                    lineHeight: "1.2"
+                  }}>
+                    {pendingLeaveCount}
+                  </span>
+                )}
               </button>
               <button onClick={() => setActiveTab("profile")} className={`menu-icon-btn ${activeTab === "profile" ? "active" : ""}`}>
                 <span className="btn-emoji">⚙️</span> Profile & Settings
@@ -2005,7 +2348,30 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 <input type="text" placeholder="Search Here" className="search-input-new" />
               </div>
 
-              <div className="header-actions-wrap" style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+              <div className="header-actions-wrap" style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                {/* Leave Requests Quick Header Button */}
+                <button
+                  className="btn-leave-requests-header"
+                  onClick={() => setActiveTab("leave")}
+                  style={{
+                    background: pendingLeaveCount > 0 ? "linear-gradient(135deg, #ea580c, #c2410c)" : "#ffffff",
+                    color: pendingLeaveCount > 0 ? "#ffffff" : "#2c1b0d",
+                    border: pendingLeaveCount > 0 ? "none" : "1px solid rgba(44,27,13,0.15)",
+                    padding: "9px 16px",
+                    borderRadius: "20px",
+                    fontWeight: "800",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    boxShadow: pendingLeaveCount > 0 ? "0 4px 10px rgba(194, 65, 12, 0.3)" : "0 2px 6px rgba(0,0,0,0.03)",
+                    transition: "all 0.15s ease"
+                  }}
+                >
+                  <span style={{ fontSize: "13px" }}>🏖️</span> Leave & Shifts {pendingLeaveCount > 0 ? `(${pendingLeaveCount} New)` : `(${leaveRequests.length})`}
+                </button>
+
                 {/* Today's Orders / Tally Header Trigger Button */}
                 <button
                   className="btn-today-orders-header"
@@ -2014,19 +2380,19 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     background: "linear-gradient(135deg, #f59e0b, #d97706)",
                     color: "#ffffff",
                     border: "none",
-                    padding: "10px 18px",
+                    padding: "9px 16px",
                     borderRadius: "20px",
                     fontWeight: "800",
-                    fontSize: "12.5px",
+                    fontSize: "12px",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    gap: "7px",
+                    gap: "6px",
                     boxShadow: "0 4px 10px rgba(217, 119, 6, 0.35)",
                     transition: "all 0.15s ease"
                   }}
                 >
-                  <span style={{ fontSize: "14px" }}>📊</span> Today's Orders & Tally
+                  <span style={{ fontSize: "13px" }}>📊</span> Today's Orders
                 </button>
 
                 <button
@@ -2036,18 +2402,18 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     background: "#2c1b0d",
                     color: "#ffffff",
                     border: "none",
-                    padding: "10px 18px",
+                    padding: "9px 16px",
                     borderRadius: "20px",
                     fontWeight: "bold",
-                    fontSize: "12.5px",
+                    fontSize: "12px",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
-                    gap: "8px",
+                    gap: "6px",
                     boxShadow: "0 4px 10px rgba(44, 27, 13, 0.15)"
                   }}
                 >
-                  📥 Pending Requests ({pendingSidebarOrders.length})
+                  📥 Pending ({pendingSidebarOrders.length})
                 </button>
                 <div style={{ position: "relative" }}>
                   <button onClick={() => setShowNotifications(!showNotifications)} className="alert-bell-btn" title="Simulate Alarm" style={{ border: "none", background: "transparent", fontSize: "18px", cursor: "pointer", position: "relative" }}>
@@ -6195,9 +6561,11 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 const matchesSearch = !empSearch ||
                   emp.name.toLowerCase().includes(empSearch.toLowerCase()) ||
                   (emp.phone && emp.phone.includes(empSearch)) ||
-                  emp.role.toLowerCase().includes(empSearch.toLowerCase());
+                  emp.role.toLowerCase().includes(empSearch.toLowerCase()) ||
+                  (emp.employeeId && emp.employeeId.toLowerCase().includes(empSearch.toLowerCase()));
                 const matchesRole = empRoleFilter === "All" || emp.role === empRoleFilter;
-                return matchesSearch && matchesRole;
+                const matchesSpecific = !filterSpecificEmployeeId || filterSpecificEmployeeId === "All" || emp.id === filterSpecificEmployeeId || emp.employeeId === filterSpecificEmployeeId;
+                return matchesSearch && matchesRole && matchesSpecific;
               });
 
               // Monthly summary stats computation
@@ -6224,8 +6592,9 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     </div>
 
                     <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-                      {/* View Switcher Tabs */}
-                      <div style={{ display: "flex", background: "#f5ece1", padding: "4px", borderRadius: "12px", border: "1px solid rgba(44,27,13,0.06)" }}>
+                      {/* View Switcher Tabs: Daily Attendance, Leave Requests (CENTER), Monthly Tally */}
+                      <div style={{ display: "flex", background: "#f5ece1", padding: "4px", borderRadius: "12px", border: "1px solid rgba(44,27,13,0.06)", flexWrap: "wrap", gap: "3px" }}>
+                        {/* 1. DAILY ATTENDANCE */}
                         <button
                           type="button"
                           onClick={() => setAttendanceViewMode("daily")}
@@ -6235,14 +6604,52 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             border: "none",
                             background: attendanceViewMode === "daily" ? "#2c1b0d" : "transparent",
                             color: attendanceViewMode === "daily" ? "#ffffff" : "#6b5847",
-                            fontWeight: "750",
+                            fontWeight: "800",
                             fontSize: "12.5px",
                             cursor: "pointer",
-                            transition: "all 0.2s"
+                            transition: "all 0.2s",
+                            boxShadow: attendanceViewMode === "daily" ? "0 2px 6px rgba(0,0,0,0.15)" : "none"
                           }}
                         >
                           📅 Daily Attendance
                         </button>
+
+                        {/* 2. LEAVE REQUESTS (CENTER) */}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setAttendanceViewMode("leaves");
+                            await handleRefreshLeaveRequests();
+                          }}
+                          style={{
+                            padding: "8px 16px",
+                            borderRadius: "9px",
+                            border: "none",
+                            background: attendanceViewMode === "leaves" ? "#2c1b0d" : "transparent",
+                            color: attendanceViewMode === "leaves" ? "#ffffff" : "#6b5847",
+                            fontWeight: "800",
+                            fontSize: "12.5px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            transition: "all 0.2s",
+                            boxShadow: attendanceViewMode === "leaves" ? "0 2px 6px rgba(0,0,0,0.15)" : "none"
+                          }}
+                        >
+                          <span>🏖️</span> Leave Requests
+                          {pendingLeaveCount > 0 ? (
+                            <span style={{ background: "#dc2626", color: "#ffffff", padding: "1px 7px", borderRadius: "10px", fontSize: "10.5px", fontWeight: "900" }}>
+                              {pendingLeaveCount}
+                            </span>
+                          ) : (
+                            <span style={{ background: attendanceViewMode === "leaves" ? "rgba(255,255,255,0.2)" : "rgba(44,27,13,0.1)", color: attendanceViewMode === "leaves" ? "#ffffff" : "#6b5847", padding: "1px 6px", borderRadius: "10px", fontSize: "10.5px", fontWeight: "800" }}>
+                              {leaveRequests.length}
+                            </span>
+                          )}
+                        </button>
+
+                        {/* 3. MONTHLY TALLY */}
                         <button
                           type="button"
                           onClick={() => setAttendanceViewMode("monthly")}
@@ -6252,15 +6659,42 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             border: "none",
                             background: attendanceViewMode === "monthly" ? "#2c1b0d" : "transparent",
                             color: attendanceViewMode === "monthly" ? "#ffffff" : "#6b5847",
-                            fontWeight: "750",
+                            fontWeight: "800",
                             fontSize: "12.5px",
                             cursor: "pointer",
-                            transition: "all 0.2s"
+                            transition: "all 0.2s",
+                            boxShadow: attendanceViewMode === "monthly" ? "0 2px 6px rgba(0,0,0,0.15)" : "none"
                           }}
                         >
                           📊 Monthly Tally
                         </button>
                       </div>
+
+                      {/* Direct Action: Add Leave */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAdminLeaveBmId(brewmasters.length > 0 ? brewmasters[0].employeeId : "BM-001");
+                          setAdminLeaveReasonText("");
+                          setShowAdminAddLeaveModal(true);
+                        }}
+                        style={{
+                          background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "11px 18px",
+                          borderRadius: "12px",
+                          fontWeight: "800",
+                          fontSize: "13px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          boxShadow: "0 4px 14px rgba(22, 163, 74, 0.25)"
+                        }}
+                      >
+                        <span>➕</span> Add Leave
+                      </button>
 
                       <button
                         type="button"
@@ -6355,7 +6789,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px" }}>
                       {/* Date Controls */}
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#fbf8f5", padding: "6px 12px", borderRadius: "12px", border: "1px solid rgba(44,27,13,0.1)" }}>
-                        <span style={{ fontSize: "13px", fontWeight: "750", color: "#2c1b0d" }}>Date:</span>
+                        <span style={{ fontSize: "13px", fontWeight: "750", color: "#2c1b0d" }}>📅 Date:</span>
                         <input
                           type="date"
                           value={selectedAttendanceDate}
@@ -6371,6 +6805,23 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       >
                         Today
                       </button>
+
+                      {/* Specific Brewmaster / Staff Trace Filter */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#7a6b5e" }}>👨‍🍳 Staff:</span>
+                        <select
+                          value={filterSpecificEmployeeId}
+                          onChange={(e) => setFilterSpecificEmployeeId(e.target.value)}
+                          style={{ padding: "8px 12px", borderRadius: "10px", border: "1.5px solid rgba(44,27,13,0.15)", background: "#fff", fontSize: "12.5px", fontWeight: "750", color: "#2c1b0d", outline: "none" }}
+                        >
+                          <option value="All">All Staff & Brewmasters ({employeesList.length})</option>
+                          {employeesList.map(e => (
+                            <option key={e.id} value={e.id}>
+                              {e.name} {e.employeeId ? `(${e.employeeId})` : ""} - {e.role}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
                       {/* Role Filter */}
                       <select
@@ -6390,7 +6841,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       {/* Search Bar */}
                       <input
                         type="text"
-                        placeholder="Search employee by name or phone..."
+                        placeholder="🔍 Search employee by name, ID, phone..."
                         value={empSearch}
                         onChange={(e) => setEmpSearch(e.target.value)}
                         style={{ padding: "8px 14px", borderRadius: "10px", border: "1px solid rgba(44,27,13,0.12)", fontSize: "12.5px", width: "220px", outline: "none" }}
@@ -6398,15 +6849,88 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     </div>
 
                     {attendanceViewMode === "daily" && (
-                      <button
-                        type="button"
-                        onClick={handleMarkAllPresent}
-                        style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0", padding: "8px 16px", borderRadius: "10px", fontSize: "12.5px", fontWeight: "750", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
-                      >
-                        ✓ Mark All Active as Present
-                      </button>
+                      <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setAttendanceViewMode("leaves");
+                            await handleRefreshLeaveRequests();
+                          }}
+                          style={{
+                            background: pendingLeaveCount > 0 ? "#fff7ed" : "#f5ece1",
+                            color: pendingLeaveCount > 0 ? "#c2410c" : "#442a17",
+                            border: pendingLeaveCount > 0 ? "1.5px solid #fdba74" : "1px solid rgba(44,27,13,0.1)",
+                            padding: "8px 16px",
+                            borderRadius: "10px",
+                            fontSize: "12.5px",
+                            fontWeight: "800",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px"
+                          }}
+                        >
+                          <span>🏖️</span> Check Leaves {pendingLeaveCount > 0 ? `(${pendingLeaveCount} Pending)` : `(${leaveRequests.length})`}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={handleMarkAllPresent}
+                          style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0", padding: "8px 16px", borderRadius: "10px", fontSize: "12.5px", fontWeight: "750", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+                        >
+                          ✓ Mark All Active as Present
+                        </button>
+                      </div>
                     )}
                   </div>
+
+                  {/* PENDING LEAVE REQUESTS ALERT BANNER */}
+                  {pendingLeaveCount > 0 && attendanceViewMode === "daily" && (
+                    <div style={{
+                      background: "linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)",
+                      border: "1.5px solid #fed7aa",
+                      borderRadius: "16px",
+                      padding: "16px 20px",
+                      marginBottom: "20px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      flexWrap: "wrap",
+                      gap: "12px",
+                      boxShadow: "0 4px 12px rgba(234, 88, 12, 0.08)"
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <div style={{ width: "40px", height: "40px", borderRadius: "12px", background: "#ea580c", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>
+                          🏖️
+                        </div>
+                        <div>
+                          <strong style={{ fontSize: "14px", color: "#9a3412", display: "block" }}>
+                            {pendingLeaveCount} Pending Brewmaster Leave Request{pendingLeaveCount > 1 ? "s" : ""} Received!
+                          </strong>
+                          <span style={{ fontSize: "12px", color: "#c2410c" }}>
+                            Brewmasters have applied for leave/holidays. Review and approve or reject to update attendance records.
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAttendanceViewMode("leaves")}
+                        style={{
+                          background: "#ea580c",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "9px 18px",
+                          borderRadius: "10px",
+                          fontWeight: "800",
+                          fontSize: "12.5px",
+                          cursor: "pointer",
+                          boxShadow: "0 2px 8px rgba(234, 88, 12, 0.25)"
+                        }}
+                      >
+                        Review & Approve Requests ({pendingLeaveCount}) →
+                      </button>
+                    </div>
+                  )}
 
                   {/* VIEW 1: DAILY ATTENDANCE SHEET */}
                   {attendanceViewMode === "daily" && (
@@ -6415,12 +6939,11 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
                           <thead>
                             <tr style={{ background: "#fbf8f5", borderBottom: "1px solid rgba(44,27,13,0.08)", color: "#7a6b5e", fontWeight: "800", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.5px" }}>
-                              <th style={{ padding: "14px 20px" }}>Employee Name</th>
-                              <th style={{ padding: "14px 16px" }}>Role & Shift</th>
-                              <th style={{ padding: "14px 16px" }}>Phone</th>
-                              <th style={{ padding: "14px 16px" }}>Status for Date</th>
+                              <th style={{ padding: "14px 20px" }}>Employee / Brewmaster</th>
+                              <th style={{ padding: "14px 16px" }}>Role & Designation</th>
+                              <th style={{ padding: "14px 16px" }}>Attendance Status</th>
                               <th style={{ padding: "14px 16px", textAlign: "center" }}>Mark Attendance</th>
-                              <th style={{ padding: "14px 20px", textAlign: "right" }}>Actions</th>
+                              <th style={{ padding: "14px 20px", textAlign: "right" }}>Trace & Actions</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -6428,129 +6951,194 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               const att = dayAttendanceMap[emp.id];
                               const currentStatus = att ? att.status : "unmarked";
 
+                              // Check for leave applications matching this employee
+                              const activeLeaveForEmp = leaveRequests.find(l => {
+                                const matchEmp = (l.employeeId && (l.employeeId === emp.employeeId || l.employeeId === emp.id)) ||
+                                                 (l.brewmasterName && emp.name && l.brewmasterName.toLowerCase() === emp.name.toLowerCase());
+                                if (!matchEmp) return false;
+                                if (!l.start || !l.end) return false;
+                                return selectedAttendanceDate >= l.start && selectedAttendanceDate <= l.end;
+                              });
+
                               return (
                                 <tr key={emp.id} style={{ borderBottom: "1px solid rgba(44,27,13,0.05)", transition: "background 0.15s" }}>
+                                  {/* 1. Employee Name & ID */}
                                   <td style={{ padding: "16px 20px" }}>
-                                    <div style={{ fontWeight: "800", color: "#2c1b0d", fontSize: "14px" }}>
-                                      {emp.name}
+                                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                      <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#2c1b0d", color: "#fdf5e9", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "14px" }}>
+                                        👨‍🍳
+                                      </div>
+                                      <div>
+                                        <div style={{ fontWeight: "800", color: "#2c1b0d", fontSize: "14px" }}>
+                                          {emp.name}
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
+                                          <span style={{ fontSize: "11px", color: emp.status === "Active" ? "#16a34a" : "#dc2626", fontWeight: "700" }}>
+                                            ● {emp.status || "Active"}
+                                          </span>
+                                          {emp.employeeId && (
+                                            <span style={{ fontSize: "10.5px", fontWeight: "800", background: "#f5ece1", color: "#8a583c", padding: "1px 6px", borderRadius: "4px" }}>
+                                              {emp.employeeId}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
                                     </div>
-                                    <span style={{ fontSize: "11px", color: emp.status === "Active" ? "#16a34a" : "#dc2626", fontWeight: "700" }}>
-                                      ● {emp.status || "Active"}
-                                    </span>
                                   </td>
 
+                                  {/* 2. Role & Designation */}
                                   <td style={{ padding: "16px 16px" }}>
                                     <div style={{ fontWeight: "750", color: "#442a17" }}>{emp.role}</div>
-                                    <div style={{ fontSize: "11px", color: "#888" }}>{emp.shift || "Regular"}</div>
                                   </td>
 
-                                  <td style={{ padding: "16px 16px", color: "#555", fontWeight: "600" }}>
-                                    {emp.phone || "—"}
-                                  </td>
-
+                                  {/* 3. Attendance Status for Date */}
                                   <td style={{ padding: "16px 16px" }}>
-                                    {currentStatus === "present" && (
-                                      <span style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0", padding: "4px 10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                        🟢 Present {att.time ? `(${att.time})` : ""}
+                                    {activeLeaveForEmp && activeLeaveForEmp.status === "Approved" ? (
+                                      <span style={{ background: "#eff6ff", color: "#1e40af", border: "1.5px solid #bfdbfe", padding: "5px 10px", borderRadius: "8px", fontWeight: "850", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                        🏖️ Approved Leave ({activeLeaveForEmp.leaveType || "Leave"})
                                       </span>
-                                    )}
-                                    {currentStatus === "half_day" && (
-                                      <span style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", padding: "4px 10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    ) : activeLeaveForEmp && (activeLeaveForEmp.status === "Pending Approval" || activeLeaveForEmp.status === "Pending" || !activeLeaveForEmp.status) ? (
+                                      <div style={{ display: "inline-flex", flexDirection: "column", gap: "4px" }}>
+                                        <span style={{ background: "#fff7ed", color: "#c2410c", border: "1.5px solid #fed7aa", padding: "4px 8px", borderRadius: "6px", fontWeight: "800", fontSize: "11px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                          ⏳ Leave Pending ({activeLeaveForEmp.leaveType || "Leave"})
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => setAttendanceViewMode("leaves")}
+                                          style={{ background: "#ea580c", color: "#ffffff", border: "none", padding: "3px 8px", borderRadius: "5px", fontSize: "10.5px", fontWeight: "800", cursor: "pointer" }}
+                                        >
+                                          Review Request →
+                                        </button>
+                                      </div>
+                                    ) : currentStatus === "present" ? (
+                                      <span style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0", padding: "5px 10px", borderRadius: "8px", fontWeight: "850", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                        🟢 Present
+                                      </span>
+                                    ) : currentStatus === "half_day" ? (
+                                      <span style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", padding: "5px 10px", borderRadius: "8px", fontWeight: "850", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                                         🟡 Half Day
                                       </span>
-                                    )}
-                                    {currentStatus === "leave" && (
-                                      <span style={{ background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "4px 10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    ) : currentStatus === "leave" ? (
+                                      <span style={{ background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "5px 10px", borderRadius: "8px", fontWeight: "850", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                                         🔵 On Leave
                                       </span>
-                                    )}
-                                    {currentStatus === "absent" && (
-                                      <span style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", padding: "4px 10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                    ) : currentStatus === "absent" ? (
+                                      <span style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", padding: "5px 10px", borderRadius: "8px", fontWeight: "850", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                                         🔴 Absent
                                       </span>
-                                    )}
-                                    {currentStatus === "unmarked" && (
-                                      <span style={{ background: "#f4f4f5", color: "#71717a", padding: "4px 10px", borderRadius: "8px", fontWeight: "700", fontSize: "11.5px" }}>
+                                    ) : (
+                                      <span style={{ background: "#f4f4f5", color: "#71717a", padding: "5px 10px", borderRadius: "8px", fontWeight: "750", fontSize: "11.5px" }}>
                                         ⚪ Unmarked
                                       </span>
                                     )}
                                   </td>
 
+                                  {/* 4. Mark Attendance Buttons (Prominent & Clear) */}
                                   <td style={{ padding: "16px 16px", textAlign: "center" }}>
-                                    <div style={{ display: "inline-flex", gap: "6px", background: "#fbf8f5", padding: "3px", borderRadius: "10px", border: "1px solid rgba(44,27,13,0.08)" }}>
+                                    <div style={{ display: "inline-flex", gap: "6px", background: "#fbf8f5", padding: "4px", borderRadius: "12px", border: "1px solid rgba(44,27,13,0.1)" }}>
+                                      {/* PRESENT BUTTON */}
                                       <button
                                         type="button"
                                         onClick={() => handleMarkAttendance(emp, "present")}
-                                        title="Mark Present"
                                         style={{
-                                          padding: "5px 10px",
-                                          borderRadius: "7px",
+                                          padding: "6px 12px",
+                                          borderRadius: "8px",
                                           border: "none",
-                                          background: currentStatus === "present" ? "#16a34a" : "transparent",
-                                          color: currentStatus === "present" ? "#fff" : "#16a34a",
-                                          fontWeight: "800",
-                                          fontSize: "11px",
-                                          cursor: "pointer"
+                                          background: currentStatus === "present" ? "#16a34a" : "#ffffff",
+                                          color: currentStatus === "present" ? "#ffffff" : "#16a34a",
+                                          fontWeight: "850",
+                                          fontSize: "11.5px",
+                                          cursor: "pointer",
+                                          boxShadow: currentStatus === "present" ? "0 2px 6px rgba(22, 163, 74, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "4px"
                                         }}
                                       >
-                                        P
+                                        ✓ Present
                                       </button>
+
+                                      {/* HALF DAY BUTTON */}
                                       <button
                                         type="button"
                                         onClick={() => handleMarkAttendance(emp, "half_day")}
-                                        title="Mark Half Day"
                                         style={{
-                                          padding: "5px 10px",
-                                          borderRadius: "7px",
+                                          padding: "6px 10px",
+                                          borderRadius: "8px",
                                           border: "none",
-                                          background: currentStatus === "half_day" ? "#d97706" : "transparent",
-                                          color: currentStatus === "half_day" ? "#fff" : "#d97706",
-                                          fontWeight: "800",
-                                          fontSize: "11px",
-                                          cursor: "pointer"
+                                          background: currentStatus === "half_day" ? "#d97706" : "#ffffff",
+                                          color: currentStatus === "half_day" ? "#ffffff" : "#d97706",
+                                          fontWeight: "850",
+                                          fontSize: "11.5px",
+                                          cursor: "pointer",
+                                          boxShadow: currentStatus === "half_day" ? "0 2px 6px rgba(217, 119, 6, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "3px"
                                         }}
                                       >
-                                        HD
+                                        ⏱️ Half Day
                                       </button>
+
+                                      {/* LEAVE BUTTON */}
                                       <button
                                         type="button"
                                         onClick={() => handleMarkAttendance(emp, "leave")}
-                                        title="Mark On Leave"
                                         style={{
-                                          padding: "5px 10px",
-                                          borderRadius: "7px",
+                                          padding: "6px 10px",
+                                          borderRadius: "8px",
                                           border: "none",
-                                          background: currentStatus === "leave" ? "#2563eb" : "transparent",
-                                          color: currentStatus === "leave" ? "#fff" : "#2563eb",
-                                          fontWeight: "800",
-                                          fontSize: "11px",
-                                          cursor: "pointer"
+                                          background: currentStatus === "leave" ? "#2563eb" : "#ffffff",
+                                          color: currentStatus === "leave" ? "#ffffff" : "#2563eb",
+                                          fontWeight: "850",
+                                          fontSize: "11.5px",
+                                          cursor: "pointer",
+                                          boxShadow: currentStatus === "leave" ? "0 2px 6px rgba(37, 99, 235, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "3px"
                                         }}
                                       >
-                                        L
+                                        🏖️ Leave
                                       </button>
+
+                                      {/* ABSENT BUTTON */}
                                       <button
                                         type="button"
                                         onClick={() => handleMarkAttendance(emp, "absent")}
-                                        title="Mark Absent"
                                         style={{
-                                          padding: "5px 10px",
-                                          borderRadius: "7px",
+                                          padding: "6px 12px",
+                                          borderRadius: "8px",
                                           border: "none",
-                                          background: currentStatus === "absent" ? "#dc2626" : "transparent",
-                                          color: currentStatus === "absent" ? "#fff" : "#dc2626",
-                                          fontWeight: "800",
-                                          fontSize: "11px",
-                                          cursor: "pointer"
+                                          background: currentStatus === "absent" ? "#dc2626" : "#ffffff",
+                                          color: currentStatus === "absent" ? "#ffffff" : "#dc2626",
+                                          fontWeight: "850",
+                                          fontSize: "11.5px",
+                                          cursor: "pointer",
+                                          boxShadow: currentStatus === "absent" ? "0 2px 6px rgba(220, 38, 38, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "3px"
                                         }}
                                       >
-                                        A
+                                        ✕ Absent
                                       </button>
                                     </div>
                                   </td>
 
+                                  {/* 5. Trace & Actions */}
                                   <td style={{ padding: "16px 20px", textAlign: "right" }}>
-                                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px" }}>
+                                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", alignItems: "center" }}>
+                                      {/* Trace Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedTraceEmployee(emp)}
+                                        title="Trace attendance history log for this Brewmaster"
+                                        style={{ background: "#2c1b0d", color: "#fdf5e9", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", boxShadow: "0 2px 6px rgba(44,27,13,0.15)" }}
+                                      >
+                                        <span>🔍</span> Trace Log
+                                      </button>
+
                                       <button
                                         type="button"
                                         onClick={() => {
@@ -6559,19 +7147,18 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                           setEmpRole(emp.role);
                                           setEmpPhone(emp.phone || "");
                                           setEmpSalary(emp.salary || "");
-                                          setEmpShift(emp.shift || "Morning (07:00 AM - 03:00 PM)");
                                           setEmpJoiningDate(emp.joiningDate || new Date().toISOString().split('T')[0]);
                                           setEmpStatus(emp.status || "Active");
                                           setShowAddEmployeeModal(true);
                                         }}
-                                        style={{ background: "#fdf8f3", color: "#2c1b0d", border: "1px solid rgba(44,27,13,0.12)", padding: "5px 10px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
+                                        style={{ background: "#fdf8f3", color: "#2c1b0d", border: "1px solid rgba(44,27,13,0.12)", padding: "6px 10px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
                                       >
                                         Edit
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteEmployee(emp.id, emp.name)}
-                                        style={{ background: "rgba(231,76,60,0.08)", color: "#e74c3c", border: "1px solid rgba(231,76,60,0.2)", padding: "5px 10px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
+                                        style={{ background: "rgba(231,76,60,0.08)", color: "#e74c3c", border: "1px solid rgba(231,76,60,0.2)", padding: "6px 10px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
                                       >
                                         Delete
                                       </button>
@@ -6583,7 +7170,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                             {filteredEmployees.length === 0 && (
                               <tr>
-                                <td colSpan="6" style={{ textAlign: "center", padding: "50px 20px", color: "#888" }}>
+                                <td colSpan="5" style={{ textAlign: "center", padding: "50px 20px", color: "#888" }}>
                                   <div style={{ fontSize: "36px", marginBottom: "8px" }}>👥</div>
                                   <p style={{ margin: 0, fontWeight: "700", color: "#2c1b0d" }}>No employees found.</p>
                                   <p style={{ margin: "4px 0 16px", fontSize: "12px" }}>Add staff members to start marking attendance.</p>
@@ -6689,266 +7276,1840 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       </div>
                     </div>
                   )}
+
+                  {/* VIEW 3: LEAVE & HOLIDAY REQUESTS HUB */}
+                  {attendanceViewMode === "leaves" && (() => {
+                    const displayedLeaveRequests = leaveRequests.filter(req => {
+                      if (leaveFilterTab === "Pending") {
+                        if (req.status !== "Pending Approval" && req.status !== "Pending" && req.status) return false;
+                      } else if (leaveFilterTab === "Approved") {
+                        if (req.status !== "Approved") return false;
+                      } else if (leaveFilterTab === "Rejected") {
+                        if (req.status !== "Rejected") return false;
+                      }
+
+                      if (leaveSearchTerm.trim()) {
+                        const q = leaveSearchTerm.toLowerCase();
+                        const name = (req.brewmasterName || req.employeeName || "").toLowerCase();
+                        const empId = (req.employeeId || "").toLowerCase();
+                        const reason = (req.reason || "").toLowerCase();
+                        const type = (req.leaveType || "").toLowerCase();
+                        return name.includes(q) || empId.includes(q) || reason.includes(q) || type.includes(q);
+                      }
+                      return true;
+                    });
+
+                    return (
+                      <div>
+                        {/* Filter Bar & Search */}
+                        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+                          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                            {[
+                              { key: "All", label: `All (${leaveRequests.length})` },
+                              { key: "Pending", label: `⏳ Pending (${pendingLeaveCount})` },
+                              { key: "Approved", label: `✅ Approved (${approvedLeaveCount})` },
+                              { key: "Rejected", label: `❌ Rejected (${rejectedLeaveCount})` }
+                            ].map(tab => (
+                              <button
+                                key={tab.key}
+                                type="button"
+                                onClick={() => setLeaveFilterTab(tab.key)}
+                                style={{
+                                  padding: "7px 16px",
+                                  borderRadius: "10px",
+                                  fontSize: "12px",
+                                  fontWeight: "800",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  background: leaveFilterTab === tab.key ? "#2c1b0d" : "#ffffff",
+                                  color: leaveFilterTab === tab.key ? "#ffffff" : "#666",
+                                  boxShadow: leaveFilterTab === tab.key ? "0 2px 6px rgba(44,27,13,0.15)" : "0 1px 3px rgba(0,0,0,0.05)",
+                                  transition: "all 0.15s ease"
+                                }}
+                              >
+                                {tab.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAdminLeaveBmId(brewmasters.length > 0 ? brewmasters[0].employeeId : "BM-001");
+                                setAdminLeaveReasonText("");
+                                setShowAdminAddLeaveModal(true);
+                              }}
+                              style={{
+                                background: "linear-gradient(135deg, #16a34a, #15803d)",
+                                color: "#ffffff",
+                                border: "none",
+                                padding: "8px 16px",
+                                borderRadius: "10px",
+                                fontWeight: "800",
+                                fontSize: "12px",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                boxShadow: "0 2px 8px rgba(22, 163, 74, 0.25)"
+                              }}
+                            >
+                              <span>➕</span> Grant / Add Leave
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleRefreshLeaveRequests}
+                              disabled={isRefreshingLeaves}
+                              style={{
+                                background: "#2c1b0d",
+                                color: "#ffffff",
+                                border: "none",
+                                padding: "8px 16px",
+                                borderRadius: "10px",
+                                fontWeight: "800",
+                                fontSize: "12px",
+                                cursor: isRefreshingLeaves ? "wait" : "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px"
+                              }}
+                            >
+                              <span>🔄</span> {isRefreshingLeaves ? "Checking..." : "Check & Receive"}
+                            </button>
+                            <input
+                              type="text"
+                              placeholder="🔍 Search name, ID, reason..."
+                              value={leaveSearchTerm}
+                              onChange={(e) => setLeaveSearchTerm(e.target.value)}
+                              style={{
+                                padding: "7px 12px",
+                                borderRadius: "10px",
+                                border: "1px solid rgba(44,27,13,0.15)",
+                                fontSize: "12px",
+                                background: "#ffffff",
+                                outline: "none",
+                                width: "200px"
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Table */}
+                        <div style={{ background: "#ffffff", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.06)", overflow: "hidden", boxShadow: "0 4px 16px rgba(44,27,13,0.02)" }}>
+                          {displayedLeaveRequests.length === 0 ? (
+                            <div style={{ padding: "50px 20px", textAlign: "center", color: "#888" }}>
+                              <div style={{ fontSize: "36px", marginBottom: "8px" }}>🍵</div>
+                              <strong style={{ display: "block", fontSize: "15px", color: "#2c1b0d" }}>
+                                {leaveRequests.length === 0 ? "No Leave Requests Submitted Yet" : "No matching leave requests found"}
+                              </strong>
+                              <p style={{ margin: "4px 0 16px", fontSize: "12.5px" }}>
+                                Brewmasters can apply for leave directly from their Brewmaster Panel.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={handleRefreshLeaveRequests}
+                                style={{
+                                  background: "#f5ece1",
+                                  color: "#8a583c",
+                                  border: "1px solid rgba(138,88,60,0.2)",
+                                  padding: "8px 16px",
+                                  borderRadius: "10px",
+                                  fontSize: "12px",
+                                  fontWeight: "800",
+                                  cursor: "pointer"
+                                }}
+                              >
+                                🔄 Check for New Requests
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ overflowX: "auto" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                                <thead>
+                                  <tr style={{ background: "#fbf8f5", borderBottom: "1px solid rgba(44,27,13,0.08)", color: "#7a6b5e", fontWeight: "800", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.5px" }}>
+                                    <th style={{ padding: "14px 18px" }}>Brewmaster & ID</th>
+                                    <th style={{ padding: "14px 16px" }}>Leave Details</th>
+                                    <th style={{ padding: "14px 16px" }}>Reason & Applied</th>
+                                    <th style={{ padding: "14px 18px", textAlign: "right" }}>Action & Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {displayedLeaveRequests.map((req, i) => {
+                                    const isPending = req.status === "Pending Approval" || req.status === "Pending" || !req.status;
+                                    const empIdDisplay = req.employeeId || "BM-001";
+                                    const nameDisplay = req.brewmasterName || req.employeeName || "Brewmaster";
+                                    const totalDays = req.days || (() => {
+                                      if (req.start && req.end) {
+                                        const s = new Date(req.start);
+                                        const e = new Date(req.end);
+                                        const diff = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+                                        return diff > 0 ? diff : 1;
+                                      }
+                                      return 1;
+                                    })();
+
+                                    return (
+                                      <tr key={req.id || i} style={{ borderBottom: "1px solid rgba(44,27,13,0.05)", background: isPending ? "#fffdfa" : "#ffffff" }}>
+                                        <td style={{ padding: "16px 18px" }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                            <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#2c1b0d", color: "#fdf5e9", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "14px", flexShrink: 0 }}>
+                                              👨‍🍳
+                                            </div>
+                                            <div>
+                                              <div style={{ fontWeight: "800", color: "#2c1b0d", fontSize: "13.5px" }}>
+                                                {nameDisplay}
+                                              </div>
+                                              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
+                                                <span style={{ fontSize: "11px", fontWeight: "800", background: "#f5ece1", color: "#8a583c", padding: "1px 6px", borderRadius: "5px" }}>
+                                                  {empIdDisplay}
+                                                </span>
+                                                {req.phone && (
+                                                  <span style={{ fontSize: "11px", color: "#777" }}>
+                                                    📞 {req.phone}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </td>
+
+                                        <td style={{ padding: "16px 16px" }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                                            <span style={{ fontSize: "11px", fontWeight: "800", padding: "2px 7px", borderRadius: "5px", background: "rgba(138,88,60,0.1)", color: "#8a583c" }}>
+                                              {req.leaveType || "Casual Leave"}
+                                            </span>
+                                            <span style={{ fontSize: "11.5px", fontWeight: "750", color: "#2c1b0d" }}>
+                                              ({totalDays} {totalDays === 1 ? "Day" : "Days"})
+                                            </span>
+                                          </div>
+                                          <div style={{ fontSize: "12px", color: "#555", fontWeight: "600" }}>
+                                            📅 {req.start} to {req.end}
+                                          </div>
+                                        </td>
+
+                                        <td style={{ padding: "16px 16px" }}>
+                                          <p style={{ margin: 0, fontSize: "12.5px", color: "#442a17", fontWeight: "600", lineHeight: 1.4, maxWidth: "240px" }}>
+                                            "{req.reason || "No reason specified"}"
+                                          </p>
+                                          <span style={{ fontSize: "10.5px", color: "#888", display: "block", marginTop: "4px" }}>
+                                            Applied: {req.createdAt ? new Date(req.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Recent"}
+                                          </span>
+                                        </td>
+
+                                        <td style={{ padding: "16px 18px", textAlign: "right" }}>
+                                          {isPending ? (
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                                              <input
+                                                type="text"
+                                                placeholder="Admin Remark (Optional)"
+                                                value={adminLeaveReasons[req.id] || ""}
+                                                onChange={(e) => setAdminLeaveReasons({ ...adminLeaveReasons, [req.id]: e.target.value })}
+                                                style={{ padding: "6px 10px", fontSize: "11.5px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", width: "170px", outline: "none" }}
+                                              />
+                                              <div style={{ display: "flex", gap: "6px" }}>
+                                                <button
+                                                  type="button"
+                                                  onClick={async () => {
+                                                    const remark = adminLeaveReasons[req.id] || "Approved by Admin";
+                                                    setLeaveRequests(prev => prev.map(l => l.id === req.id ? { ...l, status: "Approved", adminReason: remark } : l));
+                                                    try {
+                                                      await updateLeaveRequest(req.id, {
+                                                        status: "Approved",
+                                                        adminReason: remark
+                                                      });
+                                                      setToastMsg(`✅ Leave request for ${nameDisplay} (${empIdDisplay}) APPROVED!`);
+                                                    } catch (err) {
+                                                      setToastMsg("❌ Error approving leave: " + err.message);
+                                                    }
+                                                    setTimeout(() => setToastMsg(""), 3500);
+                                                  }}
+                                                  style={{ background: "#16a34a", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}
+                                                >
+                                                  ✓ Approve
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={async () => {
+                                                    const remark = adminLeaveReasons[req.id] || "Rejected by Admin";
+                                                    setLeaveRequests(prev => prev.map(l => l.id === req.id ? { ...l, status: "Rejected", adminReason: remark } : l));
+                                                    try {
+                                                      await updateLeaveRequest(req.id, {
+                                                        status: "Rejected",
+                                                        adminReason: remark
+                                                      });
+                                                      setToastMsg(`❌ Leave request for ${nameDisplay} (${empIdDisplay}) REJECTED.`);
+                                                    } catch (err) {
+                                                      setToastMsg("❌ Error rejecting leave: " + err.message);
+                                                    }
+                                                    setTimeout(() => setToastMsg(""), 3500);
+                                                  }}
+                                                  style={{ background: "#dc2626", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer" }}
+                                                >
+                                                  ✕ Reject
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                                              <span style={{
+                                                fontSize: "11px",
+                                                padding: "4px 10px",
+                                                borderRadius: "7px",
+                                                fontWeight: "850",
+                                                background: req.status === "Approved" ? "#ecfdf5" : "#fef2f2",
+                                                color: req.status === "Approved" ? "#065f46" : "#991b1b",
+                                                border: req.status === "Approved" ? "1px solid #a7f3d0" : "1px solid #fecaca"
+                                              }}>
+                                                {req.status === "Approved" ? "✅ APPROVED" : "❌ REJECTED"}
+                                              </span>
+                                              {req.adminReason && (
+                                                <span style={{ fontSize: "11px", color: "#666", maxWidth: "170px", textAlign: "right" }}>
+                                                  Note: {req.adminReason}
+                                                </span>
+                                              )}
+                                              <button
+                                                type="button"
+                                                onClick={async () => {
+                                                  if (confirm("Delete this leave record?")) {
+                                                    setLeaveRequests(prev => prev.filter(l => l.id !== req.id));
+                                                    await deleteLeaveRequest(req.id);
+                                                    setToastMsg("🗑️ Leave record deleted.");
+                                                    setTimeout(() => setToastMsg(""), 3000);
+                                                  }
+                                                }}
+                                                style={{ background: "transparent", border: "none", color: "#999", fontSize: "10.5px", cursor: "pointer", textDecoration: "underline" }}
+                                              >
+                                                Clear Record
+                                              </button>
+                                            </div>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}
 
-            {activeTab === "leave" && (
-              <div className="tab-body-wrapper">
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "28px" }}>
+            {activeTab === "leave" && (() => {
+              const totalBmCount = brewmasters.length;
+              const activeBmCount = brewmasters.filter(b => b.status === "Active").length;
 
-                  {/* Left Column: Apply Leave Form */}
-                  <div>
-                    <h3 className="section-title">Leave Request Hub</h3>
+              const displayedLeaveRequests = leaveRequests.filter(req => {
+                if (leaveFilterTab === "Pending") {
+                  if (req.status !== "Pending Approval" && req.status !== "Pending" && req.status) return false;
+                } else if (leaveFilterTab === "Approved") {
+                  if (req.status !== "Approved") return false;
+                } else if (leaveFilterTab === "Rejected") {
+                  if (req.status !== "Rejected") return false;
+                }
 
-                    {/* Leave Requests Log for Admin */}
-                    <h3 className="section-title">Manage Leave Requests</h3>
-                    <div style={{ background: "#ffffff", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)", overflow: "hidden" }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12px" }}>
-                        <thead>
-                          <tr style={{ background: "#fbf9f6", borderBottom: "1px solid rgba(0,0,0,0.06)", color: "#666" }}>
-                            <th style={{ padding: "12px 16px" }}>Leave Dates</th>
-                            <th style={{ padding: "12px 16px" }}>Reason</th>
-                            <th style={{ padding: "12px 16px", textAlign: "right" }}>Status Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {leaveRequests.map((req, i) => (
-                            <tr key={req.id || i} style={{ borderBottom: i === leaveRequests.length - 1 ? "none" : "1px solid rgba(0,0,0,0.04)" }}>
-                              <td style={{ padding: "12px 16px" }}>{req.start} to {req.end}</td>
-                              <td style={{ padding: "12px 16px", color: "#555" }}>{req.reason}</td>
-                              <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                                {req.status === "Pending Approval" || !req.status ? (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
-                                    <input
-                                      type="text"
-                                      placeholder="Admin Note (Optional)"
-                                      value={adminLeaveReasons[req.id] || ""}
-                                      onChange={(e) => setAdminLeaveReasons({ ...adminLeaveReasons, [req.id]: e.target.value })}
-                                      style={{ padding: "6px", fontSize: "11px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.15)", width: "150px" }}
-                                    />
-                                    <div style={{ display: "flex", gap: "6px" }}>
-                                      <button onClick={() => updateLeaveRequest(req.id, { status: "Approved", adminReason: adminLeaveReasons[req.id] || "" })} style={{ background: "rgba(39,174,96,0.1)", color: "#27ae60", border: "none", padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", cursor: "pointer" }}>Approve</button>
-                                      <button onClick={() => updateLeaveRequest(req.id, { status: "Rejected", adminReason: adminLeaveReasons[req.id] || "" })} style={{ background: "rgba(231,76,60,0.1)", color: "#e74c3c", border: "none", padding: "4px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", cursor: "pointer" }}>Reject</button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
-                                    <span style={{
-                                      fontSize: "9.5px",
-                                      padding: "4px 8px",
-                                      borderRadius: "4px",
-                                      fontWeight: "bold",
-                                      background: req.status === "Approved" ? "rgba(39,174,96,0.1)" : "rgba(231,76,60,0.1)",
-                                      color: req.status === "Approved" ? "#27ae60" : "#e74c3c"
-                                    }}>
-                                      {req.status}
-                                    </span>
-                                    {req.adminReason && <span style={{ fontSize: "10px", color: "#666" }}>Note: {req.adminReason}</span>}
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                if (leaveSearchTerm.trim()) {
+                  const q = leaveSearchTerm.toLowerCase();
+                  const name = (req.brewmasterName || req.employeeName || "").toLowerCase();
+                  const empId = (req.employeeId || "").toLowerCase();
+                  const reason = (req.reason || "").toLowerCase();
+                  const type = (req.leaveType || "").toLowerCase();
+                  return name.includes(q) || empId.includes(q) || reason.includes(q) || type.includes(q);
+                }
+                return true;
+              });
 
-                  {/* Right Column: Shift Config */}
-                  <div>
-                    <h3 className="section-title">Shift Timing & Operations</h3>
-                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                      <div className="form-group" style={{ marginBottom: "20px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Daily Operations Window</label>
-                        <input
-                          type="text"
-                          value={workingHours}
-                          onChange={(e) => setWorkingHours(e.target.value)}
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await updateProfileSettings({ workingHours });
-                          setToastMsg("🌱 Successfully saved shift timings!");
-                          setTimeout(() => setToastMsg(""), 3000);
-                        }}
-                        style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", cursor: "pointer" }}
-                      >
-                        Save Configuration
-                      </button>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            )}
-
-            {activeTab === "profile" && (
-              <div className="tab-body-wrapper">
-                <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px" }}>
-
-                  {/* Left Column: Brewmaster Profile Details */}
-                  <div>
-                    <h3 className="section-title">Brewmaster Identity Profile</h3>
-
-                    <div style={{ background: "#ffffff", padding: "28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "24px", display: "flex", gap: "20px", alignItems: "center" }}>
-                      <div style={{ width: "80px", height: "80px", borderRadius: "50%", background: "#2c1b0d", color: "#fdf5e9", display: "flex", justifyContent: "center", alignItems: "center", fontSize: "36px", fontWeight: "bold" }}>
-                        👨‍🍳
-                      </div>
-                      <div>
-                        <h4 style={{ fontSize: "18px", margin: "0 0 4px", fontWeight: "bold" }}>{brewmasterName}</h4>
-                        <span style={{ fontSize: "12px", color: "#8a583c", fontWeight: "bold", textTransform: "uppercase", display: "block" }}>🎖️ Senior Brewmaster</span>
-                        <span style={{ fontSize: "11px", color: "#777", display: "block", marginTop: "4px" }}>Station #02 • Corporate Park Hub</span>
-                      </div>
+              return (
+                <div className="tab-body-wrapper" style={{ padding: "0 0 40px 0" }}>
+                  {/* Top Header */}
+                  <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "22px", background: "#ffffff", padding: "20px 24px", borderRadius: "20px", border: "1px solid rgba(44,27,13,0.06)", boxShadow: "0 4px 16px rgba(44,27,13,0.02)" }}>
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "850", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span>🏖️</span> Leave Requests & Approvals Hub
+                      </h2>
+                      <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#7a6b5e" }}>
+                        Check, receive, and approve/reject leave applications submitted by Brewmasters in real-time.
+                      </p>
                     </div>
 
-                    <form
-                      onSubmit={async (e) => {
-                        e.preventDefault();
-                        await updateProfileSettings({ brewmasterName, brewmasterContact, brewmasterBio });
-                        setToastMsg("🌱 Profile details updated successfully!");
-                        setTimeout(() => setToastMsg(""), 3000);
-                      }}
-                      style={{ background: "#ffffff", padding: "28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)" }}
-                    >
-                      <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Full Name</label>
-                        <input
-                          type="text"
-                          value={brewmasterName}
-                          onChange={(e) => setBrewmasterName(e.target.value)}
-                          required
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
-                        />
-                      </div>
-
-                      <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Contact Number</label>
-                        <input
-                          type="text"
-                          value={brewmasterContact}
-                          onChange={(e) => setBrewmasterContact(e.target.value)}
-                          required
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
-                        />
-                      </div>
-
-                      <div className="form-group" style={{ marginBottom: "20px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Professional Bio</label>
-                        <textarea
-                          rows="3"
-                          value={brewmasterBio}
-                          onChange={(e) => setBrewmasterBio(e.target.value)}
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px", resize: "none" }}
-                        />
-                      </div>
-
-                      <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "12px", borderRadius: "8px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
-                        SAVE IDENTITY DETAILS
-                      </button>
-                    </form>
-
-                    {/* Change Password Form */}
-                    <form
-                      onSubmit={handleUpdatePassword}
-                      style={{ background: "#ffffff", padding: "28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginTop: "24px" }}
-                    >
-                      <h4 style={{ fontSize: "16px", margin: "0 0 16px", fontWeight: "bold" }}>Change Password</h4>
-                      <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Current Password</label>
-                        <input
-                          type="password"
-                          value={currentPassword}
-                          onChange={(e) => setCurrentPassword(e.target.value)}
-                          required
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>New Password</label>
-                        <input
-                          type="password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          placeholder="Min 6 characters"
-                          required
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Confirm New Password</label>
-                        <input
-                          type="password"
-                          value={confirmPassword}
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          required
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
-                        />
-                      </div>
-                      {passwordMessage && (
-                        <p style={{ fontSize: "12px", color: passwordMessage.includes("Error") ? "#e74c3c" : "#27ae60", marginBottom: "16px", fontWeight: "bold" }}>
-                          {passwordMessage}
-                        </p>
-                      )}
-                      <button type="submit" style={{ width: "100%", background: "#8a583c", color: "#ffffff", border: "none", padding: "12px", borderRadius: "8px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
-                        UPDATE PASSWORD
-                      </button>
-                    </form>
-                  </div>
-
-                  {/* Right Column: Station Configuration & Settings */}
-                  <div>
-                    <h3 className="section-title">Kitchen Operations Settings</h3>
-
-                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "24px" }}>
-                      <div className="form-group" style={{ marginBottom: "16px" }}>
-                        <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Active Station Outlet Name</label>
-                        <input
-                          type="text"
-                          value={shopName}
-                          onChange={(e) => setShopName(e.target.value)}
-                          style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
-                        />
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await updateProfileSettings({ shopName });
-                          setToastMsg("🌱 Kitchen Station configuration updated!");
-                          setTimeout(() => setToastMsg(""), 3000);
-                        }}
-                        style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", cursor: "pointer" }}
-                      >
-                        Update Station Config
-                      </button>
-                    </div>
-
-                    {/* Session controls */}
-                    <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
-                      <h4 style={{ fontSize: "12px", textTransform: "uppercase", margin: "0 0 12px", color: "#e74c3c", fontWeight: "bold" }}>Session & Security</h4>
-                      <p style={{ fontSize: "11.5px", color: "#666", marginBottom: "20px" }}>Log out of the active terminal session. All local configurations remain saved on the server database.</p>
-
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
                       <button
                         type="button"
                         onClick={() => {
-                          localStorage.removeItem("admin_logged");
-                          setIsLoggedIn(false);
+                          setAdminLeaveBmId(brewmasters.length > 0 ? brewmasters[0].employeeId : "BM-001");
+                          setAdminLeaveReasonText("");
+                          setShowAdminAddLeaveModal(true);
                         }}
-                        style={{ width: "100%", background: "#e74c3c", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", cursor: "pointer" }}
+                        style={{
+                          background: "linear-gradient(135deg, #16a34a, #15803d)",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "10px 18px",
+                          borderRadius: "12px",
+                          fontWeight: "800",
+                          fontSize: "12.5px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          boxShadow: "0 4px 12px rgba(22, 163, 74, 0.25)"
+                        }}
                       >
-                        🔌 Sign Out from Terminal
+                        <span style={{ fontSize: "14px" }}>➕</span> Grant / Add Leave
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleRefreshLeaveRequests}
+                        disabled={isRefreshingLeaves}
+                        style={{
+                          background: "#2c1b0d",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "10px 18px",
+                          borderRadius: "12px",
+                          fontWeight: "800",
+                          fontSize: "12.5px",
+                          cursor: isRefreshingLeaves ? "wait" : "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          boxShadow: "0 4px 12px rgba(44,27,13,0.15)",
+                          opacity: isRefreshingLeaves ? 0.7 : 1
+                        }}
+                      >
+                        <span style={{ fontSize: "14px" }}>🔄</span> {isRefreshingLeaves ? "Checking Requests..." : "Check & Receive Requests"}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("profile")}
+                        style={{
+                          background: "#f5ece1",
+                          color: "#442a17",
+                          border: "1px solid rgba(44,27,13,0.1)",
+                          padding: "10px 18px",
+                          borderRadius: "12px",
+                          fontWeight: "800",
+                          fontSize: "12.5px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px"
+                        }}
+                      >
+                        👨‍🍳 Manage Brewmasters ({brewmasters.length})
                       </button>
                     </div>
                   </div>
 
+                  {/* 4 Stats KPI Cards */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "18px", border: "1px solid rgba(44,27,13,0.06)", boxShadow: "0 2px 10px rgba(0,0,0,0.02)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#7a6b5e", textTransform: "uppercase" }}>Registered Staff</span>
+                        <span style={{ fontSize: "20px" }}>👥</span>
+                      </div>
+                      <div style={{ fontSize: "26px", fontWeight: "900", color: "#2c1b0d", marginTop: "6px" }}>
+                        {totalBmCount}
+                      </div>
+                      <span style={{ fontSize: "11.5px", color: "#16a34a", fontWeight: "700" }}>
+                        {activeBmCount} On Active Duty
+                      </span>
+                    </div>
+
+                    <div
+                      onClick={() => setLeaveFilterTab("Pending")}
+                      style={{
+                        background: "#ffffff",
+                        padding: "18px 20px",
+                        borderRadius: "18px",
+                        border: leaveFilterTab === "Pending" ? "2px solid #ea580c" : "1px solid rgba(44,27,13,0.06)",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
+                        cursor: "pointer"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#7a6b5e", textTransform: "uppercase" }}>Pending Approvals</span>
+                        <span style={{ fontSize: "20px" }}>⏳</span>
+                      </div>
+                      <div style={{ fontSize: "26px", fontWeight: "900", color: pendingLeaveCount > 0 ? "#d97706" : "#2c1b0d", marginTop: "6px" }}>
+                        {pendingLeaveCount}
+                      </div>
+                      <span style={{ fontSize: "11.5px", color: pendingLeaveCount > 0 ? "#d97706" : "#888", fontWeight: "700" }}>
+                        {pendingLeaveCount > 0 ? "⚠️ Action Required (Click to filter)" : "All requests reviewed"}
+                      </span>
+                    </div>
+
+                    <div
+                      onClick={() => setLeaveFilterTab("Approved")}
+                      style={{
+                        background: "#ffffff",
+                        padding: "18px 20px",
+                        borderRadius: "18px",
+                        border: leaveFilterTab === "Approved" ? "2px solid #16a34a" : "1px solid rgba(44,27,13,0.06)",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
+                        cursor: "pointer"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#7a6b5e", textTransform: "uppercase" }}>Approved on Leave</span>
+                        <span style={{ fontSize: "20px" }}>🌴</span>
+                      </div>
+                      <div style={{ fontSize: "26px", fontWeight: "900", color: "#16a34a", marginTop: "6px" }}>
+                        {approvedLeaveCount}
+                      </div>
+                      <span style={{ fontSize: "11.5px", color: "#16a34a", fontWeight: "700" }}>
+                        Active approved holidays
+                      </span>
+                    </div>
+
+                    <div style={{ background: "#ffffff", padding: "18px 20px", borderRadius: "18px", border: "1px solid rgba(44,27,13,0.06)", boxShadow: "0 2px 10px rgba(0,0,0,0.02)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: "12px", fontWeight: "750", color: "#7a6b5e", textTransform: "uppercase" }}>Station Window</span>
+                        <span style={{ fontSize: "20px" }}>⏰</span>
+                      </div>
+                      <div style={{ fontSize: "18px", fontWeight: "850", color: "#8a583c", marginTop: "8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {workingHours || "8:00 AM - 6:00 PM"}
+                      </div>
+                      <span style={{ fontSize: "11.5px", color: "#7a6b5e", fontWeight: "600" }}>
+                        Operating Hours for All Staff
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Main Two-Column Layout */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "24px" }} className="dashboard-double-row-grid">
+
+                    {/* Left Column: Manage Leave Requests Table */}
+                    <div>
+                      {/* Filter Bar & Search */}
+                      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          {[
+                            { key: "All", label: `All (${leaveRequests.length})` },
+                            { key: "Pending", label: `⏳ Pending (${pendingLeaveCount})` },
+                            { key: "Approved", label: `✅ Approved (${approvedLeaveCount})` },
+                            { key: "Rejected", label: `❌ Rejected (${rejectedLeaveCount})` }
+                          ].map(tab => (
+                            <button
+                              key={tab.key}
+                              type="button"
+                              onClick={() => setLeaveFilterTab(tab.key)}
+                              style={{
+                                padding: "6px 14px",
+                                borderRadius: "10px",
+                                fontSize: "12px",
+                                fontWeight: "800",
+                                border: "none",
+                                cursor: "pointer",
+                                background: leaveFilterTab === tab.key ? "#2c1b0d" : "#ffffff",
+                                color: leaveFilterTab === tab.key ? "#ffffff" : "#666",
+                                boxShadow: leaveFilterTab === tab.key ? "0 2px 6px rgba(44,27,13,0.15)" : "0 1px 3px rgba(0,0,0,0.05)",
+                                transition: "all 0.15s ease"
+                              }}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div style={{ position: "relative", minWidth: "220px" }}>
+                          <input
+                            type="text"
+                            placeholder="🔍 Search Brewmaster, ID, reason..."
+                            value={leaveSearchTerm}
+                            onChange={(e) => setLeaveSearchTerm(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: "7px 12px",
+                              borderRadius: "10px",
+                              border: "1px solid rgba(44,27,13,0.15)",
+                              fontSize: "12px",
+                              background: "#ffffff",
+                              outline: "none",
+                              boxSizing: "border-box"
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ background: "#ffffff", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.06)", overflow: "hidden", boxShadow: "0 4px 16px rgba(44,27,13,0.02)" }}>
+                        {displayedLeaveRequests.length === 0 ? (
+                          <div style={{ padding: "50px 20px", textAlign: "center", color: "#888" }}>
+                            <div style={{ fontSize: "36px", marginBottom: "8px" }}>🍵</div>
+                            <strong style={{ display: "block", fontSize: "15px", color: "#2c1b0d" }}>
+                              {leaveRequests.length === 0 ? "No Leave Requests Submitted Yet" : "No matching leave requests found"}
+                            </strong>
+                            <p style={{ margin: "4px 0 16px", fontSize: "12.5px" }}>
+                              {leaveRequests.length === 0
+                                ? "When Brewmasters submit leave & holiday requests from their Brewmaster Panel, they will appear here live."
+                                : "Try clearing your search term or switching the filter to 'All'."}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={handleRefreshLeaveRequests}
+                              style={{
+                                background: "#f5ece1",
+                                color: "#8a583c",
+                                border: "1px solid rgba(138,88,60,0.2)",
+                                padding: "8px 16px",
+                                borderRadius: "10px",
+                                fontSize: "12px",
+                                fontWeight: "800",
+                                cursor: "pointer"
+                              }}
+                            >
+                              🔄 Fetch Fresh Requests Now
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "13px" }}>
+                              <thead>
+                                <tr style={{ background: "#fbf8f5", borderBottom: "1px solid rgba(44,27,13,0.08)", color: "#7a6b5e", fontWeight: "800", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.5px" }}>
+                                  <th style={{ padding: "14px 18px" }}>Brewmaster & ID</th>
+                                  <th style={{ padding: "14px 16px" }}>Leave Details</th>
+                                  <th style={{ padding: "14px 16px" }}>Reason & Applied</th>
+                                  <th style={{ padding: "14px 18px", textAlign: "right" }}>Action & Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {displayedLeaveRequests.map((req, i) => {
+                                  const isPending = req.status === "Pending Approval" || req.status === "Pending" || !req.status;
+                                  const empIdDisplay = req.employeeId || "BM-001";
+                                  const nameDisplay = req.brewmasterName || req.employeeName || "Brewmaster";
+                                  const totalDays = req.days || (() => {
+                                    if (req.start && req.end) {
+                                      const s = new Date(req.start);
+                                      const e = new Date(req.end);
+                                      const diff = Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+                                      return diff > 0 ? diff : 1;
+                                    }
+                                    return 1;
+                                  })();
+
+                                  return (
+                                    <tr key={req.id || i} style={{ borderBottom: "1px solid rgba(44,27,13,0.05)", background: isPending ? "#fffdfa" : "#ffffff" }}>
+                                      <td style={{ padding: "16px 18px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                          <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: "#2c1b0d", color: "#fdf5e9", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "bold", fontSize: "14px", flexShrink: 0 }}>
+                                            👨‍🍳
+                                          </div>
+                                          <div>
+                                            <div style={{ fontWeight: "800", color: "#2c1b0d", fontSize: "13.5px" }}>
+                                              {nameDisplay}
+                                            </div>
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
+                                              <span style={{ fontSize: "11px", fontWeight: "800", background: "#f5ece1", color: "#8a583c", padding: "1px 6px", borderRadius: "5px" }}>
+                                                {empIdDisplay}
+                                              </span>
+                                              {req.phone && (
+                                                <span style={{ fontSize: "11px", color: "#777" }}>
+                                                  📞 {req.phone}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      <td style={{ padding: "16px 16px" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                                          <span style={{ fontSize: "11px", fontWeight: "800", padding: "2px 7px", borderRadius: "5px", background: "rgba(138,88,60,0.1)", color: "#8a583c" }}>
+                                            {req.leaveType || "Casual Leave"}
+                                          </span>
+                                          <span style={{ fontSize: "11.5px", fontWeight: "750", color: "#2c1b0d" }}>
+                                            ({totalDays} {totalDays === 1 ? "Day" : "Days"})
+                                          </span>
+                                        </div>
+                                        <div style={{ fontSize: "12px", color: "#555", fontWeight: "600" }}>
+                                          📅 {req.start} to {req.end}
+                                        </div>
+                                      </td>
+
+                                      <td style={{ padding: "16px 16px" }}>
+                                        <p style={{ margin: 0, fontSize: "12.5px", color: "#442a17", fontWeight: "600", lineHeight: 1.4, maxWidth: "240px" }}>
+                                          "{req.reason || "No reason specified"}"
+                                        </p>
+                                        <span style={{ fontSize: "10.5px", color: "#888", display: "block", marginTop: "4px" }}>
+                                          Applied: {req.createdAt ? new Date(req.createdAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Recent"}
+                                        </span>
+                                      </td>
+
+                                      <td style={{ padding: "16px 18px", textAlign: "right" }}>
+                                        {isPending ? (
+                                          <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                                            <input
+                                              type="text"
+                                              placeholder="Admin Remark (Optional)"
+                                              value={adminLeaveReasons[req.id] || ""}
+                                              onChange={(e) => setAdminLeaveReasons({ ...adminLeaveReasons, [req.id]: e.target.value })}
+                                              style={{ padding: "6px 10px", fontSize: "11.5px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", width: "170px", outline: "none" }}
+                                            />
+                                            <div style={{ display: "flex", gap: "6px" }}>
+                                              <button
+                                                type="button"
+                                                onClick={async () => {
+                                                  const remark = adminLeaveReasons[req.id] || "Approved by Admin";
+                                                  setLeaveRequests(prev => prev.map(l => l.id === req.id ? { ...l, status: "Approved", adminReason: remark } : l));
+                                                  try {
+                                                    await updateLeaveRequest(req.id, {
+                                                      status: "Approved",
+                                                      adminReason: remark
+                                                    });
+                                                    setToastMsg(`✅ Leave request for ${nameDisplay} (${empIdDisplay}) APPROVED!`);
+                                                  } catch (err) {
+                                                    setToastMsg("❌ Error approving leave: " + err.message);
+                                                  }
+                                                  setTimeout(() => setToastMsg(""), 3500);
+                                                }}
+                                                style={{ background: "#16a34a", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}
+                                              >
+                                                ✓ Approve
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={async () => {
+                                                  const remark = adminLeaveReasons[req.id] || "Rejected by Admin";
+                                                  setLeaveRequests(prev => prev.map(l => l.id === req.id ? { ...l, status: "Rejected", adminReason: remark } : l));
+                                                  try {
+                                                    await updateLeaveRequest(req.id, {
+                                                      status: "Rejected",
+                                                      adminReason: remark
+                                                    });
+                                                    setToastMsg(`❌ Leave request for ${nameDisplay} (${empIdDisplay}) REJECTED.`);
+                                                  } catch (err) {
+                                                    setToastMsg("❌ Error rejecting leave: " + err.message);
+                                                  }
+                                                  setTimeout(() => setToastMsg(""), 3500);
+                                                }}
+                                                style={{ background: "#dc2626", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer" }}
+                                              >
+                                                ✕ Reject
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+                                            <span style={{
+                                              fontSize: "11px",
+                                              padding: "4px 10px",
+                                              borderRadius: "7px",
+                                              fontWeight: "850",
+                                              background: req.status === "Approved" ? "#ecfdf5" : "#fef2f2",
+                                              color: req.status === "Approved" ? "#065f46" : "#991b1b",
+                                              border: req.status === "Approved" ? "1px solid #a7f3d0" : "1px solid #fecaca"
+                                            }}>
+                                              {req.status === "Approved" ? "✅ APPROVED" : "❌ REJECTED"}
+                                            </span>
+                                            {req.adminReason && (
+                                              <span style={{ fontSize: "11px", color: "#666", maxWidth: "170px", textAlign: "right" }}>
+                                                Note: {req.adminReason}
+                                              </span>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={async () => {
+                                                if (confirm("Delete this leave record?")) {
+                                                  setLeaveRequests(prev => prev.filter(l => l.id !== req.id));
+                                                  await deleteLeaveRequest(req.id);
+                                                  setToastMsg("🗑️ Leave record deleted.");
+                                                  setTimeout(() => setToastMsg(""), 3000);
+                                                }
+                                              }}
+                                              style={{ background: "transparent", border: "none", color: "#999", fontSize: "10.5px", cursor: "pointer", textDecoration: "underline" }}
+                                            >
+                                              Clear Record
+                                            </button>
+                                          </div>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Column: Shift Config & Operations */}
+                    <div>
+                      <h3 className="section-title" style={{ margin: "0 0 14px 0", fontSize: "16px", fontWeight: "850", color: "#2c1b0d" }}>
+                        ⏰ Shift Timing & Operations Window
+                      </h3>
+                      <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.06)", boxShadow: "0 4px 16px rgba(44,27,13,0.02)", marginBottom: "20px" }}>
+                        <div className="form-group" style={{ marginBottom: "18px" }}>
+                          <label style={{ fontSize: "11.5px", fontWeight: "800", textTransform: "uppercase", color: "#555", display: "block", marginBottom: "6px" }}>
+                            Daily Kitchen Operations Window
+                          </label>
+                          <input
+                            type="text"
+                            value={workingHours}
+                            onChange={(e) => setWorkingHours(e.target.value)}
+                            placeholder="e.g. 07:00 AM - 11:00 PM"
+                            style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13.5px", fontWeight: "600", outline: "none", boxSizing: "border-box" }}
+                          />
+                          <span style={{ fontSize: "11px", color: "#777", display: "block", marginTop: "4px" }}>
+                            This window is displayed across terminals and customer order trackers.
+                          </span>
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: "20px" }}>
+                          <label style={{ fontSize: "11.5px", fontWeight: "800", textTransform: "uppercase", color: "#555", display: "block", marginBottom: "6px" }}>
+                            Station Hub Name
+                          </label>
+                          <input
+                            type="text"
+                            value={shopName}
+                            onChange={(e) => setShopName(e.target.value)}
+                            style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13.5px", fontWeight: "600", outline: "none", boxSizing: "border-box" }}
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await updateProfileSettings({ workingHours, shopName });
+                            setToastMsg("🌱 Shift timings & operations settings saved successfully!");
+                            setTimeout(() => setToastMsg(""), 3500);
+                          }}
+                          style={{ width: "100%", background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)", color: "#ffffff", border: "none", padding: "12px", borderRadius: "10px", fontWeight: "800", fontSize: "13px", cursor: "pointer", boxShadow: "0 4px 12px rgba(44,27,13,0.15)" }}
+                        >
+                          Save Shift Configuration
+                        </button>
+                      </div>
+
+                      {/* Quick Staff Roster Info */}
+                      <div style={{ background: "linear-gradient(135deg, #fdf8f3 0%, #f7efe6 100%)", padding: "20px", borderRadius: "20px", border: "1px solid rgba(138,88,60,0.15)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                          <span style={{ fontSize: "12.5px", fontWeight: "850", color: "#2c1b0d" }}>👨‍🍳 Active Brewmasters Roster</span>
+                          <span style={{ fontSize: "11px", fontWeight: "800", background: "#2c1b0d", color: "#fff", padding: "2px 8px", borderRadius: "6px" }}>{brewmasters.length} Staff</span>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "8px", maxHeight: "200px", overflowY: "auto" }}>
+                          {brewmasters.slice(0, 5).map(bm => (
+                            <div key={bm.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", padding: "8px 12px", borderRadius: "10px", border: "1px solid rgba(44,27,13,0.06)" }}>
+                              <div>
+                                <strong style={{ fontSize: "12.5px", color: "#2c1b0d" }}>{bm.name}</strong>
+                                <span style={{ fontSize: "11px", color: "#8a583c", fontWeight: "750", marginLeft: "6px" }}>({bm.employeeId})</span>
+                              </div>
+                              <span style={{ fontSize: "10.5px", color: bm.status === "Active" ? "#16a34a" : "#d97706", fontWeight: "800" }}>
+                                ● {bm.status || "Active"}
+                              </span>
+                            </div>
+                          ))}
+                          {brewmasters.length === 0 && (
+                            <p style={{ margin: 0, fontSize: "12px", color: "#777", textAlign: "center", padding: "10px" }}>No Brewmasters registered yet.</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
+
+            {activeTab === "profile" && (() => {
+              const filteredBrewmasters = brewmasters.filter(bm => {
+                const term = bmSearchTerm.toLowerCase();
+                const matchesSearch = !term ||
+                  (bm.name && bm.name.toLowerCase().includes(term)) ||
+                  (bm.employeeId && bm.employeeId.toLowerCase().includes(term)) ||
+                  (bm.phone && bm.phone.includes(term)) ||
+                  (bm.address && bm.address.toLowerCase().includes(term)) ||
+                  (bm.aadhaarNumber && bm.aadhaarNumber.includes(term));
+                const matchesRole = bmRoleFilterTab === "All" || bm.role === bmRoleFilterTab;
+                return matchesSearch && matchesRole;
+              });
+
+              return (
+                <div className="tab-body-wrapper" style={{ padding: "0 0 40px 0" }}>
+                  {/* Top 2 Columns: Admin Identity & Kitchen Configuration */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "28px", marginBottom: "36px" }} className="dashboard-double-row-grid">
+
+                    {/* Left Column: Admin Profile & Password */}
+                    <div>
+                      <h3 className="section-title">Admin Identity & Security Profile</h3>
+
+                      <div style={{ background: "#ffffff", padding: "24px 28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "20px", display: "flex", gap: "20px", alignItems: "center" }}>
+                        <div style={{ width: "72px", height: "72px", borderRadius: "50%", background: "#2c1b0d", color: "#fdf5e9", display: "flex", justifyContent: "center", alignItems: "center", fontSize: "32px", fontWeight: "bold" }}>
+                          👑
+                        </div>
+                        <div>
+                          <h4 style={{ fontSize: "18px", margin: "0 0 4px", fontWeight: "bold" }}>Chai Chaska Central Admin</h4>
+                          <span style={{ fontSize: "12px", color: "#8a583c", fontWeight: "bold", textTransform: "uppercase", display: "block" }}>🎖️ Chief Operations Administrator</span>
+                          <span style={{ fontSize: "11px", color: "#777", display: "block", marginTop: "4px" }}>Station HQ • Jaipur Corporate Hub</span>
+                        </div>
+                      </div>
+
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          await updateProfileSettings({ brewmasterName, brewmasterContact, brewmasterBio });
+                          setToastMsg("🌱 Profile details updated successfully!");
+                          setTimeout(() => setToastMsg(""), 3000);
+                        }}
+                        style={{ background: "#ffffff", padding: "24px 28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)" }}
+                      >
+                        <div className="form-group" style={{ marginBottom: "16px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Admin Contact Name</label>
+                          <input
+                            type="text"
+                            value={brewmasterName}
+                            onChange={(e) => setBrewmasterName(e.target.value)}
+                            required
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
+                          />
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: "16px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Contact Number</label>
+                          <input
+                            type="text"
+                            value={brewmasterContact}
+                            onChange={(e) => setBrewmasterContact(e.target.value)}
+                            required
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
+                          />
+                        </div>
+
+                        <div className="form-group" style={{ marginBottom: "20px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Bio / Mission</label>
+                          <textarea
+                            rows="2"
+                            value={brewmasterBio}
+                            onChange={(e) => setBrewmasterBio(e.target.value)}
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px", resize: "none" }}
+                          />
+                        </div>
+
+                        <button type="submit" style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "12px", borderRadius: "8px", fontWeight: "800", fontSize: "12.5px", cursor: "pointer" }}>
+                          SAVE IDENTITY DETAILS
+                        </button>
+                      </form>
+
+                      {/* Change Password Form */}
+                      <form
+                        onSubmit={handleUpdatePassword}
+                        style={{ background: "#ffffff", padding: "24px 28px", borderRadius: "24px", border: "1px solid rgba(44, 27, 13, 0.04)", marginTop: "20px" }}
+                      >
+                        <h4 style={{ fontSize: "15px", margin: "0 0 14px", fontWeight: "bold" }}>Change Terminal Password</h4>
+                        <div className="form-group" style={{ marginBottom: "14px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Current Password</label>
+                          <input
+                            type="password"
+                            value={currentPassword}
+                            onChange={(e) => setCurrentPassword(e.target.value)}
+                            required
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "14px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>New Password</label>
+                          <input
+                            type="password"
+                            value={newPassword}
+                            onChange={(e) => setNewPassword(e.target.value)}
+                            placeholder="Min 6 characters"
+                            required
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: "14px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Confirm New Password</label>
+                          <input
+                            type="password"
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                            required
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
+                          />
+                        </div>
+                        {passwordMessage && (
+                          <p style={{ fontSize: "12px", color: passwordMessage.includes("Error") ? "#e74c3c" : "#27ae60", marginBottom: "14px", fontWeight: "bold" }}>
+                            {passwordMessage}
+                          </p>
+                        )}
+                        <button type="submit" style={{ width: "100%", background: "#8a583c", color: "#ffffff", border: "none", padding: "11px", borderRadius: "8px", fontWeight: "800", fontSize: "12px", cursor: "pointer" }}>
+                          UPDATE PASSWORD
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Right Column: Station Configuration & Settings */}
+                    <div>
+                      <h3 className="section-title">Kitchen Operations Settings</h3>
+
+                      <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)", marginBottom: "20px" }}>
+                        <div className="form-group" style={{ marginBottom: "16px" }}>
+                          <label style={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", color: "#555" }}>Active Station Outlet Name</label>
+                          <input
+                            type="text"
+                            value={shopName}
+                            onChange={(e) => setShopName(e.target.value)}
+                            style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid rgba(44,27,13,0.15)", fontSize: "13px" }}
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await updateProfileSettings({ shopName });
+                            setToastMsg("🌱 Kitchen Station configuration updated!");
+                            setTimeout(() => setToastMsg(""), 3000);
+                          }}
+                          style={{ width: "100%", background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", cursor: "pointer" }}
+                        >
+                          Update Station Config
+                        </button>
+                      </div>
+
+                      {/* Session controls */}
+                      <div style={{ background: "#ffffff", padding: "24px", borderRadius: "20px", border: "1px solid rgba(44, 27, 13, 0.04)" }}>
+                        <h4 style={{ fontSize: "12px", textTransform: "uppercase", margin: "0 0 12px", color: "#e74c3c", fontWeight: "bold" }}>Session & Security</h4>
+                        <p style={{ fontSize: "11.5px", color: "#666", marginBottom: "20px" }}>Log out of the active terminal session. All local configurations remain saved on the server database.</p>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            localStorage.removeItem("admin_logged");
+                            setIsLoggedIn(false);
+                          }}
+                          style={{ width: "100%", background: "#e74c3c", color: "#ffffff", border: "none", padding: "10px", borderRadius: "8px", fontWeight: "800", fontSize: "11.5px", cursor: "pointer" }}
+                        >
+                          🔌 Sign Out from Terminal
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* ================= SECTION: BREWMASTERS & STAFF IDENTITY MANAGEMENT ================= */}
+                  <div style={{ background: "#ffffff", borderRadius: "24px", padding: "28px", border: "1px solid rgba(44,27,13,0.06)", boxShadow: "0 4px 20px rgba(44,27,13,0.03)" }}>
+                    {/* Header Bar */}
+                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "24px", borderBottom: "1px solid rgba(44,27,13,0.06)", paddingBottom: "20px" }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <span style={{ fontSize: "24px" }}>👨‍🍳</span>
+                          <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "850", color: "#2c1b0d" }}>
+                            Brewmasters & Staff Identity Profiles
+                          </h2>
+                          <span style={{ fontSize: "12px", fontWeight: "800", background: "#f5ece1", color: "#8a583c", padding: "3px 10px", borderRadius: "8px" }}>
+                            {brewmasters.length} Registered
+                          </span>
+                        </div>
+                        <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#7a6b5e" }}>
+                          Manage Brewmasters, auto-generate Employee IDs (e.g. BM-001), upload Aadhaar cards, and track residential addresses for leave verification.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleOpenAddBrewmasterModal}
+                        style={{
+                          background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "12px 24px",
+                          borderRadius: "14px",
+                          fontWeight: "800",
+                          fontSize: "13.5px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          boxShadow: "0 6px 18px rgba(44,27,13,0.18)"
+                        }}
+                      >
+                        <span style={{ fontSize: "18px" }}>+</span> Register New Brewmaster
+                      </button>
+                    </div>
+
+                    {/* Search & Role Filter Row */}
+                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "14px", marginBottom: "24px", background: "#fcfaf7", padding: "14px 18px", borderRadius: "16px", border: "1px solid rgba(44,27,13,0.06)" }}>
+                      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
+                        <div style={{ display: "flex", gap: "6px" }}>
+                          {["All", "Head Brewmaster", "Senior Brewmaster", "Chai Master", "Kitchen Chef"].map(role => (
+                            <button
+                              key={role}
+                              type="button"
+                              onClick={() => setBmRoleFilterTab(role)}
+                              style={{
+                                padding: "6px 14px",
+                                borderRadius: "8px",
+                                border: "none",
+                                background: bmRoleFilterTab === role ? "#2c1b0d" : "#ffffff",
+                                color: bmRoleFilterTab === role ? "#ffffff" : "#6b5847",
+                                fontWeight: "750",
+                                fontSize: "12px",
+                                cursor: "pointer",
+                                boxShadow: bmRoleFilterTab === role ? "0 2px 6px rgba(0,0,0,0.1)" : "none"
+                              }}
+                            >
+                              {role}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <input
+                          type="text"
+                          placeholder="Search by ID, name, phone, Aadhaar..."
+                          value={bmSearchTerm}
+                          onChange={(e) => setBmSearchTerm(e.target.value)}
+                          style={{
+                            padding: "9px 14px",
+                            borderRadius: "10px",
+                            border: "1px solid rgba(44,27,13,0.15)",
+                            fontSize: "12.5px",
+                            width: "260px",
+                            outline: "none",
+                            background: "#ffffff"
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Brewmaster Cards Grid */}
+                    {filteredBrewmasters.length === 0 ? (
+                      <div style={{ padding: "60px 20px", textAlign: "center", background: "#fcfaf7", borderRadius: "18px", border: "1.5px dashed rgba(44,27,13,0.12)" }}>
+                        <div style={{ fontSize: "40px", marginBottom: "10px" }}>👨‍🍳</div>
+                        <h4 style={{ margin: "0 0 6px", fontSize: "16px", fontWeight: "800", color: "#2c1b0d" }}>
+                          No Brewmasters Found
+                        </h4>
+                        <p style={{ margin: "0 0 16px", fontSize: "13px", color: "#7a6b5e" }}>
+                          {bmSearchTerm ? "No brewmaster matches your search query." : "Register your first brewmaster with auto-generated Employee ID & Aadhaar details."}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={handleOpenAddBrewmasterModal}
+                          style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "10px 20px", borderRadius: "10px", fontSize: "12.5px", fontWeight: "800", cursor: "pointer" }}
+                        >
+                          + Register Brewmaster Now
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "20px" }}>
+                        {filteredBrewmasters.map((bm) => {
+                          const isActive = bm.status === "Active" || !bm.status;
+                          return (
+                            <div
+                              key={bm.id}
+                              style={{
+                                background: "#ffffff",
+                                borderRadius: "18px",
+                                border: "1.5px solid rgba(44,27,13,0.08)",
+                                padding: "20px",
+                                boxShadow: "0 4px 14px rgba(44,27,13,0.03)",
+                                display: "flex",
+                                flexDirection: "column",
+                                justifyContent: "space-between",
+                                transition: "all 0.2s ease"
+                              }}
+                            >
+                              <div>
+                                {/* Top Line: Employee ID pill & Status Badge */}
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <span style={{
+                                      background: "#2c1b0d",
+                                      color: "#fdf5e9",
+                                      fontWeight: "900",
+                                      fontSize: "12.5px",
+                                      padding: "4px 10px",
+                                      borderRadius: "8px",
+                                      letterSpacing: "0.5px"
+                                    }}>
+                                      🆔 {bm.employeeId || "BM-001"}
+                                    </span>
+                                    <span style={{
+                                      fontSize: "11px",
+                                      fontWeight: "800",
+                                      padding: "3px 8px",
+                                      borderRadius: "6px",
+                                      background: isActive ? "#ecfdf5" : "#fef2f2",
+                                      color: isActive ? "#065f46" : "#991b1b"
+                                    }}>
+                                      ● {bm.status || "Active"}
+                                    </span>
+                                  </div>
+
+                                  <span style={{ fontSize: "11px", color: "#888", fontWeight: "600" }}>
+                                    Joined: {bm.joiningDate || "—"}
+                                  </span>
+                                </div>
+
+                                {/* Main Details & Avatar */}
+                                <div style={{ display: "flex", alignItems: "flex-start", gap: "14px", marginBottom: "16px" }}>
+                                  <div style={{
+                                    width: "54px",
+                                    height: "54px",
+                                    borderRadius: "14px",
+                                    background: "linear-gradient(135deg, #f5ece1 0%, #ecd9c6 100%)",
+                                    color: "#442a17",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: "24px",
+                                    fontWeight: "bold",
+                                    border: "1px solid rgba(44,27,13,0.1)",
+                                    flexShrink: 0
+                                  }}>
+                                    👨‍🍳
+                                  </div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <h4 style={{ margin: "0 0 2px", fontSize: "16px", fontWeight: "850", color: "#2c1b0d", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      {bm.name}
+                                    </h4>
+                                    <span style={{ fontSize: "12px", color: "#8a583c", fontWeight: "750", display: "block" }}>
+                                      {bm.role || "Head Brewmaster"}
+                                    </span>
+                                    <span style={{ fontSize: "11.5px", color: "#555", fontWeight: "600", display: "block", marginTop: "2px" }}>
+                                      📞 {bm.phone || "No phone added"}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Address Section */}
+                                <div style={{ background: "#fcfaf7", padding: "10px 12px", borderRadius: "10px", border: "1px solid rgba(44,27,13,0.06)", marginBottom: "12px" }}>
+                                  <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#7a6b5e", textTransform: "uppercase", display: "block", marginBottom: "2px" }}>
+                                    🏠 Residential Address
+                                  </span>
+                                  <p style={{ margin: 0, fontSize: "12px", color: "#2c1b0d", fontWeight: "600", lineHeight: 1.4 }}>
+                                    {bm.address || "Address not specified"}
+                                  </p>
+                                </div>
+
+                                {/* Aadhaar Card Section */}
+                                <div style={{ background: "#f8fafc", padding: "10px 12px", borderRadius: "10px", border: "1px solid #e2e8f0", marginBottom: "14px" }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <div>
+                                      <span style={{ fontSize: "10.5px", fontWeight: "800", color: "#64748b", textTransform: "uppercase", display: "block" }}>
+                                        🇮🇳 Aadhaar Card Number
+                                      </span>
+                                      <span style={{ fontSize: "13px", fontWeight: "850", color: "#0f172a", letterSpacing: "1px" }}>
+                                        {bm.aadhaarNumber ? `XXXX-XXXX-${bm.aadhaarNumber.replace(/\D/g, '').slice(-4)}` : "Not Provided"}
+                                      </span>
+                                    </div>
+
+                                    {bm.aadhaarDoc ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setPreviewAadhaarDoc(bm.aadhaarDoc)}
+                                        style={{
+                                          background: "#eff6ff",
+                                          color: "#1d4ed8",
+                                          border: "1px solid #bfdbfe",
+                                          padding: "5px 10px",
+                                          borderRadius: "6px",
+                                          fontSize: "11px",
+                                          fontWeight: "800",
+                                          cursor: "pointer",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: "4px"
+                                        }}
+                                      >
+                                        📄 View Doc
+                                      </button>
+                                    ) : (
+                                      <span style={{ fontSize: "10.5px", color: "#94a3b8", fontWeight: "600" }}>No File</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Station Timing Info */}
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11.5px", color: "#7a6b5e", marginBottom: "14px" }}>
+                                  <span>⏰ Station Hours: <strong>{workingHours || "8:00 AM - 6:00 PM"}</strong></span>
+                                  {bm.salary && <span>💰 <strong>₹{Number(bm.salary).toLocaleString('en-IN')}/mo</strong></span>}
+                                </div>
+                              </div>
+
+                              {/* Card Action Buttons */}
+                              <div style={{ display: "flex", gap: "8px", borderTop: "1px solid rgba(44,27,13,0.06)", paddingTop: "12px" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditBrewmasterModal(bm)}
+                                  style={{
+                                    flex: 1,
+                                    background: "#fdf8f3",
+                                    color: "#2c1b0d",
+                                    border: "1px solid rgba(44,27,13,0.12)",
+                                    padding: "8px",
+                                    borderRadius: "8px",
+                                    fontSize: "12px",
+                                    fontWeight: "800",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    gap: "4px"
+                                  }}
+                                >
+                                  ✏️ Edit Profile
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBrewmaster(bm.id, bm.name, bm.employeeId)}
+                                  style={{
+                                    background: "rgba(231,76,60,0.08)",
+                                    color: "#e74c3c",
+                                    border: "1px solid rgba(231,76,60,0.2)",
+                                    padding: "8px 12px",
+                                    borderRadius: "8px",
+                                    fontSize: "12px",
+                                    fontWeight: "800",
+                                    cursor: "pointer"
+                                  }}
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* MODAL: REGISTER / EDIT BREWMASTER */}
+                  {showAddBrewmasterModal && (
+                    <div
+                      style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: "rgba(0,0,0,0.6)",
+                        backdropFilter: "blur(4px)",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        zIndex: 10005,
+                        padding: "20px"
+                      }}
+                      onClick={() => setShowAddBrewmasterModal(false)}
+                    >
+                      <div
+                        style={{
+                          background: "#ffffff",
+                          borderRadius: "24px",
+                          width: "100%",
+                          maxWidth: "600px",
+                          maxHeight: "90vh",
+                          overflowY: "auto",
+                          padding: "28px 32px",
+                          boxShadow: "0 25px 60px rgba(0,0,0,0.3)",
+                          position: "relative"
+                        }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid #f0f0f0", paddingBottom: "14px" }}>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: "19px", fontWeight: "900", color: "#2c1b0d" }}>
+                              {editingBrewmaster ? "✏️ Edit Brewmaster Details" : "✨ Register New Brewmaster"}
+                            </h3>
+                            <span style={{ fontSize: "12px", color: "#7a6b5e" }}>
+                              Auto-generated Employee ID & Aadhaar Identity Verification
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowAddBrewmasterModal(false)}
+                            style={{ background: "#f4f4f5", border: "none", width: "32px", height: "32px", borderRadius: "50%", cursor: "pointer", fontWeight: "bold", fontSize: "14px" }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <form onSubmit={handleSaveBrewmaster} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                          {/* Row 1: Employee ID & Status */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                🆔 Employee ID <span style={{ color: "#16a34a" }}>(Auto-Generated)</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={bmEmployeeId}
+                                onChange={e => setBmEmployeeId(e.target.value)}
+                                required
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1.5px solid #c9935a", background: "#fdf8f3", fontWeight: "900", color: "#2c1b0d", fontSize: "13.5px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                Status
+                              </label>
+                              <select
+                                value={bmStatus}
+                                onChange={e => setBmStatus(e.target.value)}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              >
+                                <option value="Active">🟢 Active Duty</option>
+                                <option value="On Leave">🔵 On Leave</option>
+                                <option value="Inactive">🔴 Inactive</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Row 2: Full Name & Phone */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                Full Name <span style={{ color: "#e11d48" }}>*</span>
+                              </label>
+                              <input
+                                type="text"
+                                placeholder="e.g. Ramesh Chandra"
+                                value={bmName}
+                                onChange={e => setBmName(e.target.value)}
+                                required
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                Phone Number <span style={{ color: "#e11d48" }}>*</span>
+                              </label>
+                              <input
+                                type="tel"
+                                placeholder="e.g. +91 98765 43210"
+                                value={bmPhone}
+                                onChange={e => setBmPhone(e.target.value)}
+                                required
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Row 3: Role & Joining Date */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                Designation / Role
+                              </label>
+                              <select
+                                value={bmRole}
+                                onChange={e => setBmRole(e.target.value)}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              >
+                                <option value="Head Brewmaster">Head Brewmaster</option>
+                                <option value="Senior Brewmaster">Senior Brewmaster</option>
+                                <option value="Chai Master">Chai Master</option>
+                                <option value="Kitchen Chef">Kitchen Chef</option>
+                                <option value="Counter & Cashier">Counter & Cashier</option>
+                                <option value="Store Specialist">Store Specialist</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                Joining Date
+                              </label>
+                              <input
+                                type="date"
+                                value={bmJoiningDate}
+                                onChange={e => setBmJoiningDate(e.target.value)}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Row 4: Full Address */}
+                          <div>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                              🏠 Residential Address <span style={{ color: "#e11d48" }}>*</span>
+                            </label>
+                            <textarea
+                              rows="2"
+                              placeholder="Enter permanent or current residential address (Street, Landmark, City, Pincode)"
+                              value={bmAddress}
+                              onChange={e => setBmAddress(e.target.value)}
+                              required
+                              style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box", resize: "none" }}
+                            />
+                          </div>
+
+                          {/* Row 5: Aadhaar Number & Aadhaar Card Upload */}
+                          <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "14px", border: "1.5px solid #e2e8f0" }}>
+                            <span style={{ fontSize: "12px", fontWeight: "850", color: "#0f172a", textTransform: "uppercase", display: "block", marginBottom: "10px" }}>
+                              🇮🇳 Aadhaar Card Identity Verification
+                            </span>
+
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "10px" }}>
+                              <div>
+                                <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "4px" }}>
+                                  12-Digit Aadhaar Number <span style={{ color: "#e11d48" }}>*</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 5432 1098 7654"
+                                  value={bmAadhaarNumber}
+                                  onChange={e => {
+                                    let raw = e.target.value.replace(/\D/g, '').slice(0, 12);
+                                    let formatted = raw.match(/.{1,4}/g)?.join(' ') || raw;
+                                    setBmAadhaarNumber(formatted);
+                                  }}
+                                  required
+                                  style={{ width: "100%", padding: "10px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "13.5px", fontWeight: "700", letterSpacing: "1px", outline: "none", boxSizing: "border-box" }}
+                                />
+                              </div>
+
+                              <div>
+                                <label style={{ display: "block", fontSize: "11px", fontWeight: "700", color: "#64748b", marginBottom: "4px" }}>
+                                  Upload Aadhaar Card (Photo / PDF)
+                                </label>
+                                <input
+                                  type="file"
+                                  accept="image/*,application/pdf"
+                                  onChange={handleAadhaarUpload}
+                                  style={{ width: "100%", fontSize: "11.5px", padding: "6px" }}
+                                />
+                                {isUploadingAadhaar && (
+                                  <span style={{ fontSize: "11px", color: "#d97706", fontWeight: "700" }}>⏳ Uploading document...</span>
+                                )}
+                              </div>
+                            </div>
+
+                            {bmAadhaarDoc && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "8px", background: "#ffffff", padding: "8px 12px", borderRadius: "8px", border: "1px solid #86efac" }}>
+                                <span style={{ fontSize: "16px" }}>✅</span>
+                                <span style={{ fontSize: "11.5px", fontWeight: "700", color: "#166534", flex: 1 }}>Aadhaar Document Attached</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewAadhaarDoc(bmAadhaarDoc)}
+                                  style={{ background: "#eff6ff", color: "#1d4ed8", border: "1px solid #bfdbfe", padding: "4px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: "bold", cursor: "pointer" }}
+                                >
+                                  Preview
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setBmAadhaarDoc("")}
+                                  style={{ background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca", padding: "4px 8px", borderRadius: "6px", fontSize: "10.5px", fontWeight: "bold", cursor: "pointer" }}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Row 6: Joining Date & Monthly Salary */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                Joining Date
+                              </label>
+                              <input
+                                type="date"
+                                value={bmJoiningDate}
+                                onChange={e => setBmJoiningDate(e.target.value)}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "4px" }}>
+                                Monthly Salary (₹)
+                              </label>
+                              <input
+                                type="number"
+                                placeholder="e.g. 25000"
+                                value={bmSalary}
+                                onChange={e => setBmSalary(e.target.value)}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Submit Button */}
+                          <button
+                            type="submit"
+                            style={{
+                              marginTop: "8px",
+                              background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                              color: "#ffffff",
+                              border: "none",
+                              padding: "14px",
+                              borderRadius: "12px",
+                              fontWeight: "900",
+                              fontSize: "14px",
+                              cursor: "pointer",
+                              boxShadow: "0 6px 16px rgba(44,27,13,0.2)"
+                            }}
+                          >
+                            {editingBrewmaster ? "SAVE BREWMASTER CHANGES ✓" : `CREATE BREWMASTER PROFILE (${bmEmployeeId}) ✓`}
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ADMIN MODAL: CREATE / GRANT LEAVE FOR BREWMASTER */}
+                  {showAdminAddLeaveModal && (
+                    <div
+                      style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: "rgba(0,0,0,0.65)",
+                        backdropFilter: "blur(5px)",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        zIndex: 10005,
+                        padding: "20px"
+                      }}
+                      onClick={() => setShowAdminAddLeaveModal(false)}
+                    >
+                      <div
+                        style={{
+                          background: "#ffffff",
+                          borderRadius: "24px",
+                          maxWidth: "520px",
+                          width: "100%",
+                          padding: "26px",
+                          boxShadow: "0 25px 60px rgba(44,27,13,0.3)",
+                          border: "1px solid rgba(44,27,13,0.1)",
+                          maxHeight: "90vh",
+                          overflowY: "auto"
+                        }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "18px" }}>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: "17px", fontWeight: "900", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "8px" }}>
+                              <span>🏖️</span> Grant / Submit Leave Request
+                            </h3>
+                            <span style={{ fontSize: "12px", color: "#7a6b5e" }}>
+                              Directly create and approve leave/holiday for staff
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setShowAdminAddLeaveModal(false)}
+                            style={{ background: "#f4f4f5", border: "none", width: "32px", height: "32px", borderRadius: "50%", cursor: "pointer", fontWeight: "bold", fontSize: "14px" }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <form onSubmit={handleAdminCreateLeave} style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+                          {/* Staff Selection */}
+                          <div>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "6px" }}>
+                              👨‍🍳 Select Brewmaster / Staff Member <span style={{ color: "#e11d48" }}>*</span>
+                            </label>
+                            <select
+                              value={adminLeaveBmId || (brewmasters.length > 0 ? brewmasters[0].employeeId : "BM-001")}
+                              onChange={e => setAdminLeaveBmId(e.target.value)}
+                              style={{ width: "100%", padding: "11px 14px", borderRadius: "10px", border: "1.5px solid rgba(44,27,13,0.15)", fontSize: "13.5px", fontWeight: "750", outline: "none", boxSizing: "border-box", background: "#fdf8f3" }}
+                            >
+                              {brewmasters.length === 0 ? (
+                                <option value="BM-001">BM-001 - Head Brewmaster (Default)</option>
+                              ) : (
+                                brewmasters.map(b => (
+                                  <option key={b.id} value={b.employeeId}>
+                                    {b.employeeId} — {b.name} ({b.role || "Brewmaster"})
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </div>
+
+                          {/* Leave Type & Approval Status */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "6px" }}>
+                                🏷️ Leave Category
+                              </label>
+                              <select
+                                value={adminLeaveType}
+                                onChange={e => setAdminLeaveType(e.target.value)}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              >
+                                <option value="Casual Leave">Casual Leave (CL)</option>
+                                <option value="Sick Leave">Sick Leave (SL)</option>
+                                <option value="Paid Leave">Paid Leave / Holiday</option>
+                                <option value="Emergency Leave">Emergency Leave</option>
+                                <option value="Festival Off">Festival Off</option>
+                                <option value="Half Day">Half Day Off</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "6px" }}>
+                                ⚡ Action / Status
+                              </label>
+                              <select
+                                value={adminLeaveStatusVal}
+                                onChange={e => setAdminLeaveStatusVal(e.target.value)}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box", fontWeight: "800", color: adminLeaveStatusVal === "Approved" ? "#16a34a" : "#d97706" }}
+                              >
+                                <option value="Approved">✅ Approve Immediately</option>
+                                <option value="Pending Approval">⏳ Submit as Pending</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Date Range */}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "6px" }}>
+                                📅 Start Date <span style={{ color: "#e11d48" }}>*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={adminLeaveStartDate}
+                                onChange={e => setAdminLeaveStartDate(e.target.value)}
+                                required
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "6px" }}>
+                                📅 End Date <span style={{ color: "#e11d48" }}>*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={adminLeaveEndDate}
+                                onChange={e => setAdminLeaveEndDate(e.target.value)}
+                                required
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Reason */}
+                          <div>
+                            <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", marginBottom: "6px" }}>
+                              📝 Reason / Remarks <span style={{ color: "#e11d48" }}>*</span>
+                            </label>
+                            <textarea
+                              rows={3}
+                              placeholder="e.g. Festival leave / Family occasion / Medical leave approved..."
+                              value={adminLeaveReasonText}
+                              onChange={e => setAdminLeaveReasonText(e.target.value)}
+                              required
+                              style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #d4d4d8", fontSize: "13px", outline: "none", boxSizing: "border-box", resize: "none" }}
+                            />
+                          </div>
+
+                          {/* Submit Button */}
+                          <button
+                            type="submit"
+                            style={{
+                              marginTop: "6px",
+                              background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                              color: "#ffffff",
+                              border: "none",
+                              padding: "13px",
+                              borderRadius: "12px",
+                              fontWeight: "900",
+                              fontSize: "13.5px",
+                              cursor: "pointer",
+                              boxShadow: "0 6px 16px rgba(44,27,13,0.2)"
+                            }}
+                          >
+                            GRANT & SAVE LEAVE REQUEST ✓
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LIGHTBOX MODAL: PREVIEW AADHAAR CARD */}
+                  {previewAadhaarDoc && (
+                    <div
+                      style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: "rgba(0,0,0,0.75)",
+                        backdropFilter: "blur(6px)",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        zIndex: 10010,
+                        padding: "20px"
+                      }}
+                      onClick={() => setPreviewAadhaarDoc(null)}
+                    >
+                      <div
+                        style={{
+                          background: "#ffffff",
+                          borderRadius: "20px",
+                          maxWidth: "650px",
+                          width: "100%",
+                          padding: "20px",
+                          boxShadow: "0 25px 60px rgba(0,0,0,0.4)",
+                          position: "relative"
+                        }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                          <h4 style={{ margin: 0, fontSize: "16px", fontWeight: "850", color: "#0f172a" }}>
+                            📄 Aadhaar Card Document Preview
+                          </h4>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewAadhaarDoc(null)}
+                            style={{ background: "#f1f5f9", border: "none", width: "30px", height: "30px", borderRadius: "50%", cursor: "pointer", fontWeight: "bold" }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        <div style={{ maxHeight: "70vh", overflowY: "auto", display: "flex", justifyContent: "center", background: "#0f172a", borderRadius: "12px", padding: "10px" }}>
+                          <img
+                            src={previewAadhaarDoc}
+                            alt="Aadhaar Document"
+                            style={{ maxWidth: "100%", maxHeight: "65vh", objectFit: "contain", borderRadius: "8px" }}
+                          />
+                        </div>
+
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "14px" }}>
+                          <a
+                            href={previewAadhaarDoc}
+                            target="_blank"
+                            rel="noreferrer"
+                            download="Aadhaar_Document.jpg"
+                            style={{ background: "#2c1b0d", color: "#fff", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "800", textDecoration: "none" }}
+                          >
+                            Open Full Size / Download ↗
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => setPreviewAadhaarDoc(null)}
+                            style={{ background: "#f1f5f9", color: "#334155", border: "none", padding: "8px 16px", borderRadius: "8px", fontSize: "12px", fontWeight: "800", cursor: "pointer" }}
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              );
+            })()}
 
           </div>
 
@@ -7573,33 +9734,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 </div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "12px" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
-                    Shift Timings
-                  </label>
-                  <select
-                    value={empShift}
-                    onChange={(e) => setEmpShift(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: "12px",
-                      border: "1px solid rgba(44,27,13,0.15)",
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      background: "#fff",
-                      color: "#2c1b0d",
-                      outline: "none"
-                    }}
-                  >
-                    <option value="Morning (07:00 AM - 03:00 PM)">Morning (07:00 AM - 03:00 PM)</option>
-                    <option value="Evening (02:00 PM - 10:00 PM)">Evening (02:00 PM - 10:00 PM)</option>
-                    <option value="Full Day (08:00 AM - 08:00 PM)">Full Day (08:00 AM - 08:00 PM)</option>
-                    <option value="Night Shift">Night Shift</option>
-                  </select>
-                </div>
-
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
                     Monthly Salary (₹)
@@ -7626,9 +9761,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     />
                   </div>
                 </div>
-              </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
                     Joining Date
@@ -7648,31 +9781,31 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     }}
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
-                    Staff Status
-                  </label>
-                  <select
-                    value={empStatus}
-                    onChange={(e) => setEmpStatus(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "9px 12px",
-                      borderRadius: "12px",
-                      border: "1px solid rgba(44,27,13,0.15)",
-                      fontSize: "12.5px",
-                      fontWeight: "650",
-                      background: "#fff",
-                      color: "#2c1b0d",
-                      outline: "none"
-                    }}
-                  >
-                    <option value="Active">Active</option>
-                    <option value="On Leave">On Leave</option>
-                    <option value="Inactive">Inactive / Terminated</option>
-                  </select>
-                </div>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                  Staff Status
+                </label>
+                <select
+                  value={empStatus}
+                  onChange={(e) => setEmpStatus(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "9px 12px",
+                    borderRadius: "12px",
+                    border: "1px solid rgba(44,27,13,0.15)",
+                    fontSize: "12.5px",
+                    fontWeight: "650",
+                    background: "#fff",
+                    color: "#2c1b0d",
+                    outline: "none"
+                  }}
+                >
+                  <option value="Active">Active</option>
+                  <option value="On Leave">On Leave</option>
+                  <option value="Inactive">Inactive / Terminated</option>
+                </select>
               </div>
 
               {/* Action Buttons */}
@@ -7719,6 +9852,532 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
           </div>
         </div>
       )}
+
+      {/* ================= ADMIN GRANT / ADD LEAVE MODAL ================= */}
+      {showAdminAddLeaveModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(18, 11, 7, 0.75)",
+            backdropFilter: "blur(10px)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            zIndex: 10015,
+            padding: "20px"
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAdminAddLeaveModal(false);
+          }}
+        >
+          <div
+            className="no-scrollbar"
+            style={{
+              background: "#ffffff",
+              borderRadius: "26px",
+              width: "100%",
+              maxWidth: "520px",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              boxShadow: "0 25px 60px rgba(0,0,0,0.35), 0 0 0 1px rgba(44,27,13,0.06)",
+              padding: "28px 30px",
+              position: "relative",
+              animation: "fadeIn 0.2s ease-out"
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ width: "42px", height: "42px", borderRadius: "12px", background: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>
+                  🏖️
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "800", color: "#2c1b0d" }}>
+                    Grant / Add Leave Application
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#7a6b5e" }}>
+                    Record approved or scheduled leave for any Brewmaster or staff.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdminAddLeaveModal(false)}
+                style={{
+                  background: "#f7f2ed",
+                  border: "none",
+                  width: "30px",
+                  height: "30px",
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "13px",
+                  fontWeight: "800",
+                  color: "#555",
+                  cursor: "pointer"
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminCreateLeave} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                  Select Brewmaster / Employee *
+                </label>
+                <select
+                  value={adminLeaveBmId}
+                  onChange={(e) => setAdminLeaveBmId(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: "12px",
+                    border: "1px solid rgba(44,27,13,0.15)",
+                    fontSize: "13px",
+                    fontWeight: "700",
+                    background: "#fff",
+                    color: "#2c1b0d",
+                    outline: "none",
+                    cursor: "pointer"
+                  }}
+                >
+                  {employeesList.map(emp => (
+                    <option key={emp.id} value={emp.employeeId || emp.id}>
+                      {emp.name} {emp.employeeId ? `(${emp.employeeId})` : ""} - {emp.role}
+                    </option>
+                  ))}
+                  {employeesList.length === 0 && (
+                    <option value="BM-001">Head Brewmaster (BM-001)</option>
+                  )}
+                </select>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                    Leave Category *
+                  </label>
+                  <select
+                    value={adminLeaveType}
+                    onChange={(e) => setAdminLeaveType(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "12px",
+                      border: "1px solid rgba(44,27,13,0.15)",
+                      fontSize: "12.5px",
+                      fontWeight: "650",
+                      background: "#fff",
+                      color: "#2c1b0d",
+                      outline: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="Casual Leave">Casual Leave (CL)</option>
+                    <option value="Sick Leave">Sick / Medical Leave (SL)</option>
+                    <option value="Festival Holiday">Festival / Holiday</option>
+                    <option value="Emergency Leave">Emergency Leave</option>
+                    <option value="Privilege Leave">Privilege Leave (PL)</option>
+                    <option value="Compensatory Off">Compensatory Off</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                    Status *
+                  </label>
+                  <select
+                    value={adminLeaveStatusVal}
+                    onChange={(e) => setAdminLeaveStatusVal(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "12px",
+                      border: "1px solid rgba(44,27,13,0.15)",
+                      fontSize: "12.5px",
+                      fontWeight: "800",
+                      background: adminLeaveStatusVal === "Approved" ? "#ecfdf5" : "#fff7ed",
+                      color: adminLeaveStatusVal === "Approved" ? "#065f46" : "#c2410c",
+                      outline: "none",
+                      cursor: "pointer"
+                    }}
+                  >
+                    <option value="Approved">✅ Approved</option>
+                    <option value="Pending Approval">⏳ Pending</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                    Start Date *
+                  </label>
+                  <input
+                    type="date"
+                    value={adminLeaveStartDate}
+                    onChange={(e) => setAdminLeaveStartDate(e.target.value)}
+                    required
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "12px",
+                      border: "1px solid rgba(44,27,13,0.15)",
+                      fontSize: "12.5px",
+                      color: "#2c1b0d",
+                      outline: "none"
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                    End Date *
+                  </label>
+                  <input
+                    type="date"
+                    value={adminLeaveEndDate}
+                    onChange={(e) => setAdminLeaveEndDate(e.target.value)}
+                    required
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: "12px",
+                      border: "1px solid rgba(44,27,13,0.15)",
+                      fontSize: "12.5px",
+                      color: "#2c1b0d",
+                      outline: "none"
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
+                  Reason / Notes *
+                </label>
+                <textarea
+                  rows="3"
+                  placeholder="e.g. Family function / Medical consultation"
+                  value={adminLeaveReasonText}
+                  onChange={(e) => setAdminLeaveReasonText(e.target.value)}
+                  required
+                  style={{
+                    width: "100%",
+                    padding: "10px 14px",
+                    borderRadius: "12px",
+                    border: "1px solid rgba(44,27,13,0.15)",
+                    fontSize: "13px",
+                    color: "#2c1b0d",
+                    outline: "none",
+                    resize: "none",
+                    boxSizing: "border-box"
+                  }}
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAdminAddLeaveModal(false)}
+                  style={{
+                    flex: 1,
+                    background: "#f4ede6",
+                    color: "#2c1b0d",
+                    border: "none",
+                    padding: "11px",
+                    borderRadius: "12px",
+                    fontWeight: "750",
+                    fontSize: "13px",
+                    cursor: "pointer"
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    flex: 2,
+                    background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)",
+                    color: "#ffffff",
+                    border: "none",
+                    padding: "11px",
+                    borderRadius: "12px",
+                    fontWeight: "800",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    boxShadow: "0 6px 18px rgba(22, 163, 74, 0.25)"
+                  }}
+                >
+                  💾 Save Leave Record
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ================= SPECIFIC BREWMASTER ATTENDANCE TRACE & TIME LOG MODAL ================= */}
+      {selectedTraceEmployee && (() => {
+        const emp = selectedTraceEmployee;
+        const empLogs = attendanceRecords
+          .filter(a => a.employeeId === emp.id || a.employeeId === emp.employeeId || a.employeeName === emp.name)
+          .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+        const empLeaves = leaveRequests.filter(l => {
+          return (l.employeeId && (l.employeeId === emp.employeeId || l.employeeId === emp.id)) ||
+                 (l.brewmasterName && emp.name && l.brewmasterName.toLowerCase() === emp.name.toLowerCase());
+        });
+
+        const totalTracked = empLogs.length;
+        const presentLogs = empLogs.filter(a => a.status === "present");
+        const halfDayLogs = empLogs.filter(a => a.status === "half_day");
+        const leaveLogs = empLogs.filter(a => a.status === "leave");
+        const absentLogs = empLogs.filter(a => a.status === "absent");
+
+        const attendancePct = totalTracked > 0 ? Math.round(((presentLogs.length + halfDayLogs.length * 0.5) / totalTracked) * 100) : 100;
+
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(18, 11, 7, 0.78)",
+              backdropFilter: "blur(10px)",
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              zIndex: 10020,
+              padding: "20px"
+            }}
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedTraceEmployee(null);
+            }}
+          >
+            <div
+              className="no-scrollbar"
+              style={{
+                background: "#ffffff",
+                borderRadius: "26px",
+                width: "100%",
+                maxWidth: "760px",
+                maxHeight: "90vh",
+                overflowY: "auto",
+                scrollbarWidth: "none",
+                msOverflowStyle: "none",
+                boxShadow: "0 25px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(44,27,13,0.08)",
+                padding: "28px 32px",
+                position: "relative",
+                animation: "fadeIn 0.2s ease-out"
+              }}
+            >
+              {/* Modal Header */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px", borderBottom: "1px solid rgba(44,27,13,0.08)", paddingBottom: "18px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+                  <div style={{ width: "54px", height: "54px", borderRadius: "16px", background: "#2c1b0d", color: "#fdf5e9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", fontWeight: "900", boxShadow: "0 4px 14px rgba(44,27,13,0.25)" }}>
+                    👨‍🍳
+                  </div>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <h3 style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#2c1b0d" }}>
+                        {emp.name}
+                      </h3>
+                      {emp.employeeId && (
+                        <span style={{ fontSize: "11.5px", fontWeight: "850", background: "#f5ece1", color: "#8a583c", padding: "2px 8px", borderRadius: "6px" }}>
+                          {emp.employeeId}
+                        </span>
+                      )}
+                      <span style={{ fontSize: "11.5px", color: emp.status === "Active" ? "#16a34a" : "#dc2626", fontWeight: "800" }}>
+                        ● {emp.status || "Active"}
+                      </span>
+                    </div>
+                    <p style={{ margin: "3px 0 0", fontSize: "12.5px", color: "#7a6b5e", fontWeight: "600" }}>
+                      {emp.role} {emp.phone ? `• 📞 ${emp.phone}` : ""}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedTraceEmployee(null)}
+                  style={{
+                    background: "#f7f2ed",
+                    border: "none",
+                    width: "34px",
+                    height: "34px",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "14px",
+                    fontWeight: "800",
+                    color: "#555",
+                    cursor: "pointer"
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* 4 Stats Cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "22px" }}>
+                <div style={{ background: "#fbf8f5", padding: "14px 16px", borderRadius: "14px", border: "1px solid rgba(44,27,13,0.08)" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#7a6b5e", textTransform: "uppercase" }}>Attendance Rate</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#16a34a", marginTop: "4px" }}>
+                    {attendancePct}%
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#888" }}>{totalTracked} tracked days</span>
+                </div>
+
+                <div style={{ background: "#ecfdf5", padding: "14px 16px", borderRadius: "14px", border: "1px solid #a7f3d0" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#065f46", textTransform: "uppercase" }}>Present Days</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#16a34a", marginTop: "4px" }}>
+                    {presentLogs.length}
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#047857" }}>Full days present</span>
+                </div>
+
+                <div style={{ background: "#fffbeb", padding: "14px 16px", borderRadius: "14px", border: "1px solid #fde68a" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#92400e", textTransform: "uppercase" }}>Half Day / Leaves</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#d97706", marginTop: "4px" }}>
+                    {halfDayLogs.length + leaveLogs.length}
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#b45309" }}>{halfDayLogs.length} HD, {leaveLogs.length} Leaves</span>
+                </div>
+
+                <div style={{ background: "#fef2f2", padding: "14px 16px", borderRadius: "14px", border: "1px solid #fecaca" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "750", color: "#991b1b", textTransform: "uppercase" }}>Absent Days</span>
+                  <div style={{ fontSize: "22px", fontWeight: "900", color: "#dc2626", marginTop: "4px" }}>
+                    {absentLogs.length}
+                  </div>
+                  <span style={{ fontSize: "10.5px", color: "#b91c1c" }}>Missed shifts</span>
+                </div>
+              </div>
+
+              {/* Attendance Log History Table */}
+              <div style={{ marginBottom: "20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                  <h4 style={{ margin: 0, fontSize: "14.5px", fontWeight: "850", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>📅</span> Daily Attendance History Log ({empLogs.length})
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminLeaveBmId(emp.employeeId || emp.id);
+                      setShowAdminAddLeaveModal(true);
+                    }}
+                    style={{ background: "#f5ece1", color: "#8a583c", border: "1px solid rgba(138,88,60,0.2)", padding: "5px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer" }}
+                  >
+                    + Grant Leave to {emp.name.split(" ")[0]}
+                  </button>
+                </div>
+
+                {empLogs.length === 0 ? (
+                  <div style={{ padding: "36px 16px", textAlign: "center", color: "#888", background: "#fbf8f5", borderRadius: "14px", border: "1px dashed rgba(44,27,13,0.12)" }}>
+                    <span style={{ fontSize: "28px", display: "block", marginBottom: "6px" }}>📅</span>
+                    <strong style={{ fontSize: "13.5px", color: "#2c1b0d", display: "block" }}>No Attendance Records Logged Yet</strong>
+                    <span style={{ fontSize: "12px" }}>Mark attendance on the Daily Attendance sheet to start tracing history.</span>
+                  </div>
+                ) : (
+                  <div style={{ background: "#ffffff", borderRadius: "14px", border: "1px solid rgba(44,27,13,0.08)", overflow: "hidden" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "12.5px" }}>
+                      <thead>
+                        <tr style={{ background: "#fbf8f5", borderBottom: "1px solid rgba(44,27,13,0.08)", color: "#7a6b5e", fontWeight: "800", textTransform: "uppercase", fontSize: "10.5px" }}>
+                          <th style={{ padding: "10px 14px" }}>Date & Day</th>
+                          <th style={{ padding: "10px 12px" }}>Attendance Status</th>
+                          <th style={{ padding: "10px 14px", textAlign: "right" }}>Record Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {empLogs.map((log, idx) => {
+                          const dateObj = new Date(log.date);
+                          const dayName = !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString("en-IN", { weekday: "short" }) : "";
+                          return (
+                            <tr key={log.id || idx} style={{ borderBottom: "1px solid rgba(44,27,13,0.05)" }}>
+                              <td style={{ padding: "11px 14px", fontWeight: "750", color: "#2c1b0d" }}>
+                                📅 {log.date} {dayName ? `(${dayName})` : ""}
+                              </td>
+                              <td style={{ padding: "11px 12px" }}>
+                                {log.status === "present" ? (
+                                  <span style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", fontSize: "11px" }}>
+                                    🟢 Present
+                                  </span>
+                                ) : log.status === "half_day" ? (
+                                  <span style={{ background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", fontSize: "11px" }}>
+                                    🟡 Half Day
+                                  </span>
+                                ) : log.status === "leave" ? (
+                                  <span style={{ background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", fontSize: "11px" }}>
+                                    🔵 Leave
+                                  </span>
+                                ) : (
+                                  <span style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", padding: "3px 8px", borderRadius: "6px", fontWeight: "800", fontSize: "11px" }}>
+                                    🔴 Absent
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ padding: "11px 14px", textAlign: "right", color: "#888", fontSize: "11px" }}>
+                                <span style={{ background: "#f5f5f5", color: "#555", padding: "2px 7px", borderRadius: "5px", fontWeight: "700" }}>
+                                  ✓ Logged
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Connected Leave Applications */}
+              {empLeaves.length > 0 && (
+                <div style={{ background: "#fbf8f5", padding: "16px", borderRadius: "14px", border: "1px solid rgba(44,27,13,0.08)", marginBottom: "20px" }}>
+                  <h4 style={{ margin: "0 0 10px", fontSize: "13.5px", fontWeight: "850", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <span>🏖️</span> Leave Applications Log ({empLeaves.length})
+                  </h4>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    {empLeaves.map((l, i) => (
+                      <div key={l.id || i} style={{ background: "#fff", padding: "10px 14px", borderRadius: "10px", border: "1px solid rgba(44,27,13,0.06)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                        <div>
+                          <strong style={{ fontSize: "12.5px", color: "#2c1b0d" }}>{l.leaveType || "Leave"}</strong>
+                          <span style={{ fontSize: "11.5px", color: "#666", marginLeft: "6px" }}>({l.start} to {l.end} • {l.days || 1} days)</span>
+                          {l.reason && <p style={{ margin: "2px 0 0", fontSize: "11.5px", color: "#777" }}>"{l.reason}"</p>}
+                        </div>
+                        <span style={{
+                          fontSize: "11px",
+                          fontWeight: "850",
+                          padding: "3px 8px",
+                          borderRadius: "6px",
+                          background: l.status === "Approved" ? "#ecfdf5" : l.status === "Rejected" ? "#fef2f2" : "#fff7ed",
+                          color: l.status === "Approved" ? "#065f46" : l.status === "Rejected" ? "#991b1b" : "#c2410c"
+                        }}>
+                          {l.status === "Approved" ? "✅ Approved" : l.status === "Rejected" ? "❌ Rejected" : "⏳ Pending"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Close Button */}
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTraceEmployee(null)}
+                  style={{ background: "#2c1b0d", color: "#ffffff", border: "none", padding: "10px 24px", borderRadius: "12px", fontWeight: "800", fontSize: "13px", cursor: "pointer" }}
+                >
+                  Close Trace Log
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ALERT POPUP */}
       {incomingOrder && (
