@@ -2063,8 +2063,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
                       <input
                         type="date"
-                        value={(typeof historyDateFilter === 'string' && historyDateFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? historyDateFilter : ""}
-                        onChange={(e) => setHistoryDateFilter(e.target.value || "all")}
+                        value={(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? timeFilter : ""}
+                        onChange={(e) => setTimeFilter(e.target.value || "All")}
                         style={{
                           padding: "4px 8px",
                           borderRadius: "6px",
@@ -2075,6 +2075,30 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           outline: "none"
                         }}
                       />
+                      {(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) && (
+                        <button
+                          type="button"
+                          onClick={() => setTimeFilter("All")}
+                          style={{
+                            border: "none",
+                            background: "#fee2e2",
+                            color: "#ef4444",
+                            borderRadius: "50%",
+                            width: "20px",
+                            height: "20px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "11px",
+                            cursor: "pointer",
+                            fontWeight: "bold",
+                            padding: 0
+                          }}
+                          title="Clear date filter"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -2762,13 +2786,55 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     </div>
                                   </td>
 
-                                  {/* 3. Contact */}
+                                  {/* 3. Contact & Payment Info */}
                                   <td>
                                     <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '12.5px' }}>
                                       {phoneFormatted}
                                     </div>
-                                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
-                                      {o.email || (isOfflineOrder ? "Store Cashier" : "Office Desk")}
+                                    <div style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                                      {(() => {
+                                        const pm = o.paymentMethod || (isOfflineOrder ? "Cash" : "Online UPI");
+                                        const ps = o.paymentStatus || (pm === "Corporate Due" || pm === "Pending Selection" ? "Pending" : "Paid");
+                                        const isPending = ps === "Pending" || pm === "Corporate Due" || pm === "Pending Selection";
+                                        
+                                        let icon = "💵";
+                                        let label = pm;
+                                        if (pm.toLowerCase().includes("upi") || pm.toLowerCase().includes("online")) {
+                                          icon = "📱";
+                                          label = pm.includes("UPI") ? "UPI" : pm;
+                                        } else if (pm.toLowerCase().includes("card") || pm.toLowerCase().includes("pos")) {
+                                          icon = "💳";
+                                          label = "Card";
+                                        } else if (pm.toLowerCase().includes("due") || pm.toLowerCase().includes("pending")) {
+                                          icon = "⏳";
+                                          label = "Due";
+                                        } else if (pm.toLowerCase().includes("cash")) {
+                                          icon = "💵";
+                                          label = "Cash";
+                                        }
+
+                                        return (
+                                          <span
+                                            style={{
+                                              display: 'inline-flex',
+                                              alignItems: 'center',
+                                              gap: '3px',
+                                              fontSize: '11px',
+                                              fontWeight: '600',
+                                              padding: '2px 7px',
+                                              borderRadius: '4px',
+                                              background: isPending ? '#fef3c7' : '#ecfdf5',
+                                              color: isPending ? '#b45309' : '#047857',
+                                              border: `1px solid ${isPending ? '#fde68a' : '#a7f3d0'}`
+                                            }}
+                                            title={`Payment: ${pm} (${ps})`}
+                                          >
+                                            <span>{icon}</span>
+                                            <span>{label}</span>
+                                            <span style={{ fontSize: '9.5px', opacity: 0.85 }}>• {isPending ? 'Pending' : 'Paid'}</span>
+                                          </span>
+                                        );
+                                      })()}
                                     </div>
                                   </td>
 
