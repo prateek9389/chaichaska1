@@ -30,6 +30,23 @@ export async function POST(req) {
       return Response.json({ success: true, skipped: true, message: 'Intermediate update messages disabled: only Order Placed (with image) and Order Delivered messages are sent.' });
     }
 
+    // Deduplication guard: prevent sending identical message to same number within 15 seconds
+    if (!global._waRecentDispatches) {
+      global._waRecentDispatches = new Map();
+    }
+    const dedupeKey = `${formattedTo}-${displayOrderId}-${isDelivered ? 'delivered' : 'placed'}`;
+    const now = Date.now();
+    const lastSent = global._waRecentDispatches.get(dedupeKey);
+    if (!customMessage && lastSent && (now - lastSent) < 15000) {
+      return Response.json({ success: true, skipped: true, message: 'Duplicate message throttled within 15 seconds.' });
+    }
+    global._waRecentDispatches.set(dedupeKey, now);
+
+    // Housekeeping: clean entries older than 2 minutes
+    for (const [k, time] of global._waRecentDispatches.entries()) {
+      if (now - time > 120000) global._waRecentDispatches.delete(k);
+    }
+
     let message = '';
     if (customMessage) {
       message = customMessage;
