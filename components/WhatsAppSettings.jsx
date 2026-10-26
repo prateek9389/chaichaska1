@@ -12,13 +12,18 @@ export default function WhatsAppSettings() {
   const [apiKey, setApiKey] = useState(DEFAULT_WHATSAPP_CONFIG.apiKey);
   const [senderNumber, setSenderNumber] = useState(DEFAULT_WHATSAPP_CONFIG.senderNumber);
   const [isEnabled, setIsEnabled] = useState(true);
+  const [autoSendPaymentQr, setAutoSendPaymentQr] = useState(true);
+  const [paymentQrDelaySec, setPaymentQrDelaySec] = useState(15);
+  const [paymentQrCaption, setPaymentQrCaption] = useState(DEFAULT_WHATSAPP_CONFIG.paymentQrCaption || '');
+  const [testQrNumber, setTestQrNumber] = useState('');
+  const [testingQr, setTestingQr] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [msg, setMsg] = useState({ type: '', text: '' });
 
-  // Navigation Tabs: 'sender' (Quick Single) | 'bulk' (Bulk Broadcast) | 'settings' (API & Keys)
+  // Navigation Tabs: 'sender' (Quick Single) | 'bulk' (Bulk Broadcast) | 'automation' (Order Automations & QR) | 'settings' (API & Keys)
   const [activeTab, setActiveTab] = useState('sender');
 
   // Server health state
@@ -84,6 +89,9 @@ export default function WhatsAppSettings() {
           setInstance(config.instance || DEFAULT_WHATSAPP_CONFIG.instance);
           setApiKey(config.apiKey || DEFAULT_WHATSAPP_CONFIG.apiKey);
           setSenderNumber(config.senderNumber || DEFAULT_WHATSAPP_CONFIG.senderNumber);
+          setAutoSendPaymentQr(config.autoSendPaymentQr !== false);
+          setPaymentQrDelaySec(config.paymentQrDelaySec || 15);
+          setPaymentQrCaption(config.paymentQrCaption || DEFAULT_WHATSAPP_CONFIG.paymentQrCaption || '');
         }
       } catch (err) {
         console.error('Error loading config:', err);
@@ -268,13 +276,16 @@ export default function WhatsAppSettings() {
         instance: instance.trim(),
         apiKey: cleanKey,
         senderNumber: senderNumber.trim(),
-        apiUrl: targetApiUrl
+        apiUrl: targetApiUrl,
+        autoSendPaymentQr,
+        paymentQrDelaySec: Number(paymentQrDelaySec) || 15,
+        paymentQrCaption
       };
 
       const success = await updateWhatsAppConfig(payload);
       if (success) {
         setApiKey(cleanKey);
-        setMsg({ type: 'success', text: '✅ WhatsApp settings updated successfully!' });
+        setMsg({ type: 'success', text: '✅ WhatsApp settings & payment QR automation saved!' });
         checkHealth();
       } else {
         setMsg({ type: 'error', text: '❌ Failed to save WhatsApp settings.' });
@@ -296,6 +307,42 @@ export default function WhatsAppSettings() {
     setIsEnabled(true);
     setMsg({ type: 'info', text: '🔄 Reset to default working server credentials.' });
     setTimeout(() => setMsg({ type: '', text: '' }), 4000);
+  };
+
+  // Test Send Payment QR Code to WhatsApp
+  const handleTestSendQr = async () => {
+    const targetPhone = testQrNumber.trim() || recipientNumber.trim() || senderNumber.trim();
+    if (!targetPhone) {
+      setMsg({ type: 'error', text: 'Please enter a 10-digit mobile number to test QR dispatch.' });
+      setTimeout(() => setMsg({ type: '', text: '' }), 4000);
+      return;
+    }
+    setTestingQr(true);
+    setMsg({ type: 'info', text: `⏳ Dispatching payment QR to ${targetPhone}...` });
+    try {
+      const res = await fetch('/api/send-whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sendPaymentQr',
+          to: targetPhone,
+          orderId: '#TEST-101',
+          customerName: 'Valued Customer',
+          totalAmount: 80
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMsg({ type: 'success', text: `✅ Payment QR code sent successfully to ${targetPhone}!` });
+      } else {
+        setMsg({ type: 'error', text: `❌ Failed to send QR: ${data.error || 'Server error'}` });
+      }
+    } catch (err) {
+      setMsg({ type: 'error', text: `❌ Network error: ${err.message}` });
+    } finally {
+      setTestingQr(false);
+      setTimeout(() => setMsg({ type: '', text: '' }), 5000);
+    }
   };
 
   // Handle local file picking for Single Sender
@@ -908,7 +955,7 @@ export default function WhatsAppSettings() {
       )}
 
       {/* TOP NAVIGATION TABS */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr 1fr", gap: "10px", marginBottom: "24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 1.3fr 1fr", gap: "10px", marginBottom: "24px" }}>
         <button
           onClick={() => setActiveTab('sender')}
           style={{
@@ -940,7 +987,7 @@ export default function WhatsAppSettings() {
             background: activeTab === 'bulk' ? "#25D366" : "#f0fdf4",
             color: activeTab === 'bulk' ? "#ffffff" : "#166534",
             fontWeight: "900",
-            fontSize: "14px",
+            fontSize: "13.5px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
@@ -950,7 +997,7 @@ export default function WhatsAppSettings() {
             transition: "all 0.15s ease"
           }}
         >
-          <span>📢</span> Bulk Broadcast & Database Contacts
+          <span>📢</span> Bulk Broadcast
           {selectedRecipients.length > 0 && (
             <span style={{
               background: activeTab === 'bulk' ? "#ffffff" : "#16a34a",
@@ -963,6 +1010,28 @@ export default function WhatsAppSettings() {
               {selectedRecipients.length}
             </span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('automation')}
+          style={{
+            padding: "13px",
+            borderRadius: "12px",
+            border: activeTab === 'automation' ? "none" : "1.5px solid #0284c7",
+            background: activeTab === 'automation' ? "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)" : "#f0f9ff",
+            color: activeTab === 'automation' ? "#ffffff" : "#0369a1",
+            fontWeight: "900",
+            fontSize: "13.5px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            boxShadow: activeTab === 'automation' ? "0 4px 16px rgba(2, 132, 199, 0.35)" : "none",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <span>🤖</span> Order Automations & Payment QR
         </button>
 
         <button
@@ -1999,8 +2068,391 @@ export default function WhatsAppSettings() {
         </div>
       )}
 
+
       {/* ========================================================================= */}
-      {/* TAB 3: CREDENTIALS & API SETTINGS */}
+      {/* TAB 3: ORDER AUTOMATIONS & PAYMENT QR */}
+      {/* ========================================================================= */}
+      {activeTab === 'automation' && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+          
+          {/* FLOW TIMELINE OVERVIEW BANNER */}
+          <div style={{
+            background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+            color: "#ffffff",
+            padding: "24px 28px",
+            borderRadius: "18px",
+            border: "1px solid #334155",
+            boxShadow: "0 10px 25px rgba(15, 23, 42, 0.15)"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
+              <div>
+                <span style={{ display: "inline-block", background: "rgba(14, 165, 233, 0.2)", border: "1px solid rgba(14, 165, 233, 0.4)", color: "#38bdf8", padding: "4px 10px", borderRadius: "999px", fontSize: "11px", fontWeight: "800", marginBottom: "8px" }}>
+                  ⚡ STREAMLINED WHATSAPP DISPATCH ENGINE
+                </span>
+                <h2 style={{ fontSize: "20px", fontWeight: "900", margin: "0 0 6px", color: "#f8fafc" }}>
+                  Automated Order Journey & Payment QR
+                </h2>
+                <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8", maxWidth: "680px", lineHeight: "1.5" }}>
+                  Optimized 2-step customer delivery: Customers receive their Order Confirmation instantly, followed 15 seconds later by the official UPI Payment QR code. Intermediate status spam is automatically silenced until the final Delivered message.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(255,255,255,0.06)", padding: "8px 14px", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.1)" }}>
+                <span style={{ fontSize: "18px" }}>🔕</span>
+                <div style={{ fontSize: "11.5px", color: "#cbd5e1" }}>
+                  <div style={{ fontWeight: "700", color: "#f1f5f9" }}>Spam Filter Active</div>
+                  Preparing & Out-for-Delivery updates silenced
+                </div>
+              </div>
+            </div>
+
+            {/* 3-STEP JOURNEY TIMELINE CARDS */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "14px" }}>
+              {/* Step 1 */}
+              <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "14px", padding: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+                  <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "#22c55e", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "900", fontSize: "13px" }}>
+                    1
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "13.5px", fontWeight: "800", color: "#f8fafc" }}>Order Placed</div>
+                    <div style={{ fontSize: "11px", color: "#4ade80" }}>⚡ Sent Instantly (0s)</div>
+                  </div>
+                </div>
+                <p style={{ margin: 0, fontSize: "12px", color: "#cbd5e1", lineHeight: "1.4" }}>
+                  Full order breakdown with items, total amount, delivery details, and shop greeting sent immediately to customer.
+                </p>
+              </div>
+
+              {/* Step 2 */}
+              <div style={{ background: "rgba(14, 165, 233, 0.12)", border: "1.5px solid rgba(56, 189, 248, 0.4)", borderRadius: "14px", padding: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+                  <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "#0284c7", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "900", fontSize: "13px" }}>
+                    2
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "13.5px", fontWeight: "800", color: "#38bdf8" }}>Payment QR Code</div>
+                    <div style={{ fontSize: "11px", color: "#bae6fd" }}>⏱️ Sent +{paymentQrDelaySec}s After Order</div>
+                  </div>
+                </div>
+                <p style={{ margin: 0, fontSize: "12px", color: "#e0f2fe", lineHeight: "1.4" }}>
+                  Chai Chaska UPI payment QR (<code style={{ color: "#38bdf8", fontWeight: "700" }}>chaiqr.jpeg</code>) with personalized caption is dispatched automatically for easy UPI payment.
+                </p>
+              </div>
+
+              {/* Step 3 */}
+              <div style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "14px", padding: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+                  <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: "#eab308", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "900", fontSize: "13px" }}>
+                    3
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "13.5px", fontWeight: "800", color: "#fde047" }}>Delivered Message</div>
+                    <div style={{ fontSize: "11px", color: "#fef08a" }}>🎉 On Order Delivery Only</div>
+                  </div>
+                </div>
+                <p style={{ margin: 0, fontSize: "12px", color: "#cbd5e1", lineHeight: "1.4" }}>
+                  Warm delivery greeting and review request sent only when brewmaster or admin marks order as "Delivered".
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* MAIN AUTOMATION CONFIGURATION CARD */}
+          <div style={{ background: "#ffffff", padding: "26px", borderRadius: "18px", border: "1px solid #e4e4e7", boxShadow: "0 4px 20px rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "22px", borderBottom: "1px solid #f4f4f5", paddingBottom: "14px" }}>
+              <div>
+                <h3 style={{ fontSize: "16.5px", fontWeight: "850", color: "#2c1b0d", margin: "0 0 4px" }}>
+                  Payment QR Automation Settings
+                </h3>
+                <p style={{ fontSize: "12.5px", color: "#71717a", margin: 0 }}>
+                  Configure whether to automatically dispatch the Paytm/UPI QR image and customize the message caption.
+                </p>
+              </div>
+
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{
+                  background: "#2c1b0d",
+                  color: "#ffffff",
+                  padding: "9px 20px",
+                  borderRadius: "10px",
+                  fontWeight: "800",
+                  fontSize: "13px",
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  opacity: saving ? 0.7 : 1
+                }}
+              >
+                {saving ? "Saving..." : "💾 Save Settings"}
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 340px) 1fr", gap: "24px" }}>
+              
+              {/* LEFT COLUMN: QR PREVIEW & DELAY TIMER */}
+              <div style={{ background: "#f8fafc", padding: "18px", borderRadius: "14px", border: "1px solid #e2e8f0" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "14px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: "800", color: "#1e293b" }}>
+                    Payment QR Code Image
+                  </span>
+                  <span style={{ fontSize: "11px", fontWeight: "800", background: "#dcfce7", color: "#15803d", padding: "2px 8px", borderRadius: "6px" }}>
+                    Active Asset
+                  </span>
+                </div>
+
+                {/* QR Image Box */}
+                <div style={{
+                  background: "#ffffff",
+                  border: "2px dashed #cbd5e1",
+                  borderRadius: "12px",
+                  padding: "16px",
+                  textAlign: "center",
+                  marginBottom: "14px"
+                }}>
+                  <img
+                    src="/chaiqr.jpeg"
+                    alt="Chai Chaska Payment QR"
+                    style={{
+                      maxWidth: "100%",
+                      height: "210px",
+                      objectFit: "contain",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.08)"
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                  <div style={{ marginTop: "10px", fontSize: "12px", fontWeight: "700", color: "#334155" }}>
+                    Ashish Panwar (Paytm UPI)
+                  </div>
+                  <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#0284c7", fontWeight: "600", marginTop: "2px" }}>
+                    paytm.s2splxe@pty
+                  </div>
+                  <div style={{ fontSize: "10.5px", color: "#94a3b8", marginTop: "4px" }}>
+                    Source: <code style={{ color: "#64748b" }}>/public/chaiqr.jpeg</code>
+                  </div>
+                </div>
+
+                <a
+                  href="/chaiqr.jpeg"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: "block",
+                    textAlign: "center",
+                    fontSize: "12px",
+                    fontWeight: "700",
+                    color: "#0284c7",
+                    textDecoration: "none",
+                    marginBottom: "16px"
+                  }}
+                >
+                  🔍 View Full Resolution Image
+                </a>
+
+                {/* DELAY SECONDS INPUT */}
+                <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: "14px" }}>
+                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: "800", color: "#1e293b", marginBottom: "6px" }}>
+                    ⏱️ Auto-Dispatch Delay (Seconds)
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="number"
+                      min="5"
+                      max="120"
+                      value={paymentQrDelaySec}
+                      onChange={(e) => setPaymentQrDelaySec(Math.max(1, parseInt(e.target.value) || 15))}
+                      style={{
+                        width: "90px",
+                        padding: "9px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid #cbd5e1",
+                        fontSize: "14px",
+                        fontWeight: "800",
+                        textAlign: "center",
+                        color: "#0f172a"
+                      }}
+                    />
+                    <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "600" }}>
+                      seconds after Order Placed
+                    </span>
+                  </div>
+                  <p style={{ margin: "6px 0 0", fontSize: "11px", color: "#94a3b8" }}>
+                    Recommended: 15 seconds. Gives the customer time to read their order confirmation first.
+                  </p>
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: TOGGLE & CAPTION EDITOR */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                
+                {/* Master QR Toggle Switch */}
+                <div style={{
+                  padding: "16px 20px",
+                  background: autoSendPaymentQr ? "#f0fdf4" : "#fef2f2",
+                  borderRadius: "12px",
+                  border: `1.5px solid ${autoSendPaymentQr ? "#bbf7d0" : "#fecaca"}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between"
+                }}>
+                  <div>
+                    <label htmlFor="toggle-auto-qr" style={{ fontSize: "14px", fontWeight: "800", color: autoSendPaymentQr ? "#15803d" : "#991b1b", display: "block", cursor: "pointer" }}>
+                      {autoSendPaymentQr ? "✅ Automated Payment QR Dispatch is Active" : "⏸️ Automated Payment QR Dispatch is Paused"}
+                    </label>
+                    <span style={{ fontSize: "12px", color: autoSendPaymentQr ? "#166534" : "#b91c1c" }}>
+                      {autoSendPaymentQr
+                        ? `Payment QR code will be dispatched to customer 15 seconds after order confirmation.`
+                        : `QR code will NOT be sent automatically. Only order text confirmation will be sent.`}
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    id="toggle-auto-qr"
+                    checked={autoSendPaymentQr}
+                    onChange={(e) => setAutoSendPaymentQr(e.target.checked)}
+                    style={{ width: "22px", height: "22px", cursor: "pointer", accentColor: "#16a34a" }}
+                  />
+                </div>
+
+                {/* Caption Template Textarea */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <label style={{ fontSize: "13px", fontWeight: "800", color: "#2c1b0d" }}>
+                      Payment QR Message Caption Template
+                    </label>
+                    <span style={{ fontSize: "11px", color: "#71717a" }}>
+                      Supports WhatsApp Markdown (*bold*, _italic_)
+                    </span>
+                  </div>
+
+                  <textarea
+                    rows={8}
+                    value={paymentQrCaption}
+                    onChange={(e) => setPaymentQrCaption(e.target.value)}
+                    placeholder="Enter WhatsApp caption accompanying the payment QR..."
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: "10px",
+                      border: "1px solid #d4d4d8",
+                      fontSize: "13px",
+                      fontFamily: "monospace",
+                      lineHeight: "1.45",
+                      boxSizing: "border-box",
+                      resize: "vertical"
+                    }}
+                  />
+
+                  {/* Variables Helper Tags */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginTop: "8px" }}>
+                    <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>Available dynamic tags:</span>
+                    {[
+                      { tag: "{orderId}", label: "Order ID (#1234)" },
+                      { tag: "{customerName}", label: "Customer Name" },
+                      { tag: "{totalAmount}", label: "Total Bill Amount (₹)" }
+                    ].map((v) => (
+                      <button
+                        key={v.tag}
+                        type="button"
+                        onClick={() => {
+                          setPaymentQrCaption((prev) => (prev ? `${prev} ${v.tag}` : v.tag));
+                        }}
+                        style={{
+                          background: "#f1f5f9",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "6px",
+                          padding: "2px 8px",
+                          fontSize: "11px",
+                          fontFamily: "monospace",
+                          color: "#0f172a",
+                          fontWeight: "700",
+                          cursor: "pointer"
+                        }}
+                        title={`Click to insert ${v.label}`}
+                      >
+                        + {v.tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 1-CLICK TEST DISPATCHER */}
+                <div style={{
+                  background: "#eff6ff",
+                  padding: "16px 18px",
+                  borderRadius: "12px",
+                  border: "1.5px solid #bfdbfe",
+                  marginTop: "6px"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "18px" }}>📲</span>
+                    <div>
+                      <div style={{ fontSize: "13.5px", fontWeight: "850", color: "#1e3a8a" }}>
+                        Instant Test Payment QR Dispatch
+                      </div>
+                      <div style={{ fontSize: "11.5px", color: "#3b82f6" }}>
+                        Send this QR code right now to any WhatsApp number to preview delivery.
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "10px", marginTop: "10px", flexWrap: "wrap" }}>
+                    <input
+                      type="tel"
+                      placeholder="Enter 10-digit mobile number (e.g. 9876543210)"
+                      value={testQrNumber}
+                      onChange={(e) => setTestQrNumber(e.target.value)}
+                      style={{
+                        flex: 1,
+                        minWidth: "220px",
+                        padding: "10px 14px",
+                        borderRadius: "8px",
+                        border: "1px solid #93c5fd",
+                        fontSize: "13px",
+                        boxSizing: "border-box"
+                      }}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={handleTestSendQr}
+                      disabled={testingQr}
+                      style={{
+                        background: "#0284c7",
+                        color: "#ffffff",
+                        padding: "10px 20px",
+                        borderRadius: "8px",
+                        fontWeight: "800",
+                        fontSize: "13px",
+                        border: "none",
+                        cursor: "pointer",
+                        opacity: testingQr ? 0.7 : 1,
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      {testingQr ? "⏳ Dispatching QR..." : "🚀 Send Test Payment QR"}
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 4: CREDENTIALS & API SETTINGS */}
       {/* ========================================================================= */}
       {activeTab === 'settings' && (
         <div style={{ background: "#ffffff", padding: "28px", borderRadius: "18px", border: "1px solid #e4e4e7", boxShadow: "0 4px 20px rgba(0,0,0,0.04)" }}>

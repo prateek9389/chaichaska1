@@ -2,14 +2,98 @@ import fs from 'fs';
 import path from 'path';
 import { getWhatsAppConfig } from '@/lib/firestore';
 import { DEFAULT_WHATSAPP_CONFIG, cleanPhoneForApi } from '@/lib/whatsapp';
-import { generateInvoicePdfBuffer } from '@/lib/generateInvoicePdf';
 import { getProductMeta } from '@/lib/productMeta';
 
 export const dynamic = 'force-dynamic';
 
+function getPaymentQrBase64() {
+  try {
+    const qrPath = path.join(process.cwd(), 'public', 'chaiqr.jpeg');
+    if (fs.existsSync(qrPath)) {
+      const fileBuf = fs.readFileSync(qrPath);
+      return `data:image/jpeg;base64,${fileBuf.toString('base64')}`;
+    }
+  } catch (e) {
+    console.error('Error reading chaiqr.jpeg:', e);
+  }
+  return null;
+}
+
+function formatPaymentQrCaption({ template, name, displayOrderId, amountStr }) {
+  const defaultCaption = `💳 *Scan & Pay via UPI | Chai Chaska*
+
+Hi *{name}*,
+Please scan the QR code above with any UPI app (Paytm / Google Pay / PhonePe / BHIM) to complete your payment of *{amount}* for order *{orderId}*.
+
+📱 *Instant UPI Payment*
+UPI ID: paytm.s2splxe@pty
+
+After paying, our brewmaster will update your order status to *Paid*. Thank you! 🫖✨`;
+
+  const cap = template || defaultCaption;
+  return cap
+    .replace(/{name}/g, name || 'Customer')
+    .replace(/{orderId}/g, displayOrderId || 'ORD')
+    .replace(/{amount}/g, amountStr || '');
+}
+
+function schedulePaymentQrDispatch({ formattedTo, name, displayOrderId, amountStr, config, delaySec = 15 }) {
+  const qrDedupeKey = `${formattedTo}-${displayOrderId}-payment-qr`;
+  if (!global._waRecentDispatches) {
+    global._waRecentDispatches = new Map();
+  }
+  if (global._waRecentDispatches.has(qrDedupeKey)) {
+    return;
+  }
+  global._waRecentDispatches.set(qrDedupeKey, Date.now());
+
+  setTimeout(async () => {
+    try {
+      const qrBase64 = getPaymentQrBase64();
+      if (!qrBase64) {
+        console.warn('Payment QR image not found in public/chaiqr.jpeg');
+        return;
+      }
+
+      const caption = formatPaymentQrCaption({
+        template: config.paymentQrCaption,
+        name,
+        displayOrderId,
+        amountStr
+      });
+
+      const baseUrl = (config.baseUrl || DEFAULT_WHATSAPP_CONFIG.baseUrl).replace(/\/+$/, '');
+      const instance = config.instance || DEFAULT_WHATSAPP_CONFIG.instance;
+      const apiKey = config.apiKey || DEFAULT_WHATSAPP_CONFIG.apiKey;
+
+      const mediaUrl = `${baseUrl}/message/sendMedia/${encodeURIComponent(instance)}`;
+      const res = await fetch(mediaUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': apiKey
+        },
+        body: JSON.stringify({
+          number: formattedTo,
+          mediatype: 'image',
+          mimetype: 'image/jpeg',
+          media: qrBase64,
+          caption: caption,
+          fileName: 'chai_chaska_payment_qr.jpg'
+        })
+      });
+
+      console.log(`[WhatsApp] Auto-sent payment QR to ${formattedTo} for ${displayOrderId} after ${delaySec}s delay. Status: ${res.status}`);
+    } catch (err) {
+      console.error('[WhatsApp] Delayed payment QR dispatch failed:', err);
+    }
+  }, delaySec * 1000);
+}
+
 export async function POST(req) {
   try {
-    const { to, orderId, status, customerName, totalAmount, date, items, itemsList, location, image, paymentMethod, paymentStatus, customMessage } = await req.json();
+    const body = await req.json();
+    const { action, to, orderId, status, customerName, totalAmount, date, items, itemsList, location, image, customMessage } = body;
 
     const formattedTo = cleanPhoneForApi(to);
     if (!formattedTo) {
@@ -21,13 +105,67 @@ export async function POST(req) {
     const name = customerName || 'Customer';
     const amountStr = totalAmount ? `₹${String(totalAmount).replace(/[^\d.]/g, '')}` : '';
 
+    const config = (await getWhatsAppConfig()) || DEFAULT_WHATSAPP_CONFIG;
+    const isEnabled = config?.isEnabled !== false;
+
+    if (!isEnabled) {
+      return Response.json({ error: 'WhatsApp notifications are disabled in settings' }, { status: 400 });
+    }
+
+    const baseUrl = (config.baseUrl || DEFAULT_WHATSAPP_CONFIG.baseUrl).replace(/\/+$/, '');
+    const instance = config.instance || DEFAULT_WHATSAPP_CONFIG.instance;
+    const apiKey = config.apiKey || DEFAULT_WHATSAPP_CONFIG.apiKey;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': apiKey
+    };
+
+    // -------------------------------------------------------------
+    // ACTION: DIRECT / TEST SEND PAYMENT QR CODE
+    // -------------------------------------------------------------
+    if (action === 'sendPaymentQr') {
+      const qrBase64 = getPaymentQrBase64();
+      if (!qrBase64) {
+        return Response.json({ error: 'Payment QR image file /public/chaiqr.jpeg not found on server' }, { status: 404 });
+      }
+
+      const qrCaption = formatPaymentQrCaption({
+        template: config.paymentQrCaption,
+        name,
+        displayOrderId,
+        amountStr
+      });
+
+      const mediaUrl = `${baseUrl}/message/sendMedia/${encodeURIComponent(instance)}`;
+      const mediaRes = await fetch(mediaUrl, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify({
+          number: formattedTo,
+          mediatype: 'image',
+          mimetype: 'image/jpeg',
+          media: qrBase64,
+          caption: qrCaption,
+          fileName: 'chai_chaska_payment_qr.jpg'
+        })
+      });
+
+      const mediaData = await mediaRes.json().catch(() => ({ success: mediaRes.ok }));
+      return Response.json({ success: mediaRes.ok, status: mediaRes.status, data: mediaData, qrSent: true });
+    }
+
+    // -------------------------------------------------------------
+    // ORDER AUTOMATION STATUS EVALUATION
+    // -------------------------------------------------------------
     const normStatus = String(status || '').toLowerCase();
     const isOrderPlaced = !normStatus || normStatus.includes('received') || normStatus.includes('placed') || normStatus.includes('new');
     const isDelivered = normStatus.includes('deliver') || normStatus.includes('served') || normStatus.includes('completed');
 
-    // ONLY allow Custom Messages, Order Placed (Message #1), and Order Delivered (Message #2)
+    // ONLY allow Custom Messages, Order Placed (Message #1 + 15s QR), and Order Delivered (Message #2)
+    // Intermediate status changes (Preparing, Out for Delivery) are strictly skipped as per user requirement.
     if (!customMessage && !isOrderPlaced && !isDelivered) {
-      return Response.json({ success: true, skipped: true, message: 'Intermediate update messages disabled: only Order Placed (with image) and Order Delivered messages are sent.' });
+      return Response.json({ success: true, skipped: true, message: 'Intermediate update messages disabled: only Order Placed (with 15s payment QR) and Order Delivered messages are sent.' });
     }
 
     // Deduplication guard: prevent sending identical message to same number within 15 seconds
@@ -75,22 +213,6 @@ https://www.chaichaska.co.in/orders
 Thank you for choosing Chai Chaska! 🫖`;
     }
 
-    const config = (await getWhatsAppConfig()) || DEFAULT_WHATSAPP_CONFIG;
-    const isEnabled = config?.isEnabled !== false;
-
-    if (!isEnabled) {
-      return Response.json({ error: 'WhatsApp notifications are disabled in settings' }, { status: 400 });
-    }
-
-    const baseUrl = (config.baseUrl || DEFAULT_WHATSAPP_CONFIG.baseUrl).replace(/\/+$/, '');
-    const instance = config.instance || DEFAULT_WHATSAPP_CONFIG.instance;
-    const apiKey = config.apiKey || DEFAULT_WHATSAPP_CONFIG.apiKey;
-
-    const headers = {
-      'Content-Type': 'application/json',
-      'apikey': apiKey
-    };
-
     // 1. IF DELIVERED: SEND CLEAN TEXT-ONLY THANK YOU MESSAGE (NO IMAGE)
     if (isDelivered) {
       try {
@@ -116,11 +238,23 @@ Thank you for choosing Chai Chaska! 🫖`;
       }
     }
 
-    // 2. IF ORDER PLACED: SEND AUTHENTIC PRODUCT IMAGE + CAPTION
+    // 2. IF ORDER PLACED: SCHEDULE 15-SECOND DELAYED PAYMENT QR DISPATCH
+    if (isOrderPlaced && config.autoSendPaymentQr !== false) {
+      const delaySec = Number(config.paymentQrDelaySec) || 15;
+      schedulePaymentQrDispatch({
+        formattedTo,
+        name,
+        displayOrderId,
+        amountStr,
+        config,
+        delaySec
+      });
+    }
+
+    // 3. SEND ORDER PLACED AUTHENTIC PRODUCT IMAGE + CAPTION
     let resolvedImage = null;
     let mimeType = 'image/jpeg';
 
-    // A. If image is passed, check if it's data URI, http URL, or local public path
     if (image && typeof image === 'string' && image.trim()) {
       const trimmed = image.trim();
       if (trimmed.startsWith('data:image/')) {
@@ -144,7 +278,6 @@ Thank you for choosing Chai Chaska! 🫖`;
       }
     }
 
-    // B. If not resolved yet, resolve from items / itemsList using productMeta
     if (!resolvedImage) {
       const primaryItemName = (Array.isArray(itemsList) && itemsList[0]?.name) || (typeof items === 'string' ? items.split(',')[0].replace(/x\d+/i, '').trim() : '') || 'Chai Chaska';
       const meta = getProductMeta(primaryItemName);
@@ -165,7 +298,6 @@ Thank you for choosing Chai Chaska! 🫖`;
       }
     }
 
-    // C. Default fallback to authentic Chai Chaska image from local disk
     if (!resolvedImage) {
       try {
         const defaultPath = path.join(process.cwd(), 'public', 'products', 'chai-chaska.jpg');
@@ -199,14 +331,14 @@ Thank you for choosing Chai Chaska! 🫖`;
 
         if (mediaRes.ok) {
           const mediaData = await mediaRes.json().catch(() => ({ success: true }));
-          return Response.json({ success: true, status: mediaRes.status, data: mediaData, mediaSent: true });
+          return Response.json({ success: true, status: mediaRes.status, data: mediaData, mediaSent: true, paymentQrScheduled: isOrderPlaced });
         }
       } catch (mediaErr) {
         console.warn('Media send failed, falling back to text message:', mediaErr.message);
       }
     }
 
-    // 3. FALLBACK TO PLAIN TEXT
+    // 4. FALLBACK TO PLAIN TEXT
     const targetUrl = config.mode === 'custom' && config.apiUrl
       ? config.apiUrl
       : (config.mode === 'local' ? 'http://127.0.0.1:3001/send-message' : `${baseUrl}/message/sendText/${encodeURIComponent(instance)}`);
@@ -230,7 +362,7 @@ Thank you for choosing Chai Chaska! 🫖`;
       return { raw: t };
     });
 
-    return Response.json({ success: res.ok, status: res.status, data, mediaSent: false });
+    return Response.json({ success: res.ok, status: res.status, data, mediaSent: false, paymentQrScheduled: isOrderPlaced });
   } catch (err) {
     console.error('Failed to dispatch WhatsApp order update:', err);
     return Response.json({ error: 'Failed to dispatch WhatsApp order update', details: err.message }, { status: 500 });
