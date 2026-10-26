@@ -194,6 +194,8 @@ export default function AdminDashboard() {
 
   const activeTab = activeTabState;
   const [timeFilter, setTimeFilter] = useState("All");
+  const [dashStartDate, setDashStartDate] = useState("");
+  const [dashEndDate, setDashEndDate] = useState("");
   const [queueFilter, setQueueFilter] = useState("All");
   const [pendingModalView, setPendingModalView] = useState("orders");
   const [pendingSearchTerm, setPendingSearchTerm] = useState("");
@@ -279,6 +281,28 @@ export default function AdminDashboard() {
   const [queueLocationFilter, setQueueLocationFilter] = useState("all");
   const [queuePaymentFilter, setQueuePaymentFilter] = useState("all");
   const [selectedQueueItemIds, setSelectedQueueItemIds] = useState([]);
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false);
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+  const searchSuggestRef = useRef(null);
+  const locationSuggestRef = useRef(null);
+  const [statsModalMonth, setStatsModalMonth] = useState("all");
+  const [statsModalStartDate, setStatsModalStartDate] = useState("");
+  const [statsModalEndDate, setStatsModalEndDate] = useState("");
+  const [statsModalProduct, setStatsModalProduct] = useState("");
+  const [statsModalLocation, setStatsModalLocation] = useState("all");
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (searchSuggestRef.current && !searchSuggestRef.current.contains(e.target)) {
+        setShowProductSuggestions(false);
+      }
+      if (locationSuggestRef.current && !locationSuggestRef.current.contains(e.target)) {
+        setShowLocationSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleOpenEditOrderModal = (order, e) => {
     if (e) e.stopPropagation();
@@ -306,6 +330,23 @@ export default function AdminDashboard() {
     } catch (err) {
       console.error("Error updating status directly:", err);
       alert("Failed to update status");
+    }
+  };
+
+  const updateOrderPaymentStatusDirectly = async (order, newPaymentStatus, e) => {
+    if (e) e.stopPropagation();
+    if (!order || !order.id) return;
+    try {
+      const updates = { paymentStatus: newPaymentStatus };
+      await updateOrder(order.id, updates);
+      if (selectedQueueOrder && selectedQueueOrder.id === order.id) {
+        setSelectedQueueOrder(prev => ({ ...prev, ...updates }));
+      }
+      setToastMsg(`Order #${order.orderId || (order.id && order.id.length > 8 ? order.id.slice(-6).toUpperCase() : order.id)} payment updated to ${newPaymentStatus}!`);
+      setTimeout(() => setToastMsg(""), 3000);
+    } catch (err) {
+      console.error("Error updating payment status directly:", err);
+      alert("Failed to update payment status");
     }
   };
 
@@ -619,7 +660,7 @@ export default function AdminDashboard() {
 
   // Earnings Summary Stats (Dynamic calculations from Firebase orders)
   const filteredOrders = orders.filter(o => {
-    if (timeFilter === "All" || !timeFilter) return true;
+    if (!dashStartDate && !dashEndDate && (timeFilter === "All" || !timeFilter)) return true;
     if (!o.createdAt && !o.date) return false;
 
     let orderTimestamp = 0;
@@ -641,6 +682,13 @@ export default function AdminDashboard() {
     if (!orderTimestamp || isNaN(orderTimestamp)) return false;
     const orderDate = new Date(orderTimestamp);
     const orderDateString = orderDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
+
+    // Date range filter takes precedence if set
+    if (dashStartDate || dashEndDate) {
+      if (dashStartDate && orderDateString < dashStartDate) return false;
+      if (dashEndDate && orderDateString > dashEndDate) return false;
+      return true;
+    }
 
     // Handle specific date string (YYYY-MM-DD) from calendar
     if (typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) {
@@ -2475,7 +2523,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "800", color: "#2c1b0d" }}>Dashboard Live Metrics</h2>
                     <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#777" }}>Live Firestore real-time data and order analytics.</p>
                   </div>
-                  <div style={{ display: "flex", gap: "6px", alignItems: "center", background: "#ffffff", padding: "4px 8px", borderRadius: "10px", border: "1px solid #eaeaea", boxShadow: "0 2px 6px rgba(0,0,0,0.03)" }}>
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", background: "#ffffff", padding: "6px 10px", borderRadius: "10px", border: "1px solid #eaeaea", boxShadow: "0 2px 6px rgba(0,0,0,0.03)", flexWrap: "wrap" }}>
                     <span style={{ fontSize: "12px", color: "#888", fontWeight: "600", marginRight: "4px" }}>Filter:</span>
                     {[
                       { id: "All", label: "All Time" },
@@ -2485,14 +2533,15 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     ].map(tf => (
                       <button
                         key={tf.id}
-                        onClick={() => setTimeFilter(tf.id)}
+                        type="button"
+                        onClick={() => { setDashStartDate(""); setDashEndDate(""); setTimeFilter(tf.id); }}
                         style={{
                           padding: "5px 12px",
                           borderRadius: "6px",
                           border: "none",
-                          background: timeFilter === tf.id ? "#2c1b0d" : "transparent",
-                          color: timeFilter === tf.id ? "#ffffff" : "#666",
-                          fontWeight: timeFilter === tf.id ? "bold" : "normal",
+                          background: (!dashStartDate && !dashEndDate && timeFilter === tf.id) ? "#2c1b0d" : "transparent",
+                          color: (!dashStartDate && !dashEndDate && timeFilter === tf.id) ? "#ffffff" : "#666",
+                          fontWeight: (!dashStartDate && !dashEndDate && timeFilter === tf.id) ? "bold" : "normal",
                           fontSize: "12px",
                           cursor: "pointer",
                           transition: "all 0.15s ease"
@@ -2502,10 +2551,11 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       </button>
                     ))}
                     <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
+                    <span style={{ fontSize: "11px", color: "#666", fontWeight: "600" }}>Date:</span>
                     <input
                       type="date"
                       value={(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) ? timeFilter : ""}
-                      onChange={(e) => setTimeFilter(e.target.value || "All")}
+                      onChange={(e) => { setDashStartDate(""); setDashEndDate(""); setTimeFilter(e.target.value || "All"); }}
                       style={{
                         padding: "4px 8px",
                         borderRadius: "6px",
@@ -2515,11 +2565,45 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         cursor: "pointer",
                         outline: "none"
                       }}
+                      title="Single Date Filter"
                     />
-                    {(typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/)) && (
+                    <div style={{ width: "1px", height: "20px", background: "#ddd", margin: "0 4px" }}></div>
+                    <span style={{ fontSize: "11px", color: "#666", fontWeight: "700" }}>Range:</span>
+                    <input
+                      type="date"
+                      value={dashStartDate}
+                      onChange={(e) => { setDashStartDate(e.target.value); setTimeFilter("Range"); }}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: "6px",
+                        border: "1px solid #ddd",
+                        fontSize: "12px",
+                        color: "#333",
+                        cursor: "pointer",
+                        outline: "none"
+                      }}
+                      title="From Date"
+                    />
+                    <span style={{ fontSize: "11px", color: "#888", fontWeight: "600" }}>to</span>
+                    <input
+                      type="date"
+                      value={dashEndDate}
+                      onChange={(e) => { setDashEndDate(e.target.value); setTimeFilter("Range"); }}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: "6px",
+                        border: "1px solid #ddd",
+                        fontSize: "12px",
+                        color: "#333",
+                        cursor: "pointer",
+                        outline: "none"
+                      }}
+                      title="To Date"
+                    />
+                    {(dashStartDate || dashEndDate || (typeof timeFilter === 'string' && timeFilter.match(/^\d{4}-\d{2}-\d{2}$/))) && (
                       <button
                         type="button"
-                        onClick={() => setTimeFilter("All")}
+                        onClick={() => { setDashStartDate(""); setDashEndDate(""); setTimeFilter("All"); }}
                         style={{
                           border: "none",
                           background: "#fee2e2",
@@ -2547,7 +2631,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px", marginBottom: "24px" }}>
                   {[
                     { label: "Total Orders", value: statsSummary.totalOrders, icon: "🧾", color: "#e8f5e9", text: "#2e7d32" },
-                    { label: "Pending Amount", value: statsSummary.pendingAmount, icon: "⏳", color: "#fff3e0", text: "#ef6c00" },
+                    { label: "Pending Payment Total", value: statsSummary.pendingAmount, icon: "⏳", color: "#fff3e0", text: "#ef6c00" },
                     { label: "Offline Orders", value: statsSummary.offlineOrders, icon: "🏪", color: "#fff3e0", text: "#ef6c00" },
                     { label: "Online Orders", value: statsSummary.onlineOrders, icon: "🌐", color: "#e3f2fd", text: "#1565c0" },
                     { label: "Shipping Orders", value: statsSummary.deliveryShipment, icon: "🚚", color: "#e3f2fd", text: "#1565c0" },
@@ -2557,7 +2641,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                     <div
                       key={i}
                       onClick={() => {
-                        if (card.label === "Pending Amount") setActiveStatsModal("pending");
+                        if (card.label === "Pending Payment Total" || card.label === "Pending Amount") setActiveStatsModal("pending");
                         if (card.label === "Offline Orders") setActiveStatsModal("offline");
                       }}
                       style={{
@@ -2569,7 +2653,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         display: "flex",
                         flexDirection: "column",
                         gap: "12px",
-                        cursor: (card.label === "Pending Amount" || card.label === "Offline Orders") ? "pointer" : "default"
+                        cursor: (card.label === "Pending Payment Total" || card.label === "Pending Amount" || card.label === "Offline Orders") ? "pointer" : "default"
                       }}
                     >
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -2587,7 +2671,15 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
                     <div>
                       <h3 style={{ margin: 0, fontSize: "18px", fontWeight: "800", color: "#2c1b0d" }}>
-                        Sales & Orders Report: <span style={{ color: "#c2410c" }}>{timeFilter === "All" ? "All Time" : timeFilter === "Daily" ? "Today" : timeFilter === "Weekly" ? "This Week (Last 7 Days)" : timeFilter === "Monthly" ? "This Month" : new Date(timeFilter).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                        Sales & Orders Report: <span style={{ color: "#c2410c" }}>{
+                          (dashStartDate || dashEndDate)
+                            ? `${dashStartDate || 'Any'} to ${dashEndDate || 'Any'}`
+                            : timeFilter === "All" ? "All Time"
+                            : timeFilter === "Daily" ? "Today"
+                            : timeFilter === "Weekly" ? "This Week (Last 7 Days)"
+                            : timeFilter === "Monthly" ? "This Month"
+                            : new Date(timeFilter).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+                        }</span>
                       </h3>
                       <span style={{ fontSize: "12px", color: "#71717a" }}>Showing {validOrders.length} {validOrders.length === 1 ? "order" : "orders"} matching active filter</span>
                     </div>
@@ -2819,13 +2911,75 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               const onlineQueueCount = activeQueueOrders.filter(o => !o.isOffline && !o.walkIn).length;
               const queueTotalValue = activeQueueOrders.reduce((sum, o) => sum + parseOrderPrice(o), 0);
 
-              const uniqueLocations = Array.from(
+              const allAvailableProducts = (() => {
+                const map = new Map();
+                (productsList || []).forEach(p => {
+                  const name = (p.name || p.title || "").trim();
+                  if (name) {
+                    map.set(name.toLowerCase(), {
+                      name,
+                      image: p.image || p.img || "",
+                      category: p.category || "Chai"
+                    });
+                  }
+                });
+                orders.forEach(o => {
+                  if (Array.isArray(o.items)) {
+                    o.items.forEach(it => {
+                      const name = (it.name || it.item || it.title || "").trim();
+                      if (name && !map.has(name.toLowerCase())) {
+                        map.set(name.toLowerCase(), {
+                          name,
+                          image: it.image || "",
+                          category: it.category || "Chai"
+                        });
+                      }
+                    });
+                  } else if (o.item && typeof o.item === "string") {
+                    o.item.split("+").forEach(part => {
+                      const clean = part.replace(/x\s*\d+/i, "").trim();
+                      if (clean && !map.has(clean.toLowerCase())) {
+                        map.set(clean.toLowerCase(), {
+                          name: clean,
+                          image: o.img || o.image || "",
+                          category: "Chai"
+                        });
+                      }
+                    });
+                  }
+                });
+                return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+              })();
+
+              const allSavedLocations = Array.from(
                 new Set(
-                  activeQueueOrders
-                    .map(o => o.office || (typeof o.address === "string" ? o.address : o.address?.city || o.address?.address1))
+                  orders
+                    .flatMap(o => {
+                      const list = [];
+                      if (o.office) list.push(String(o.office).trim());
+                      if (typeof o.address === "string" && o.address.trim()) {
+                        list.push(o.address.trim());
+                      } else if (o.address && typeof o.address === "object") {
+                        if (o.address.officeNumber) list.push(String(o.address.officeNumber).trim());
+                        if (o.address.floor || o.address.floorNumber) list.push(`Floor ${o.address.floor || o.address.floorNumber}`.trim());
+                        if (o.address.address1) list.push(String(o.address.address1).trim());
+                        if (o.address.city) list.push(String(o.address.city).trim());
+                      }
+                      return list;
+                    })
                     .filter(Boolean)
                 )
-              );
+              ).sort((a, b) => a.localeCompare(b));
+
+              const filteredProductSuggestions = allAvailableProducts.filter(p => {
+                if (!queueSearchTerm || queueSearchTerm.trim() === "") return true;
+                return p.name.toLowerCase().includes(queueSearchTerm.toLowerCase().trim());
+              });
+
+              const filteredLocationSuggestions = allSavedLocations.filter(loc => {
+                if (!queueLocationFilter || queueLocationFilter === "all" || queueLocationFilter.trim() === "") return true;
+                return loc.toLowerCase().includes(queueLocationFilter.toLowerCase().trim());
+              });
 
               const filteredQueue = activeQueueOrders.filter(o => {
                 // 1. Status Filter
@@ -2855,9 +3009,10 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 }
 
                 // 3. Location Filter
-                if (queueLocationFilter !== "all") {
-                  const loc = String(o.office || (typeof o.address === "string" ? o.address : o.address?.city || o.address?.address1 || "")).toLowerCase();
-                  if (!loc.includes(queueLocationFilter.toLowerCase())) return false;
+                if (queueLocationFilter && queueLocationFilter !== "all" && queueLocationFilter.trim() !== "") {
+                  const locTerm = queueLocationFilter.toLowerCase().trim();
+                  const loc = String(o.office || (typeof o.address === "string" ? o.address : `${o.address?.officeNumber || ''} ${o.address?.floor || o.address?.floorNumber || ''} ${o.address?.address1 || ''} ${o.address?.city || ''}`)).toLowerCase();
+                  if (!loc.includes(locTerm)) return false;
                 }
 
                 // 4. Payment Status Filter
@@ -2867,15 +3022,51 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   if (queuePaymentFilter === "Paid" && ps !== "Paid") return false;
                 }
 
-                // 4. Search Filter
+                // 4. Search Filter (Product name, address, customer, phone, ID)
                 if (queueSearchTerm && queueSearchTerm.trim() !== "") {
                   const term = queueSearchTerm.toLowerCase().trim();
                   const idStr = String(o.orderId || o.id || "").toLowerCase();
                   const custStr = String(o.customer || (o.address?.firstName ? `${o.address.firstName} ${o.address.lastName || ''}` : "")).toLowerCase();
                   const phoneStr = String(o.phone || o.mobile || o.address?.phone || "").toLowerCase();
-                  const itemStr = String(o.item || (Array.isArray(o.items) ? o.items.map(it => it.name || it.item).join(" ") : "")).toLowerCase();
-                  const offStr = String(o.office || (typeof o.address === "string" ? o.address : o.address?.address1 || "")).toLowerCase();
-                  if (!idStr.includes(term) && !custStr.includes(term) && !phoneStr.includes(term) && !itemStr.includes(term) && !offStr.includes(term)) {
+
+                  // Comprehensive product name extraction
+                  const itemNames = [];
+                  if (o.item) itemNames.push(String(o.item));
+                  if (o.productName) itemNames.push(String(o.productName));
+                  if (Array.isArray(o.items)) {
+                    o.items.forEach(it => {
+                      if (it.name) itemNames.push(String(it.name));
+                      if (it.item) itemNames.push(String(it.item));
+                      if (it.title) itemNames.push(String(it.title));
+                    });
+                  }
+                  const itemStr = itemNames.join(" ").toLowerCase();
+
+                  // Comprehensive address extraction
+                  const addrParts = [];
+                  if (o.office) addrParts.push(String(o.office));
+                  if (typeof o.address === "string") {
+                    addrParts.push(o.address);
+                  } else if (o.address && typeof o.address === "object") {
+                    if (o.address.address1) addrParts.push(o.address.address1);
+                    if (o.address.address2) addrParts.push(o.address.address2);
+                    if (o.address.city) addrParts.push(o.address.city);
+                    if (o.address.state) addrParts.push(o.address.state);
+                    if (o.address.pincode || o.address.zip) addrParts.push(o.address.pincode || o.address.zip);
+                    if (o.address.floor || o.address.floorNumber) addrParts.push(o.address.floor || o.address.floorNumber);
+                    if (o.address.officeNumber || o.address.room) addrParts.push(o.address.officeNumber || o.address.room);
+                    if (o.address.landmark) addrParts.push(o.address.landmark);
+                  }
+                  if (o.shippingAddress) {
+                    if (typeof o.shippingAddress === "string") addrParts.push(o.shippingAddress);
+                    else if (typeof o.shippingAddress === "object") {
+                      if (o.shippingAddress.address1) addrParts.push(o.shippingAddress.address1);
+                      if (o.shippingAddress.city) addrParts.push(o.shippingAddress.city);
+                    }
+                  }
+                  const addrStr = addrParts.join(" ").toLowerCase();
+
+                  if (!idStr.includes(term) && !custStr.includes(term) && !phoneStr.includes(term) && !itemStr.includes(term) && !addrStr.includes(term)) {
                     return false;
                   }
                 }
@@ -2982,28 +3173,100 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   {/* Filter & Action Controls Bar */}
                   <div className="queue-filter-card">
                     <div className="queue-filter-grid">
-                      {/* 1. Search */}
-                      <div className="queue-filter-col">
+                      {/* 1. Search with Product Suggestions */}
+                      <div className="queue-filter-col" ref={searchSuggestRef} style={{ position: "relative" }}>
                         <label className="queue-filter-label">Search</label>
                         <div className="queue-input-wrapper">
                           <span className="queue-input-icon">🔍</span>
                           <input
                             type="text"
-                            placeholder="Orders, customer, phone..."
+                            placeholder="Search product, address, customer, ID..."
                             value={queueSearchTerm}
-                            onChange={(e) => setQueueSearchTerm(e.target.value)}
+                            onFocus={() => setShowProductSuggestions(true)}
+                            onClick={() => setShowProductSuggestions(true)}
+                            onChange={(e) => {
+                              setQueueSearchTerm(e.target.value);
+                              setShowProductSuggestions(true);
+                            }}
                             className="queue-search-input"
                           />
                           {queueSearchTerm && (
                             <button
                               type="button"
-                              onClick={() => setQueueSearchTerm("")}
+                              onClick={() => {
+                                setQueueSearchTerm("");
+                                setShowProductSuggestions(false);
+                              }}
                               className="queue-clear-search-btn"
                             >
                               ✕
                             </button>
                           )}
                         </div>
+
+                        {/* PRODUCT SUGGESTIONS POPUP */}
+                        {showProductSuggestions && (
+                          <div style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            marginTop: "6px",
+                            background: "#ffffff",
+                            borderRadius: "10px",
+                            border: "1px solid #e2e8f0",
+                            boxShadow: "0 10px 25px -5px rgba(0,0,0,0.12), 0 8px 10px -6px rgba(0,0,0,0.08)",
+                            maxHeight: "260px",
+                            overflowY: "auto",
+                            zIndex: 1000
+                          }}>
+                            <div style={{ padding: "6px 12px", fontSize: "11px", fontWeight: "700", color: "#64748b", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span>SUGGESTED PRODUCTS ({filteredProductSuggestions.length})</span>
+                              <button type="button" onClick={() => setShowProductSuggestions(false)} style={{ border: "none", background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: "12px", padding: 0 }}>✕</button>
+                            </div>
+                            {filteredProductSuggestions.length === 0 ? (
+                              <div style={{ padding: "12px", fontSize: "12px", color: "#94a3b8", textAlign: "center" }}>
+                                No matching products found
+                              </div>
+                            ) : (
+                              filteredProductSuggestions.map(p => (
+                                <div
+                                  key={p.name}
+                                  onClick={() => {
+                                    setQueueSearchTerm(p.name);
+                                    setShowProductSuggestions(false);
+                                  }}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "space-between",
+                                    padding: "8px 12px",
+                                    cursor: "pointer",
+                                    borderBottom: "1px solid #f8fafc",
+                                    background: queueSearchTerm.toLowerCase() === p.name.toLowerCase() ? "#f0fdf4" : "#ffffff",
+                                    transition: "background 0.15s ease"
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = "#f8fafc"}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = queueSearchTerm.toLowerCase() === p.name.toLowerCase() ? "#f0fdf4" : "#ffffff"}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                    {p.image ? (
+                                      <img src={p.image} alt={p.name} style={{ width: "26px", height: "26px", borderRadius: "6px", objectFit: "cover" }} />
+                                    ) : (
+                                      <span style={{ fontSize: "16px" }}>🫖</span>
+                                    )}
+                                    <span style={{ fontSize: "12.5px", fontWeight: "600", color: "#0f172a" }}>{p.name}</span>
+                                  </div>
+                                  {p.category && (
+                                    <span style={{ fontSize: "10px", background: "#f1f5f9", color: "#64748b", padding: "2px 6px", borderRadius: "4px", fontWeight: "600" }}>
+                                      {p.category}
+                                    </span>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* 2. Status */}
@@ -3037,19 +3300,111 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         </select>
                       </div>
 
-                      {/* 4. Location */}
-                      <div className="queue-filter-col">
+                      {/* 4. Location Search with Saved Suggestions */}
+                      <div className="queue-filter-col" ref={locationSuggestRef} style={{ position: "relative" }}>
                         <label className="queue-filter-label">Location</label>
-                        <select
-                          value={queueLocationFilter}
-                          onChange={(e) => setQueueLocationFilter(e.target.value)}
-                          className="queue-select-input"
-                        >
-                          <option value="all">All Locations</option>
-                          {uniqueLocations.map(loc => (
-                            <option key={loc} value={loc}>{loc}</option>
-                          ))}
-                        </select>
+                        <div className="queue-input-wrapper">
+                          <span className="queue-input-icon">📍</span>
+                          <input
+                            type="text"
+                            placeholder="Search location / desk..."
+                            value={queueLocationFilter === "all" ? "" : queueLocationFilter}
+                            onFocus={() => setShowLocationSuggestions(true)}
+                            onClick={() => setShowLocationSuggestions(true)}
+                            onChange={(e) => {
+                              setQueueLocationFilter(e.target.value || "all");
+                              setShowLocationSuggestions(true);
+                            }}
+                            className="queue-search-input"
+                          />
+                          {queueLocationFilter && queueLocationFilter !== "all" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQueueLocationFilter("all");
+                                setShowLocationSuggestions(false);
+                              }}
+                              className="queue-clear-search-btn"
+                              title="Reset location filter"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        {/* LOCATION SUGGESTIONS POPUP */}
+                        {showLocationSuggestions && (
+                          <div style={{
+                            position: "absolute",
+                            top: "100%",
+                            left: 0,
+                            right: 0,
+                            marginTop: "6px",
+                            background: "#ffffff",
+                            borderRadius: "10px",
+                            border: "1px solid #e2e8f0",
+                            boxShadow: "0 10px 25px -5px rgba(0,0,0,0.12), 0 8px 10px -6px rgba(0,0,0,0.08)",
+                            maxHeight: "260px",
+                            overflowY: "auto",
+                            zIndex: 1000
+                          }}>
+                            <div style={{ padding: "6px 12px", fontSize: "11px", fontWeight: "700", color: "#64748b", borderBottom: "1px solid #f1f5f9", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span>SAVED LOCATIONS ({filteredLocationSuggestions.length})</span>
+                              <button type="button" onClick={() => setShowLocationSuggestions(false)} style={{ border: "none", background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: "12px", padding: 0 }}>✕</button>
+                            </div>
+                            <div
+                              onClick={() => {
+                                setQueueLocationFilter("all");
+                                setShowLocationSuggestions(false);
+                              }}
+                              style={{
+                                padding: "8px 12px",
+                                cursor: "pointer",
+                                fontSize: "12.5px",
+                                fontWeight: queueLocationFilter === "all" ? "700" : "500",
+                                color: queueLocationFilter === "all" ? "#0284c7" : "#334155",
+                                background: queueLocationFilter === "all" ? "#f0f9ff" : "#ffffff",
+                                borderBottom: "1px solid #f1f5f9"
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = "#f0f9ff"}
+                              onMouseLeave={(e) => e.currentTarget.style.background = queueLocationFilter === "all" ? "#f0f9ff" : "#ffffff"}
+                            >
+                              🌐 All Locations (Clear Filter)
+                            </div>
+                            {filteredLocationSuggestions.length === 0 ? (
+                              <div style={{ padding: "12px", fontSize: "12px", color: "#94a3b8", textAlign: "center" }}>
+                                No saved locations match
+                              </div>
+                            ) : (
+                              filteredLocationSuggestions.map(loc => (
+                                <div
+                                  key={loc}
+                                  onClick={() => {
+                                    setQueueLocationFilter(loc);
+                                    setShowLocationSuggestions(false);
+                                  }}
+                                  style={{
+                                    padding: "8px 12px",
+                                    cursor: "pointer",
+                                    fontSize: "12.5px",
+                                    fontWeight: queueLocationFilter.toLowerCase() === loc.toLowerCase() ? "700" : "500",
+                                    color: queueLocationFilter.toLowerCase() === loc.toLowerCase() ? "#0284c7" : "#1e293b",
+                                    background: queueLocationFilter.toLowerCase() === loc.toLowerCase() ? "#f0f9ff" : "#ffffff",
+                                    borderBottom: "1px solid #f8fafc",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "8px"
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.background = "#f8fafc"}
+                                  onMouseLeave={(e) => e.currentTarget.style.background = queueLocationFilter.toLowerCase() === loc.toLowerCase() ? "#f0f9ff" : "#ffffff"}
+                                >
+                                  <span style={{ fontSize: "13px" }}>📍</span>
+                                  <span>{loc}</span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* 5. Payment Status */}
@@ -3089,6 +3444,52 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           </button>
                         )}
                       </div>
+
+                      {/* STATS OF FILTERED LOCATION & PRODUCT BUTTON */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStatsModalProduct(queueSearchTerm || "");
+                          setStatsModalLocation(queueLocationFilter || "all");
+                          setStatsModalMonth("all");
+                          setStatsModalStartDate("");
+                          setStatsModalEndDate("");
+                          setActiveStatsModal("queueFilterStats");
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          padding: "8px 14px",
+                          background: ((queueSearchTerm && queueSearchTerm.trim() !== "") || (queueLocationFilter && queueLocationFilter !== "all"))
+                            ? "linear-gradient(135deg, #09090b 0%, #1e293b 100%)"
+                            : "#ffffff",
+                          color: ((queueSearchTerm && queueSearchTerm.trim() !== "") || (queueLocationFilter && queueLocationFilter !== "all"))
+                            ? "#38bdf8"
+                            : "#0f172a",
+                          border: ((queueSearchTerm && queueSearchTerm.trim() !== "") || (queueLocationFilter && queueLocationFilter !== "all"))
+                            ? "1.5px solid #0284c7"
+                            : "1.5px solid #cbd5e1",
+                          borderRadius: "8px",
+                          fontWeight: "800",
+                          fontSize: "12.5px",
+                          cursor: "pointer",
+                          boxShadow: ((queueSearchTerm && queueSearchTerm.trim() !== "") || (queueLocationFilter && queueLocationFilter !== "all"))
+                            ? "0 4px 12px rgba(2, 132, 199, 0.25)"
+                            : "0 1px 3px rgba(0,0,0,0.05)",
+                          transition: "all 0.2s ease",
+                          whiteSpace: "nowrap"
+                        }}
+                        title="View analytics & stats for selected product, location, month or date range"
+                      >
+                        <span style={{ fontSize: "15px" }}>📊</span>
+                        <span>Filter Stats</span>
+                        {((queueSearchTerm && queueSearchTerm.trim() !== "") || (queueLocationFilter && queueLocationFilter !== "all")) && (
+                          <span style={{ background: "#0284c7", color: "#ffffff", fontSize: "10.5px", padding: "1px 6px", borderRadius: "999px", fontWeight: "900" }}>
+                            Active
+                          </span>
+                        )}
+                      </button>
 
                       <button
                         type="button"
@@ -3263,25 +3664,43 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                         }
 
                                         return (
-                                          <span
-                                            style={{
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              gap: '3px',
-                                              fontSize: '11px',
-                                              fontWeight: '600',
-                                              padding: '2px 7px',
-                                              borderRadius: '4px',
-                                              background: isPending ? '#fef3c7' : '#ecfdf5',
-                                              color: isPending ? '#b45309' : '#047857',
-                                              border: `1px solid ${isPending ? '#fde68a' : '#a7f3d0'}`
-                                            }}
-                                            title={`Payment: ${pm} (${ps})`}
-                                          >
-                                            <span>{icon}</span>
-                                            <span>{label}</span>
-                                            <span style={{ fontSize: '9.5px', opacity: 0.85 }}>• {isPending ? 'Pending' : 'Paid'}</span>
-                                          </span>
+                                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+                                            <span
+                                              style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '3px',
+                                                fontSize: '11px',
+                                                fontWeight: '600',
+                                                color: '#64748b'
+                                              }}
+                                              title={`Payment Method: ${pm}`}
+                                            >
+                                              <span>{icon}</span>
+                                              <span>{label}</span>
+                                            </span>
+                                            <select
+                                              value={ps}
+                                              onChange={(e) => updateOrderPaymentStatusDirectly(o, e.target.value, e)}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="queue-payment-dropdown"
+                                              style={{
+                                                fontSize: '11px',
+                                                fontWeight: '750',
+                                                padding: '2px 6px',
+                                                borderRadius: '5px',
+                                                cursor: 'pointer',
+                                                background: isPending ? '#fef3c7' : '#ecfdf5',
+                                                color: isPending ? '#b45309' : '#047857',
+                                                border: `1px solid ${isPending ? '#fde68a' : '#a7f3d0'}`,
+                                                outline: 'none'
+                                              }}
+                                              title="Click to update payment status directly"
+                                            >
+                                              <option value="Pending">⏳ Pending</option>
+                                              <option value="Paid">✅ Paid</option>
+                                            </select>
+                                          </div>
                                         );
                                       })()}
                                     </div>
@@ -3467,17 +3886,26 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     <span className={`queue-channel-pill ${isOfflineOrder ? 'counter' : 'online'}`}>
                                       {isOfflineOrder ? "🏪 Counter" : "🌐 Online"}
                                     </span>
-                                    <span style={{
-                                      fontSize: '10px',
-                                      fontWeight: '700',
-                                      padding: '2px 6px',
-                                      borderRadius: '4px',
-                                      background: getOrderPaymentStatus(o) === 'Paid' ? '#ecfdf5' : '#fef3c7',
-                                      color: getOrderPaymentStatus(o) === 'Paid' ? '#047857' : '#b45309',
-                                      border: `1px solid ${getOrderPaymentStatus(o) === 'Paid' ? '#a7f3d0' : '#fde68a'}`
-                                    }}>
-                                      {getOrderPaymentStatus(o) === 'Paid' ? '✅ Paid' : '⏳ Pending'}
-                                    </span>
+                                    <select
+                                      value={getOrderPaymentStatus(o)}
+                                      onChange={(e) => updateOrderPaymentStatusDirectly(o, e.target.value, e)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{
+                                        fontSize: '10.5px',
+                                        fontWeight: '750',
+                                        padding: '2px 6px',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        background: getOrderPaymentStatus(o) === 'Paid' ? '#ecfdf5' : '#fef3c7',
+                                        color: getOrderPaymentStatus(o) === 'Paid' ? '#047857' : '#b45309',
+                                        border: `1px solid ${getOrderPaymentStatus(o) === 'Paid' ? '#a7f3d0' : '#fde68a'}`,
+                                        outline: 'none'
+                                      }}
+                                      title="Change payment status"
+                                    >
+                                      <option value="Pending">⏳ Pending</option>
+                                      <option value="Paid">✅ Paid</option>
+                                    </select>
                                   </div>
                                   <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', marginTop: '1px' }}>
                                     {orderIdFormatted}
@@ -3518,8 +3946,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               )}
                             </div>
 
-                            {/* Footer Actions: Direct Status Select + Edit Button */}
-                            <div className="mob-card-footer" onClick={(e) => e.stopPropagation()}>
+                            {/* Footer Actions: Direct Status Select + Direct Payment Select + Edit Button */}
+                            <div className="mob-card-footer" onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <div style={{ flex: 1 }}>
                                 <select
                                   value={currentStatus}
@@ -3532,7 +3960,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     borderColor: pill.border,
                                     width: '100%',
                                     textAlign: 'center',
-                                    padding: '7px 10px',
+                                    padding: '7px 8px',
                                     fontSize: '12px'
                                   }}
                                   title="Change status"
@@ -3542,6 +3970,31 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                   <option value="Out for Delivery">● On Delivery</option>
                                   <option value="Delivered">● Delivered</option>
                                   <option value="Cancelled">● Cancelled</option>
+                                </select>
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <select
+                                  value={getOrderPaymentStatus(o)}
+                                  onChange={(e) => updateOrderPaymentStatusDirectly(o, e.target.value, e)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="queue-payment-dropdown"
+                                  style={{
+                                    width: '100%',
+                                    textAlign: 'center',
+                                    padding: '7px 8px',
+                                    fontSize: '12px',
+                                    fontWeight: '750',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    background: getOrderPaymentStatus(o) === 'Paid' ? '#ecfdf5' : '#fef3c7',
+                                    color: getOrderPaymentStatus(o) === 'Paid' ? '#047857' : '#b45309',
+                                    border: `1px solid ${getOrderPaymentStatus(o) === 'Paid' ? '#a7f3d0' : '#fde68a'}`,
+                                    outline: 'none'
+                                  }}
+                                  title="Change payment status"
+                                >
+                                  <option value="Pending">⏳ Pending</option>
+                                  <option value="Paid">✅ Paid</option>
                                 </select>
                               </div>
                               <button
@@ -11137,6 +11590,499 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {activeStatsModal === "queueFilterStats" && (() => {
+        const modalSavedLocations = Array.from(
+          new Set(
+            orders
+              .flatMap(o => {
+                const list = [];
+                if (o.office) list.push(String(o.office).trim());
+                if (typeof o.address === "string" && o.address.trim()) {
+                  list.push(o.address.trim());
+                } else if (o.address && typeof o.address === "object") {
+                  if (o.address.officeNumber) list.push(String(o.address.officeNumber).trim());
+                  if (o.address.floor || o.address.floorNumber) list.push(`Floor ${o.address.floor || o.address.floorNumber}`.trim());
+                  if (o.address.address1) list.push(String(o.address.address1).trim());
+                  if (o.address.city) list.push(String(o.address.city).trim());
+                }
+                return list;
+              })
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b));
+
+        // 1. Filter orders matching product, location, month name, and date range
+        const filteredModalOrders = orders.filter(o => {
+          if (o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
+
+          const orderDateStr = getOrderDateString(o);
+          let orderTimestamp = 0;
+          if (typeof o.createdAt === 'number' && !isNaN(o.createdAt)) {
+            orderTimestamp = o.createdAt;
+          } else if (o.createdAt?.seconds) {
+            orderTimestamp = o.createdAt.seconds * 1000;
+          } else if (o.createdAt) {
+            orderTimestamp = new Date(o.createdAt).getTime();
+          } else if (orderDateStr) {
+            orderTimestamp = new Date(orderDateStr).getTime();
+          }
+
+          // Month Name Filter (0 = Jan, 11 = Dec)
+          if (statsModalMonth !== "all" && statsModalMonth !== "") {
+            const m = orderTimestamp ? new Date(orderTimestamp).getMonth() : -1;
+            if (m !== parseInt(statsModalMonth, 10)) return false;
+          }
+
+          // Date Range Filter
+          if (statsModalStartDate && orderDateStr && orderDateStr < statsModalStartDate) return false;
+          if (statsModalEndDate && orderDateStr && orderDateStr > statsModalEndDate) return false;
+
+          // Product Filter
+          if (statsModalProduct && statsModalProduct.trim() !== "") {
+            const term = statsModalProduct.toLowerCase().trim();
+            const itemNames = [];
+            if (o.item) itemNames.push(String(o.item));
+            if (o.productName) itemNames.push(String(o.productName));
+            if (Array.isArray(o.items)) {
+              o.items.forEach(it => {
+                if (it.name) itemNames.push(String(it.name));
+                if (it.item) itemNames.push(String(it.item));
+                if (it.title) itemNames.push(String(it.title));
+              });
+            }
+            const itemStr = itemNames.join(" ").toLowerCase();
+            if (!itemStr.includes(term)) return false;
+          }
+
+          // Location Filter
+          if (statsModalLocation && statsModalLocation !== "all" && statsModalLocation.trim() !== "") {
+            const locTerm = statsModalLocation.toLowerCase().trim();
+            const locStr = String(o.office || (typeof o.address === "string" ? o.address : `${o.address?.officeNumber || ''} ${o.address?.floor || o.address?.floorNumber || ''} ${o.address?.address1 || ''} ${o.address?.city || ''}`)).toLowerCase();
+            if (!locStr.includes(locTerm)) return false;
+          }
+
+          return true;
+        });
+
+        // Computed Stats
+        const totalOrders = filteredModalOrders.length;
+        const totalRevenue = filteredModalOrders.reduce((sum, o) => sum + parseOrderPrice(o), 0);
+        const avgOrderVal = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+
+        let totalUnitsSold = 0;
+        const productStatsMap = {};
+        const locationStatsMap = {};
+
+        filteredModalOrders.forEach(o => {
+          if (Array.isArray(o.items) && o.items.length > 0) {
+            o.items.forEach(it => {
+              const name = it.name || it.item || "Chai";
+              const qty = parseInt(it.quantity || it.qty) || 1;
+              const price = typeof it.price === "number" ? it.price : (parseFloat(String(it.price || 0).replace(/[^\d.]/g, "")) || 40);
+              totalUnitsSold += qty;
+              if (!productStatsMap[name]) {
+                productStatsMap[name] = { name, qty: 0, revenue: 0, image: it.image || "", category: it.category || "Beverage" };
+              }
+              productStatsMap[name].qty += qty;
+              productStatsMap[name].revenue += (price * qty);
+            });
+          } else if (o.item) {
+            const itemStr = String(o.item);
+            itemStr.split("+").forEach(part => {
+              const match = part.trim().match(/^(.*?)(?:\s*x\s*(\d+))?$/);
+              const name = match && match[1] ? match[1].trim() : part.trim();
+              const qty = match && match[2] ? parseInt(match[2]) : 1;
+              totalUnitsSold += qty;
+              if (!productStatsMap[name]) {
+                productStatsMap[name] = { name, qty: 0, revenue: 0, image: o.img || o.image || "", category: "Chai" };
+              }
+              productStatsMap[name].qty += qty;
+              productStatsMap[name].revenue += parseOrderPrice(o) / Math.max(itemStr.split("+").length, 1);
+            });
+          }
+
+          const locKey = o.office || (typeof o.address === "string" ? o.address : o.address?.officeNumber || o.address?.address1 || "Counter Pickup");
+          if (!locationStatsMap[locKey]) {
+            locationStatsMap[locKey] = { location: locKey, orders: 0, revenue: 0, pendingAmount: 0 };
+          }
+          locationStatsMap[locKey].orders += 1;
+          const p = parseOrderPrice(o);
+          locationStatsMap[locKey].revenue += p;
+          if (getOrderPaymentStatus(o) === "Pending") {
+            locationStatsMap[locKey].pendingAmount += p;
+          }
+        });
+
+        const productStatsList = Object.values(productStatsMap).sort((a, b) => b.qty - a.qty);
+        const locationStatsList = Object.values(locationStatsMap).sort((a, b) => b.orders - a.orders);
+
+        const paidOrders = filteredModalOrders.filter(o => getOrderPaymentStatus(o) === "Paid");
+        const pendingOrders = filteredModalOrders.filter(o => getOrderPaymentStatus(o) === "Pending");
+        const paidAmount = paidOrders.reduce((sum, o) => sum + parseOrderPrice(o), 0);
+        const pendingAmount = pendingOrders.reduce((sum, o) => sum + parseOrderPrice(o), 0);
+
+        const deliveredCount = filteredModalOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
+        const preparingCount = filteredModalOrders.filter(o => o.status === "Preparing").length;
+        const receivedCount = filteredModalOrders.filter(o => o.status === "Received" || o.status === "Pending").length;
+
+        const monthsList = [
+          { id: "all", name: "All Months" },
+          { id: "0", name: "January" },
+          { id: "1", name: "February" },
+          { id: "2", name: "March" },
+          { id: "3", name: "April" },
+          { id: "4", name: "May" },
+          { id: "5", name: "June" },
+          { id: "6", name: "July" },
+          { id: "7", name: "August" },
+          { id: "8", name: "September" },
+          { id: "9", name: "October" },
+          { id: "10", name: "November" },
+          { id: "11", name: "December" }
+        ];
+
+        return (
+          <div style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(15, 23, 42, 0.75)",
+            backdropFilter: "blur(6px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px"
+          }}>
+            <div style={{
+              background: "#ffffff",
+              borderRadius: "20px",
+              width: "100%",
+              maxWidth: "1050px",
+              maxHeight: "92vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 25px 50px -12px rgba(0,0,0,0.25)",
+              border: "1px solid #e2e8f0",
+              overflow: "hidden"
+            }}>
+              {/* MODAL HEADER */}
+              <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "#f8fafc" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <span style={{ fontSize: "24px" }}>📊</span>
+                    <h3 style={{ margin: 0, fontSize: "20px", fontWeight: "900", color: "#0f172a" }}>
+                      Product & Location Analytics
+                    </h3>
+                  </div>
+                  <p style={{ margin: "4px 0 0", fontSize: "12.5px", color: "#64748b" }}>
+                    Dynamic live metrics, units sold, revenue, and settlement status for selected filters.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveStatsModal(null)}
+                  style={{
+                    background: "#f1f5f9",
+                    border: "none",
+                    borderRadius: "50%",
+                    width: "36px",
+                    height: "36px",
+                    cursor: "pointer",
+                    fontSize: "16px",
+                    fontWeight: "bold",
+                    color: "#475569",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                  title="Close popup"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* MODAL FILTER BAR (Months, Date Range, Product, Location) */}
+              <div style={{ padding: "14px 24px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0", display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                {/* 1. Month Filter */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  <label style={{ fontSize: "11px", fontWeight: "800", color: "#475569", textTransform: "uppercase" }}>Month Name</label>
+                  <select
+                    value={statsModalMonth}
+                    onChange={(e) => setStatsModalMonth(e.target.value)}
+                    style={{ padding: "6px 12px", borderRadius: "8px", border: "1.5px solid #cbd5e1", background: "#ffffff", fontSize: "12.5px", color: "#0f172a", fontWeight: "700", outline: "none", cursor: "pointer" }}
+                  >
+                    {monthsList.map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 2. Date Range */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                  <label style={{ fontSize: "11px", fontWeight: "800", color: "#475569", textTransform: "uppercase" }}>Date Range</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <input
+                      type="date"
+                      value={statsModalStartDate}
+                      onChange={(e) => setStatsModalStartDate(e.target.value)}
+                      style={{ padding: "5px 8px", borderRadius: "8px", border: "1.5px solid #cbd5e1", background: "#ffffff", fontSize: "12px", color: "#0f172a", outline: "none" }}
+                      title="From Date"
+                    />
+                    <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "600" }}>to</span>
+                    <input
+                      type="date"
+                      value={statsModalEndDate}
+                      onChange={(e) => setStatsModalEndDate(e.target.value)}
+                      style={{ padding: "5px 8px", borderRadius: "8px", border: "1.5px solid #cbd5e1", background: "#ffffff", fontSize: "12px", color: "#0f172a", outline: "none" }}
+                      title="To Date"
+                    />
+                    {(statsModalStartDate || statsModalEndDate) && (
+                      <button
+                        type="button"
+                        onClick={() => { setStatsModalStartDate(""); setStatsModalEndDate(""); }}
+                        style={{ border: "none", background: "#fee2e2", color: "#ef4444", borderRadius: "50%", width: "22px", height: "22px", cursor: "pointer", fontWeight: "bold", fontSize: "11px", padding: 0 }}
+                        title="Clear date range"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Product Selection */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: "180px" }}>
+                  <label style={{ fontSize: "11px", fontWeight: "800", color: "#475569", textTransform: "uppercase" }}>Selected Product</label>
+                  <input
+                    type="text"
+                    placeholder="All Products (or type name)"
+                    value={statsModalProduct}
+                    onChange={(e) => setStatsModalProduct(e.target.value)}
+                    style={{ padding: "6px 10px", borderRadius: "8px", border: "1.5px solid #cbd5e1", background: "#ffffff", fontSize: "12.5px", color: "#0f172a", fontWeight: "600", outline: "none" }}
+                  />
+                </div>
+
+                {/* 4. Location Selection */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: "160px" }}>
+                  <label style={{ fontSize: "11px", fontWeight: "800", color: "#475569", textTransform: "uppercase" }}>Selected Location</label>
+                  <select
+                    value={statsModalLocation}
+                    onChange={(e) => setStatsModalLocation(e.target.value)}
+                    style={{ padding: "6px 12px", borderRadius: "8px", border: "1.5px solid #cbd5e1", background: "#ffffff", fontSize: "12.5px", color: "#0f172a", fontWeight: "600", outline: "none", cursor: "pointer" }}
+                  >
+                    <option value="all">🌐 All Locations</option>
+                    {modalSavedLocations.map(loc => (
+                      <option key={loc} value={loc}>📍 {loc}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Reset Filters */}
+                <div style={{ alignSelf: "flex-end", paddingBottom: "2px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatsModalMonth("all");
+                      setStatsModalStartDate("");
+                      setStatsModalEndDate("");
+                      setStatsModalProduct("");
+                      setStatsModalLocation("all");
+                    }}
+                    style={{ padding: "6px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", background: "#ffffff", color: "#475569", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* MODAL BODY */}
+              <div style={{ padding: "24px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "20px" }}>
+                {/* 1. TOP STATS CARDS */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "12px" }}>
+                  <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: "11.5px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Total Orders</span>
+                    <strong style={{ display: "block", fontSize: "22px", color: "#0f172a", marginTop: "4px" }}>{totalOrders}</strong>
+                  </div>
+                  <div style={{ background: "#f0fdf4", padding: "14px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
+                    <span style={{ fontSize: "11.5px", color: "#166534", fontWeight: "700", textTransform: "uppercase" }}>Total Units Sold</span>
+                    <strong style={{ display: "block", fontSize: "22px", color: "#15803d", marginTop: "4px" }}>{totalUnitsSold} cups</strong>
+                  </div>
+                  <div style={{ background: "#f0fdf4", padding: "14px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
+                    <span style={{ fontSize: "11.5px", color: "#166534", fontWeight: "700", textTransform: "uppercase" }}>Total Sales Value</span>
+                    <strong style={{ display: "block", fontSize: "22px", color: "#15803d", marginTop: "4px" }}>₹{totalRevenue.toLocaleString()}</strong>
+                  </div>
+                  <div style={{ background: "#eff6ff", padding: "14px", borderRadius: "12px", border: "1px solid #bfdbfe" }}>
+                    <span style={{ fontSize: "11.5px", color: "#1e40af", fontWeight: "700", textTransform: "uppercase" }}>Paid Amount</span>
+                    <strong style={{ display: "block", fontSize: "22px", color: "#1d4ed8", marginTop: "4px" }}>₹{paidAmount.toLocaleString()}</strong>
+                    <span style={{ fontSize: "11px", color: "#60a5fa" }}>{paidOrders.length} orders settled</span>
+                  </div>
+                  <div style={{ background: "#fff7ed", padding: "14px", borderRadius: "12px", border: "1px solid #fed7aa" }}>
+                    <span style={{ fontSize: "11.5px", color: "#9a3412", fontWeight: "700", textTransform: "uppercase" }}>Pending Payment</span>
+                    <strong style={{ display: "block", fontSize: "22px", color: "#c2410c", marginTop: "4px" }}>₹{pendingAmount.toLocaleString()}</strong>
+                    <span style={{ fontSize: "11px", color: "#fb923c" }}>{pendingOrders.length} orders unpaid</span>
+                  </div>
+                  <div style={{ background: "#faf5ff", padding: "14px", borderRadius: "12px", border: "1px solid #e9d5ff" }}>
+                    <span style={{ fontSize: "11.5px", color: "#6b21a8", fontWeight: "700", textTransform: "uppercase" }}>Delivery Status</span>
+                    <strong style={{ display: "block", fontSize: "15px", color: "#7e22ce", marginTop: "6px" }}>
+                      ✅ {deliveredCount} Del • 🫖 {preparingCount + receivedCount} Prep
+                    </strong>
+                  </div>
+                </div>
+
+                {/* 2. PRODUCT BREAKDOWN & LOCATION BREAKDOWN */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                  {/* Product breakdown */}
+                  <div style={{ background: "#ffffff", borderRadius: "14px", border: "1px solid #e2e8f0", padding: "16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                      <strong style={{ fontSize: "14px", color: "#0f172a" }}>🍵 Product Performance</strong>
+                      <span style={{ fontSize: "11px", color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px", fontWeight: "bold" }}>
+                        {productStatsList.length} products
+                      </span>
+                    </div>
+                    <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+                      {productStatsList.length === 0 ? (
+                        <p style={{ color: "#94a3b8", fontSize: "13px", textAlign: "center", padding: "20px" }}>No product sales recorded for this filter</p>
+                      ) : (
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px" }}>
+                          <thead>
+                            <tr style={{ textAlign: "left", color: "#64748b", borderBottom: "1px solid #f1f5f9" }}>
+                              <th style={{ padding: "6px 8px" }}>Item</th>
+                              <th style={{ padding: "6px 8px", textAlign: "right" }}>Qty</th>
+                              <th style={{ padding: "6px 8px", textAlign: "right" }}>Revenue</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {productStatsList.map((p, idx) => (
+                              <tr key={idx} style={{ borderBottom: "1px solid #f8fafc" }}>
+                                <td style={{ padding: "6px 8px", fontWeight: "600", color: "#0f172a" }}>{p.name}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right", color: "#166534", fontWeight: "bold" }}>{p.qty}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold", color: "#0f172a" }}>₹{Math.round(p.revenue).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Location breakdown */}
+                  <div style={{ background: "#ffffff", borderRadius: "14px", border: "1px solid #e2e8f0", padding: "16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                      <strong style={{ fontSize: "14px", color: "#0f172a" }}>📍 Location Distribution</strong>
+                      <span style={{ fontSize: "11px", color: "#64748b", background: "#f1f5f9", padding: "2px 8px", borderRadius: "4px", fontWeight: "bold" }}>
+                        {locationStatsList.length} locations
+                      </span>
+                    </div>
+                    <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+                      {locationStatsList.length === 0 ? (
+                        <p style={{ color: "#94a3b8", fontSize: "13px", textAlign: "center", padding: "20px" }}>No locations found for this filter</p>
+                      ) : (
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px" }}>
+                          <thead>
+                            <tr style={{ textAlign: "left", color: "#64748b", borderBottom: "1px solid #f1f5f9" }}>
+                              <th style={{ padding: "6px 8px" }}>Location</th>
+                              <th style={{ padding: "6px 8px", textAlign: "right" }}>Orders</th>
+                              <th style={{ padding: "6px 8px", textAlign: "right" }}>Total Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {locationStatsList.map((loc, idx) => (
+                              <tr key={idx} style={{ borderBottom: "1px solid #f8fafc" }}>
+                                <td style={{ padding: "6px 8px", fontWeight: "600", color: "#0f172a" }}>{loc.location}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right", color: "#0284c7", fontWeight: "bold" }}>{loc.orders}</td>
+                                <td style={{ padding: "6px 8px", textAlign: "right", fontWeight: "bold", color: "#0f172a" }}>₹{Math.round(loc.revenue).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. MATCHING ORDERS LIST */}
+                <div style={{ background: "#ffffff", borderRadius: "14px", border: "1px solid #e2e8f0", padding: "16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                    <strong style={{ fontSize: "14px", color: "#0f172a" }}>📋 Matching Orders ({filteredModalOrders.length})</strong>
+                    <span style={{ fontSize: "12px", color: "#64748b" }}>Live database records</span>
+                  </div>
+                  <div style={{ maxHeight: "220px", overflowY: "auto" }}>
+                    {filteredModalOrders.length === 0 ? (
+                      <p style={{ color: "#94a3b8", fontSize: "13px", textAlign: "center", padding: "30px" }}>No orders match the selected criteria</p>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12.5px" }}>
+                        <thead>
+                          <tr style={{ textAlign: "left", color: "#64748b", borderBottom: "1px solid #f1f5f9", background: "#f8fafc" }}>
+                            <th style={{ padding: "8px 10px" }}>Order ID</th>
+                            <th style={{ padding: "8px 10px" }}>Customer</th>
+                            <th style={{ padding: "8px 10px" }}>Item(s)</th>
+                            <th style={{ padding: "8px 10px" }}>Location</th>
+                            <th style={{ padding: "8px 10px" }}>Date</th>
+                            <th style={{ padding: "8px 10px" }}>Payment</th>
+                            <th style={{ padding: "8px 10px", textAlign: "right" }}>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredModalOrders.map((o, idx) => {
+                            const isPaid = getOrderPaymentStatus(o) === "Paid";
+                            return (
+                              <tr key={o.id || idx} style={{ borderBottom: "1px solid #f8fafc" }}>
+                                <td style={{ padding: "8px 10px", fontWeight: "700", color: "#0284c7" }}>{o.orderId || (o.id ? o.id.slice(-6).toUpperCase() : "-")}</td>
+                                <td style={{ padding: "8px 10px", fontWeight: "600", color: "#0f172a" }}>{o.customer || o.address?.firstName || "Customer"}</td>
+                                <td style={{ padding: "8px 10px", color: "#334155", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {o.item || (Array.isArray(o.items) ? o.items.map(it => `${it.name} x${it.quantity || 1}`).join(", ") : "-")}
+                                </td>
+                                <td style={{ padding: "8px 10px", color: "#64748b" }}>{o.office || (typeof o.address === "string" ? o.address : o.address?.city || "-")}</td>
+                                <td style={{ padding: "8px 10px", color: "#64748b" }}>{o.date || (o.createdAt ? new Date(o.createdAt).toLocaleDateString('en-GB') : "-")}</td>
+                                <td style={{ padding: "8px 10px" }}>
+                                  <span style={{ fontSize: "11px", fontWeight: "bold", padding: "2px 8px", borderRadius: "4px", background: isPaid ? "#dcfce7" : "#fee2e2", color: isPaid ? "#166534" : "#b91c1c" }}>
+                                    {isPaid ? "Paid" : "Pending"}
+                                  </span>
+                                </td>
+                                <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: "bold", color: "#0f172a" }}>₹{parseOrderPrice(o)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* MODAL FOOTER */}
+              <div style={{ padding: "14px 24px", borderTop: "1px solid #e2e8f0", background: "#f8fafc", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "13px", color: "#64748b", fontWeight: "600" }}>
+                  Showing {filteredModalOrders.length} matching order(s) • Total: <strong>₹{totalRevenue.toLocaleString()}</strong>
+                </span>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (statsModalProduct) setQueueSearchTerm(statsModalProduct);
+                      if (statsModalLocation && statsModalLocation !== "all") setQueueLocationFilter(statsModalLocation);
+                      setActiveStatsModal(null);
+                    }}
+                    style={{ background: "#0284c7", color: "#ffffff", border: "none", padding: "8px 16px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
+                  >
+                    Apply to Queue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStatsModal(null)}
+                    style={{ background: "#0f172a", color: "#ffffff", border: "none", padding: "8px 18px", borderRadius: "8px", fontWeight: "bold", fontSize: "12.5px", cursor: "pointer" }}
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
