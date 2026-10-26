@@ -277,6 +277,7 @@ export default function AdminDashboard() {
   const [queueStatusFilter, setQueueStatusFilter] = useState("all");
   const [queueChannelFilter, setQueueChannelFilter] = useState("all");
   const [queueLocationFilter, setQueueLocationFilter] = useState("all");
+  const [queuePaymentFilter, setQueuePaymentFilter] = useState("all");
   const [selectedQueueItemIds, setSelectedQueueItemIds] = useState([]);
 
   const handleOpenEditOrderModal = (order, e) => {
@@ -290,9 +291,11 @@ export default function AdminDashboard() {
     if (!order || !order.id) return;
     try {
       const updates = { status: newStatus };
-      if (order.isOffline && newStatus === "Delivered" && (!order.paymentMethod || order.paymentMethod === "Pending Selection")) {
-        updates.paymentMethod = "Cash";
+      if (newStatus === "Delivered") {
         updates.paymentStatus = "Paid";
+        if (order.isOffline && (!order.paymentMethod || order.paymentMethod === "Pending Selection")) {
+          updates.paymentMethod = "Cash";
+        }
       }
       await updateOrder(order.id, updates);
       if (selectedQueueOrder && selectedQueueOrder.id === order.id) {
@@ -587,20 +590,31 @@ export default function AdminDashboard() {
     };
   })();
 
+  // Helper to determine normalized order payment status: "Paid" | "Pending"
+  const getOrderPaymentStatus = (o) => {
+    if (!o) return "Pending";
+    const ps = String(o.paymentStatus || "").trim().toLowerCase();
+    const pm = String(o.paymentMethod || "").trim().toLowerCase();
+    if (ps === "paid" || ps === "completed" || ps === "success" || ps === "successful") {
+      return "Paid";
+    }
+    if (ps === "pending" || ps.includes("cod") || ps.includes("unpaid") || ps.includes("due") || ps === "pending payment") {
+      return "Pending";
+    }
+    if (pm === "corporate due" || pm === "pending selection") {
+      return "Pending";
+    }
+    if (o.status === "Delivered" || o.status === "Completed") {
+      return "Paid";
+    }
+    return "Pending";
+  };
+
   // Helper to determine if an order has pending payment
   const isOrderPendingPayment = (o) => {
     if (!o) return false;
     if (o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
-    const ps = String(o.paymentStatus || "").trim().toLowerCase();
-    const pm = String(o.paymentMethod || "").trim().toLowerCase();
-    const st = String(o.status || "").trim().toLowerCase();
-    if (ps === "paid" || ps === "completed" || ps === "success" || ps === "successful") return false;
-    if (ps === "pending" || ps.includes("cod") || ps.includes("unpaid") || ps.includes("due") || ps === "pending payment") return true;
-    if (st === "pending payment") return true;
-    if (pm.includes("cod") || pm.includes("cash on delivery")) {
-      return o.status !== "Delivered" && o.status !== "Completed";
-    }
-    return false;
+    return getOrderPaymentStatus(o) === "Pending";
   };
 
   // Earnings Summary Stats (Dynamic calculations from Firebase orders)
@@ -2846,6 +2860,13 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   if (!loc.includes(queueLocationFilter.toLowerCase())) return false;
                 }
 
+                // 4. Payment Status Filter
+                if (queuePaymentFilter !== "all") {
+                  const ps = getOrderPaymentStatus(o);
+                  if (queuePaymentFilter === "Pending" && ps !== "Pending") return false;
+                  if (queuePaymentFilter === "Paid" && ps !== "Paid") return false;
+                }
+
                 // 4. Search Filter
                 if (queueSearchTerm && queueSearchTerm.trim() !== "") {
                   const term = queueSearchTerm.toLowerCase().trim();
@@ -3030,6 +3051,20 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           ))}
                         </select>
                       </div>
+
+                      {/* 5. Payment Status */}
+                      <div className="queue-filter-col">
+                        <label className="queue-filter-label">Payment</label>
+                        <select
+                          value={queuePaymentFilter}
+                          onChange={(e) => setQueuePaymentFilter(e.target.value)}
+                          className="queue-select-input"
+                        >
+                          <option value="all">All Payments</option>
+                          <option value="Pending">⏳ Pending Orders</option>
+                          <option value="Paid">✅ Paid Orders</option>
+                        </select>
+                      </div>
                     </div>
 
                     {/* Right-aligned Actions */}
@@ -3208,8 +3243,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     <div style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
                                       {(() => {
                                         const pm = o.paymentMethod || (isOfflineOrder ? "Cash" : "Online UPI");
-                                        const ps = o.paymentStatus || (pm === "Corporate Due" || pm === "Pending Selection" ? "Pending" : "Paid");
-                                        const isPending = ps === "Pending" || pm === "Corporate Due" || pm === "Pending Selection";
+                                        const ps = getOrderPaymentStatus(o);
+                                        const isPending = ps === "Pending";
                                         
                                         let icon = "💵";
                                         let label = pm;
@@ -3432,6 +3467,17 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     <span className={`queue-channel-pill ${isOfflineOrder ? 'counter' : 'online'}`}>
                                       {isOfflineOrder ? "🏪 Counter" : "🌐 Online"}
                                     </span>
+                                    <span style={{
+                                      fontSize: '10px',
+                                      fontWeight: '700',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      background: getOrderPaymentStatus(o) === 'Paid' ? '#ecfdf5' : '#fef3c7',
+                                      color: getOrderPaymentStatus(o) === 'Paid' ? '#047857' : '#b45309',
+                                      border: `1px solid ${getOrderPaymentStatus(o) === 'Paid' ? '#a7f3d0' : '#fde68a'}`
+                                    }}>
+                                      {getOrderPaymentStatus(o) === 'Paid' ? '✅ Paid' : '⏳ Pending'}
+                                    </span>
                                   </div>
                                   <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', marginTop: '1px' }}>
                                     {orderIdFormatted}
@@ -3550,8 +3596,12 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       const statusStyle = getStatusColor(selectedQueueOrder.status || "Received");
 
                       const handleStatusChange = (newStatus) => {
-                        setSelectedQueueOrder({ ...selectedQueueOrder, status: newStatus });
-                        updateOrder(selectedQueueOrder.id, { status: newStatus });
+                        const updates = { status: newStatus };
+                        if (newStatus === "Delivered") {
+                          updates.paymentStatus = "Paid";
+                        }
+                        setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
+                        updateOrder(selectedQueueOrder.id, updates);
                         setToastMsg(`Order #${orderDisplayId} status updated to ${newStatus}! WhatsApp update auto-sent.`);
                         setTimeout(() => setToastMsg(""), 3000);
                       };
@@ -3786,17 +3836,73 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               <h3 className="sidebar-section-title">
                                 <span>💳</span> Payment Information
                               </h3>
-                              <span style={{ fontSize: '11px', fontWeight: '800', color: '#16a34a', background: '#dcfce7', padding: '2px 8px', borderRadius: '6px' }}>
-                                {selectedQueueOrder.paymentStatus || "Paid"}
-                              </span>
+                              {getOrderPaymentStatus(selectedQueueOrder) === "Paid" ? (
+                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#16a34a', background: '#dcfce7', padding: '3px 8px', borderRadius: '6px' }}>
+                                  ✅ Paid
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '11px', fontWeight: '800', color: '#d97706', background: '#fef3c7', padding: '3px 8px', borderRadius: '6px', border: '1px solid #fde68a' }}>
+                                  ⏳ Pending
+                                </span>
+                              )}
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', marginBottom: '6px' }}>
                               <span style={{ color: '#64748b', fontWeight: '600' }}>Payment Method:</span>
-                              <span style={{ color: '#1e293b', fontWeight: '800' }}>{selectedQueueOrder.paymentMethod || (isOffline ? "Cash" : "UPI Gateway")}</span>
+                              <span style={{ color: '#1e293b', fontWeight: '800' }}>{selectedQueueOrder.paymentMethod || (isOffline ? "Cash" : "Cash on Delivery")}</span>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px' }}>
                               <span style={{ color: '#64748b', fontWeight: '600' }}>Total Amount:</span>
                               <span style={{ color: '#16a34a', fontWeight: '800', fontSize: '15px' }}>{selTotal}</span>
+                            </div>
+
+                            {/* Quick Update Payment Status Buttons */}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await updateOrder(selectedQueueOrder.id, { paymentStatus: "Paid" });
+                                  setSelectedQueueOrder(prev => prev ? { ...prev, paymentStatus: "Paid" } : null);
+                                  setToastMsg(`Order #${orderDisplayId} marked as Paid!`);
+                                  setTimeout(() => setToastMsg(""), 3000);
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '7px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: '800',
+                                  cursor: 'pointer',
+                                  border: '1px solid #16a34a',
+                                  background: getOrderPaymentStatus(selectedQueueOrder) === "Paid" ? '#16a34a' : '#f0fdf4',
+                                  color: getOrderPaymentStatus(selectedQueueOrder) === "Paid" ? '#ffffff' : '#16a34a',
+                                  transition: 'all 0.2s ease'
+                                }}
+                              >
+                                ✅ Mark Paid
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await updateOrder(selectedQueueOrder.id, { paymentStatus: "Pending" });
+                                  setSelectedQueueOrder(prev => prev ? { ...prev, paymentStatus: "Pending" } : null);
+                                  setToastMsg(`Order #${orderDisplayId} marked as Pending!`);
+                                  setTimeout(() => setToastMsg(""), 3000);
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '7px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: '800',
+                                  cursor: 'pointer',
+                                  border: '1px solid #d97706',
+                                  background: getOrderPaymentStatus(selectedQueueOrder) === "Pending" ? '#d97706' : '#fffbeb',
+                                  color: getOrderPaymentStatus(selectedQueueOrder) === "Pending" ? '#ffffff' : '#d97706',
+                                  transition: 'all 0.2s ease'
+                                }}
+                              >
+                                ⏳ Mark Pending
+                              </button>
                             </div>
                           </div>
 

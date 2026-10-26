@@ -292,9 +292,11 @@ export default function AdminDashboard() {
     if (!order || !order.id) return;
     try {
       const updates = { status: newStatus };
-      if (order.isOffline && newStatus === "Delivered" && (!order.paymentMethod || order.paymentMethod === "Pending Selection")) {
-        updates.paymentMethod = "Cash";
+      if (newStatus === "Delivered") {
         updates.paymentStatus = "Paid";
+        if (order.isOffline && (!order.paymentMethod || order.paymentMethod === "Pending Selection")) {
+          updates.paymentMethod = "Cash";
+        }
       }
       await updateOrder(order.id, updates);
       if (selectedQueueOrder && selectedQueueOrder.id === order.id) {
@@ -373,20 +375,31 @@ export default function AdminDashboard() {
     return "₹0";
   };
 
+  // Helper to determine normalized order payment status: "Paid" | "Pending"
+  const getOrderPaymentStatus = (o) => {
+    if (!o) return "Pending";
+    const ps = String(o.paymentStatus || "").trim().toLowerCase();
+    const pm = String(o.paymentMethod || "").trim().toLowerCase();
+    if (ps === "paid" || ps === "completed" || ps === "success" || ps === "successful") {
+      return "Paid";
+    }
+    if (ps === "pending" || ps.includes("cod") || ps.includes("unpaid") || ps.includes("due") || ps === "pending payment") {
+      return "Pending";
+    }
+    if (pm === "corporate due" || pm === "pending selection") {
+      return "Pending";
+    }
+    if (o.status === "Delivered" || o.status === "Completed") {
+      return "Paid";
+    }
+    return "Pending";
+  };
+
   // Helper to determine if an order has pending payment
   const isOrderPendingPayment = (o) => {
     if (!o) return false;
     if (o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
-    const ps = String(o.paymentStatus || "").trim().toLowerCase();
-    const pm = String(o.paymentMethod || "").trim().toLowerCase();
-    const st = String(o.status || "").trim().toLowerCase();
-    if (ps === "paid" || ps === "completed" || ps === "success" || ps === "successful") return false;
-    if (ps === "pending" || ps.includes("cod") || ps.includes("unpaid") || ps.includes("due") || ps === "pending payment") return true;
-    if (st === "pending payment") return true;
-    if (pm.includes("cod") || pm.includes("cash on delivery")) {
-      return o.status !== "Delivered" && o.status !== "Completed";
-    }
-    return false;
+    return getOrderPaymentStatus(o) === "Pending";
   };
 
   // Detailed Product Delivery & Orders Tally for Sidebar Drawer
@@ -2433,6 +2446,13 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   if (!loc.includes(queueLocationFilter.toLowerCase())) return false;
                 }
 
+                // 4. Payment Status Filter
+                if (queuePaymentFilter && queuePaymentFilter !== "all") {
+                  const ps = getOrderPaymentStatus(o);
+                  if (queuePaymentFilter === "Pending" && ps !== "Pending") return false;
+                  if (queuePaymentFilter === "Paid" && ps !== "Paid") return false;
+                }
+
                 // 4. Search Filter
                 if (queueSearchTerm && queueSearchTerm.trim() !== "") {
                   const term = queueSearchTerm.toLowerCase().trim();
@@ -2617,6 +2637,20 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           ))}
                         </select>
                       </div>
+
+                      {/* 5. Payment Status */}
+                      <div className="queue-filter-col">
+                        <label className="queue-filter-label">Payment</label>
+                        <select
+                          value={queuePaymentFilter}
+                          onChange={(e) => setQueuePaymentFilter(e.target.value)}
+                          className="queue-select-input"
+                        >
+                          <option value="all">All Payments</option>
+                          <option value="Pending">⏳ Pending Orders</option>
+                          <option value="Paid">✅ Paid Orders</option>
+                        </select>
+                      </div>
                     </div>
 
                     {/* Right-aligned Actions */}
@@ -2747,7 +2781,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     setSelectedQueueOrder(o);
                                     setDeliveryTimeInput(o.allocatedTime || "");
                                     setQueueDeliveryPaymentMethod(o.paymentMethod || "Cash");
-                                    setQueueDeliveryPaymentStatus(o.paymentStatus || (o.paymentMethod === "Pending Selection" ? "Pending" : "Paid"));
+                                    setQueueDeliveryPaymentStatus(getOrderPaymentStatus(o));
                                     setIsQueueSidebarOpen(true);
                                   }}
                                 >
@@ -2794,8 +2828,8 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     <div style={{ marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
                                       {(() => {
                                         const pm = o.paymentMethod || (isOfflineOrder ? "Cash" : "Online UPI");
-                                        const ps = o.paymentStatus || (pm === "Corporate Due" || pm === "Pending Selection" ? "Pending" : "Paid");
-                                        const isPending = ps === "Pending" || pm === "Corporate Due" || pm === "Pending Selection";
+                                        const ps = getOrderPaymentStatus(o);
+                                        const isPending = ps === "Pending";
                                         
                                         let icon = "💵";
                                         let label = pm;
@@ -2926,7 +2960,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                           setSelectedQueueOrder(o);
                                           setDeliveryTimeInput(o.allocatedTime || "");
                                           setQueueDeliveryPaymentMethod(o.paymentMethod || "Cash");
-                                          setQueueDeliveryPaymentStatus(o.paymentStatus || (o.paymentMethod === "Pending Selection" ? "Pending" : "Paid"));
+                                          setQueueDeliveryPaymentStatus(getOrderPaymentStatus(o));
                                           setIsQueueSidebarOpen(true);
                                         }}
                                         className="queue-view-btn"
@@ -3001,7 +3035,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                               setSelectedQueueOrder(o);
                               setDeliveryTimeInput(o.allocatedTime || "");
                               setQueueDeliveryPaymentMethod(o.paymentMethod || "Cash");
-                              setQueueDeliveryPaymentStatus(o.paymentStatus || (o.paymentMethod === "Pending Selection" ? "Pending" : "Paid"));
+                              setQueueDeliveryPaymentStatus(getOrderPaymentStatus(o));
                               setIsQueueSidebarOpen(true);
                             }}
                           >
@@ -3021,6 +3055,17 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     )}
                                     <span className={`queue-channel-pill ${isOfflineOrder ? 'counter' : 'online'}`}>
                                       {isOfflineOrder ? "🏪 Counter" : "🌐 Online"}
+                                    </span>
+                                    <span style={{
+                                      fontSize: '10px',
+                                      fontWeight: '700',
+                                      padding: '2px 6px',
+                                      borderRadius: '4px',
+                                      background: getOrderPaymentStatus(o) === 'Paid' ? '#ecfdf5' : '#fef3c7',
+                                      color: getOrderPaymentStatus(o) === 'Paid' ? '#047857' : '#b45309',
+                                      border: `1px solid ${getOrderPaymentStatus(o) === 'Paid' ? '#a7f3d0' : '#fde68a'}`
+                                    }}>
+                                      {getOrderPaymentStatus(o) === 'Paid' ? '✅ Paid' : '⏳ Pending'}
                                     </span>
                                   </div>
                                   <div style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', marginTop: '1px' }}>
@@ -3141,9 +3186,11 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                       const handleStatusChange = (newStatus) => {
                         const updates = { status: newStatus };
-                        if (isOffline && newStatus === "Delivered" && (!selectedQueueOrder.paymentMethod || selectedQueueOrder.paymentMethod === "Pending Selection")) {
-                          updates.paymentMethod = queueDeliveryPaymentMethod || "Cash";
-                          updates.paymentStatus = queueDeliveryPaymentStatus || "Paid";
+                        if (newStatus === "Delivered") {
+                          updates.paymentStatus = "Paid";
+                          if (isOffline && (!selectedQueueOrder.paymentMethod || selectedQueueOrder.paymentMethod === "Pending Selection")) {
+                            updates.paymentMethod = queueDeliveryPaymentMethod || "Cash";
+                          }
                         }
                         setSelectedQueueOrder({ ...selectedQueueOrder, ...updates });
                         updateOrder(selectedQueueOrder.id, updates);
@@ -3358,30 +3405,72 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           </div>
 
                           {/* PAYMENT SETTLEMENT CARD (OFFLINE vs ONLINE) */}
-                          {!isOffline ? (
-                            <div className="sidebar-section-card online-settled-card">
-                              <div className="online-settled-flex">
-                                <div className="online-settled-icon">🌐</div>
-                                <div className="online-settled-text">
-                                  <div className="online-settled-title">Online App Checkout</div>
-                                  <div className="online-settled-desc">Payment settled through App / UPI gateway. No manual counter cash collection needed.</div>
-                                </div>
+                          <div className="sidebar-section-card offline-settlement-card">
+                            <div className="sidebar-section-header">
+                              <div>
+                                <h3 className="sidebar-section-title">
+                                  <span>💳</span> Payment Status & Settlement
+                                </h3>
+                                <p className="sidebar-section-sub">
+                                  {isOffline ? "Collect payment at POS counter" : "Online desk delivery order"}
+                                </p>
                               </div>
+                              <span className={`payment-due-badge ${getOrderPaymentStatus(selectedQueueOrder) === "Paid" ? "paid" : "pending"}`}>
+                                {getOrderPaymentStatus(selectedQueueOrder) === "Paid" ? "✅ Paid" : "⏳ Due / Pending"}
+                              </span>
                             </div>
-                          ) : (
-                            <div className="sidebar-section-card offline-settlement-card">
-                              <div className="sidebar-section-header">
-                                <div>
-                                  <h3 className="sidebar-section-title">
-                                    <span>🏪</span> Counter Settlement Method
-                                  </h3>
-                                  <p className="sidebar-section-sub">Collect payment at POS counter</p>
-                                </div>
-                                <span className={`payment-due-badge ${(selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Paid" ? "paid" : "pending"}`}>
-                                  {((selectedQueueOrder.paymentStatus || queueDeliveryPaymentStatus) === "Pending" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Corporate Due" || (selectedQueueOrder.paymentMethod || queueDeliveryPaymentMethod) === "Pending Selection") ? "⏳ Due / Pending" : "✅ Paid"}
-                                </span>
-                              </div>
 
+                            {/* Quick Toggle Buttons for Payment Status (both Online & Offline) */}
+                            <div style={{ display: 'flex', gap: '8px', margin: '10px 0 12px 0' }}>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setQueueDeliveryPaymentStatus("Paid");
+                                  setSelectedQueueOrder(prev => prev ? { ...prev, paymentStatus: "Paid" } : null);
+                                  await updateOrder(selectedQueueOrder.id, { paymentStatus: "Paid" });
+                                  setToastMsg(`Order #${orderDisplayId} marked as Paid!`);
+                                  setTimeout(() => setToastMsg(""), 2500);
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '8px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: '800',
+                                  cursor: 'pointer',
+                                  border: '1px solid #16a34a',
+                                  background: getOrderPaymentStatus(selectedQueueOrder) === "Paid" ? '#16a34a' : '#f0fdf4',
+                                  color: getOrderPaymentStatus(selectedQueueOrder) === "Paid" ? '#ffffff' : '#16a34a'
+                                }}
+                              >
+                                ✅ Mark Paid
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setQueueDeliveryPaymentStatus("Pending");
+                                  setSelectedQueueOrder(prev => prev ? { ...prev, paymentStatus: "Pending" } : null);
+                                  await updateOrder(selectedQueueOrder.id, { paymentStatus: "Pending" });
+                                  setToastMsg(`Order #${orderDisplayId} marked as Pending!`);
+                                  setTimeout(() => setToastMsg(""), 2500);
+                                }}
+                                style={{
+                                  flex: 1,
+                                  padding: '8px 10px',
+                                  borderRadius: '6px',
+                                  fontSize: '12px',
+                                  fontWeight: '800',
+                                  cursor: 'pointer',
+                                  border: '1px solid #d97706',
+                                  background: getOrderPaymentStatus(selectedQueueOrder) === "Pending" ? '#d97706' : '#fffbeb',
+                                  color: getOrderPaymentStatus(selectedQueueOrder) === "Pending" ? '#ffffff' : '#d97706'
+                                }}
+                              >
+                                ⏳ Mark Pending
+                              </button>
+                            </div>
+
+                            {isOffline ? (
                               <div className="payment-methods-grid">
                                 {[
                                   { id: "Cash", label: "💵 Cash", status: "Paid" },
@@ -3412,8 +3501,13 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                   );
                                 })}
                               </div>
-                            </div>
-                          )}
+                            ) : (
+                              <div style={{ fontSize: '12px', color: '#64748b', background: '#f8fafc', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span>🌐</span>
+                                <span>Method: <strong>{selectedQueueOrder.paymentMethod || "Cash on Delivery"}</strong></span>
+                              </div>
+                            )}
+                          </div>
 
                           {/* PREPARATION & DELIVERY WINDOW */}
                           <div className="sidebar-section-card">
@@ -3450,11 +3544,11 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     status: updatedStatus
                                   };
 
+                                  const paymentStatusToSave = queueDeliveryPaymentStatus || selectedQueueOrder.paymentStatus || (updatedStatus === "Delivered" ? "Paid" : "Pending");
+                                  updates.paymentStatus = paymentStatusToSave;
                                   if (isOffline) {
                                     const paymentMethodToSave = queueDeliveryPaymentMethod || selectedQueueOrder.paymentMethod || "Cash";
-                                    const paymentStatusToSave = queueDeliveryPaymentStatus || selectedQueueOrder.paymentStatus || (paymentMethodToSave === "Corporate Due" ? "Pending" : "Paid");
                                     updates.paymentMethod = paymentMethodToSave;
-                                    updates.paymentStatus = paymentStatusToSave;
                                   }
 
                                   updateOrder(selectedQueueOrder.id, updates);

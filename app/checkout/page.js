@@ -182,7 +182,7 @@ function CheckoutPortal() {
       discount: `₹${appliedDiscount}`,
       coupon: appliedCouponLabel || "None",
       paymentMethod: "Cash on Delivery",
-      paymentStatus: "COD (Pay upon arrival)",
+      paymentStatus: "Pending",
       status: "Received",
       createdAt: Date.now(),
       allocatedTime: 20, // 20 minutes default brewing & delivery window
