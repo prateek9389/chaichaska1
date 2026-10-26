@@ -276,6 +276,93 @@ export default function AdminDashboard() {
   const [statsModalProduct, setStatsModalProduct] = useState("");
   const [statsModalLocation, setStatsModalLocation] = useState("all");
 
+  // -------------------------------------------------------------
+  // SEND MESSAGE STATS - PDF STATE & HANDLERS
+  // -------------------------------------------------------------
+  const [statsPdfDateFilter, setStatsPdfDateFilter] = useState("today"); // 'today' | '7days' | 'this_month' | 'last_month' | 'this_year' | 'custom_range' | 'multiple_months' | 'all'
+  const [statsPdfStartDate, setStatsPdfStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [statsPdfEndDate, setStatsPdfEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [statsPdfSelectedMonths, setStatsPdfSelectedMonths] = useState([
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][new Date().getMonth()]
+  ]);
+  const [statsPdfSelectedYear, setStatsPdfSelectedYear] = useState(new Date().getFullYear());
+  const [statsPdfChannelFilter, setStatsPdfChannelFilter] = useState("all"); // 'all' | 'online' | 'offline'
+  const [statsPdfRecipientPhone, setStatsPdfRecipientPhone] = useState("+919667623123");
+  const [statsPdfCustomNote, setStatsPdfCustomNote] = useState("");
+  const [statsPdfSending, setStatsPdfSending] = useState(false);
+  const [statsPdfDownloading, setStatsPdfDownloading] = useState(false);
+  const [statsPdfMsg, setStatsPdfMsg] = useState({ type: '', text: '' });
+
+  const handleSendStatsPdf = async (statsPayload, filterPeriodTitle) => {
+    const rawPhone = statsPdfRecipientPhone.trim();
+    if (!rawPhone) {
+      setStatsPdfMsg({ type: 'error', text: 'Please enter a valid 10-digit mobile number to send stats PDF.' });
+      setTimeout(() => setStatsPdfMsg({ type: '', text: '' }), 4500);
+      return;
+    }
+    setStatsPdfSending(true);
+    setStatsPdfMsg({ type: 'info', text: `⏳ Generating PDF report & dispatching to ${rawPhone}...` });
+
+    try {
+      const res = await fetch('/api/send-stats-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: rawPhone,
+          filterInfo: filterPeriodTitle,
+          stats: statsPayload,
+          customNote: statsPdfCustomNote.trim(),
+          downloadOnly: false
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setStatsPdfMsg({ type: 'success', text: `🎉 Stats PDF report successfully delivered to ${data.to || rawPhone} on WhatsApp!` });
+      } else {
+        setStatsPdfMsg({ type: 'error', text: `❌ Failed to send PDF: ${data.error || 'Server error'}` });
+      }
+    } catch (err) {
+      setStatsPdfMsg({ type: 'error', text: `❌ Network error: ${err.message}` });
+    } finally {
+      setStatsPdfSending(false);
+      setTimeout(() => setStatsPdfMsg({ type: '', text: '' }), 7000);
+    }
+  };
+
+  const handleDownloadStatsPdf = async (statsPayload, filterPeriodTitle) => {
+    setStatsPdfDownloading(true);
+    setStatsPdfMsg({ type: 'info', text: '⏳ Generating PDF for download...' });
+
+    try {
+      const res = await fetch('/api/send-stats-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filterInfo: filterPeriodTitle,
+          stats: statsPayload,
+          customNote: statsPdfCustomNote.trim(),
+          downloadOnly: true
+        })
+      });
+      if (!res.ok) throw new Error('PDF Generation failed on server');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Chai_Chaska_Stats_${filterPeriodTitle.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      setStatsPdfMsg({ type: 'success', text: '✅ PDF report downloaded successfully!' });
+    } catch (err) {
+      setStatsPdfMsg({ type: 'error', text: `❌ Download error: ${err.message}` });
+    } finally {
+      setStatsPdfDownloading(false);
+      setTimeout(() => setStatsPdfMsg({ type: '', text: '' }), 4500);
+    }
+  };
+
   useEffect(() => {
     function handleClickOutside(e) {
       if (searchSuggestRef.current && !searchSuggestRef.current.contains(e.target)) {
@@ -1707,6 +1794,16 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
               <button onClick={() => setActiveTab("history")} className={`menu-icon-btn ${activeTab === "history" ? "active" : ""}`}>
                 <span className="btn-emoji">📜</span> Order History
               </button>
+              <button
+                onClick={() => setActiveTab("statsPdf")}
+                className={`menu-icon-btn ${activeTab === "statsPdf" ? "active" : ""}`}
+                style={{
+                  background: activeTab === "statsPdf" ? "#0284c7" : "transparent",
+                  color: activeTab === "statsPdf" ? "#ffffff" : "inherit"
+                }}
+              >
+                <span className="btn-emoji">📄</span> Send Stats PDF
+              </button>
 
               <button onClick={() => setActiveTab("leave")} className={`menu-icon-btn ${activeTab === "leave" ? "active" : ""}`}>
                 <span className="btn-emoji">🚪</span> Leave & Shift
@@ -1901,6 +1998,18 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   <div className="mob-drawer-card-info">
                     <strong>Order History</strong>
                     <span>Past dispatched logs</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab("statsPdf"); setIsMobileMoreDrawerOpen(false); }}
+                  className={`mob-drawer-card ${activeTab === "statsPdf" ? "active" : ""}`}
+                >
+                  <div className="mob-drawer-card-icon" style={{ background: '#e0f2fe', color: '#0369a1' }}>📄</div>
+                  <div className="mob-drawer-card-info">
+                    <strong>Send Stats PDF</strong>
+                    <span>WhatsApp Analytics & PDF report</span>
                   </div>
                 </button>
 
@@ -6556,6 +6665,687 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                           SAVE OFFLINE ORDER (₹{calculatedTotal}) ☕
                         </button>
                       </div>
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })()}
+
+            {/* ========================================================================= */}
+            {/* TAB: SEND MESSAGE STATS - PDF WITH ADVANCED DATE FILTERS & WHATSAPP DISPATCH */}
+            {/* ========================================================================= */}
+            {activeTab === "statsPdf" && (() => {
+              const todayStr = new Date().toISOString().split('T')[0];
+              const now = new Date();
+              const sevenDaysAgoStr = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+              const thisMonthPrefix = todayStr.slice(0, 7);
+              const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+              const lastMonthPrefix = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+              const thisYearPrefix = `${now.getFullYear()}-`;
+
+              const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+              const MONTH_FULL_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+              // 1. FILTER ORDERS ACCORDING TO USER FILTER SELECTIONS
+              const filteredOrders = orders.filter(o => {
+                // Exclude cancelled / refunded
+                if (o.status === "Cancelled" || o.status === "Cancelled by User" || o.status === "Refunded") return false;
+
+                // Channel filter (online vs offline)
+                if (statsPdfChannelFilter === "online" && (o.isOffline || o.walkIn)) return false;
+                if (statsPdfChannelFilter === "offline" && (!o.isOffline && !o.walkIn)) return false;
+
+                const orderDateStr = getOrderDateString(o) || todayStr;
+
+                if (statsPdfDateFilter === "today") {
+                  return orderDateStr === todayStr;
+                } else if (statsPdfDateFilter === "7days") {
+                  return orderDateStr >= sevenDaysAgoStr && orderDateStr <= todayStr;
+                } else if (statsPdfDateFilter === "this_month") {
+                  return orderDateStr.startsWith(thisMonthPrefix);
+                } else if (statsPdfDateFilter === "last_month") {
+                  return orderDateStr.startsWith(lastMonthPrefix);
+                } else if (statsPdfDateFilter === "this_year") {
+                  return orderDateStr.startsWith(thisYearPrefix);
+                } else if (statsPdfDateFilter === "custom_range") {
+                  if (statsPdfStartDate && orderDateStr < statsPdfStartDate) return false;
+                  if (statsPdfEndDate && orderDateStr > statsPdfEndDate) return false;
+                  return true;
+                } else if (statsPdfDateFilter === "multiple_months") {
+                  const orderYear = parseInt(orderDateStr.slice(0, 4), 10);
+                  const orderMonthIdx = parseInt(orderDateStr.slice(5, 7), 10) - 1;
+                  const orderMonthName = MONTH_NAMES[orderMonthIdx];
+                  if (orderYear !== Number(statsPdfSelectedYear)) return false;
+                  return statsPdfSelectedMonths.includes(orderMonthName);
+                }
+                return true; // 'all'
+              });
+
+              // 2. COMPUTE HUMAN READABLE PERIOD TITLE
+              let filterPeriodTitle = "All Time Orders";
+              if (statsPdfDateFilter === "today") {
+                filterPeriodTitle = `Today (${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })})`;
+              } else if (statsPdfDateFilter === "7days") {
+                filterPeriodTitle = `Last 7 Days (${new Date(sevenDaysAgoStr).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} - Today)`;
+              } else if (statsPdfDateFilter === "this_month") {
+                filterPeriodTitle = `${MONTH_FULL_NAMES[now.getMonth()]} ${now.getFullYear()}`;
+              } else if (statsPdfDateFilter === "last_month") {
+                filterPeriodTitle = `${MONTH_FULL_NAMES[lastMonthDate.getMonth()]} ${lastMonthDate.getFullYear()}`;
+              } else if (statsPdfDateFilter === "this_year") {
+                filterPeriodTitle = `Year ${now.getFullYear()}`;
+              } else if (statsPdfDateFilter === "custom_range") {
+                filterPeriodTitle = `${statsPdfStartDate || 'Start'} to ${statsPdfEndDate || 'End'}`;
+              } else if (statsPdfDateFilter === "multiple_months") {
+                filterPeriodTitle = statsPdfSelectedMonths.length > 0
+                  ? `${statsPdfSelectedMonths.join(', ')} (${statsPdfSelectedYear})`
+                  : `No Months Selected (${statsPdfSelectedYear})`;
+              }
+
+              // Exact Price Parsing Helper aligned 100% with Admin Dashboard
+              const parseOrderPrice = (o) => {
+                if (!o) return 0;
+                if (typeof o.priceNum === "number" && !isNaN(o.priceNum) && o.priceNum > 0) return o.priceNum;
+                if (typeof o.amount === "number" && !isNaN(o.amount) && o.amount > 0) return o.amount;
+                if (typeof o.price === "number" && !isNaN(o.price) && o.price > 0) return o.price;
+                const raw = o.total || o.totalPrice || o.price || o.amount || 0;
+                if (typeof raw === "number" && !isNaN(raw) && raw > 0) return raw;
+                if (typeof raw === "string") {
+                  const num = parseFloat(raw.replace(/[^\d.]/g, ""));
+                  if (!isNaN(num) && num > 0) return num;
+                }
+                if (Array.isArray(o.items) && o.items.length > 0) {
+                  const sum = o.items.reduce((acc, it) => {
+                    const p = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || it.basePrice || 0).replace(/[^\d.]/g, "")) || 0;
+                    const q = parseInt(it.quantity || it.qty) || 1;
+                    return acc + (p * q);
+                  }, 0);
+                  if (sum > 0) return sum;
+                }
+                return 0;
+              };
+
+              // 3. AGGREGATE KEY METRICS (Exact alignment with Admin)
+              const totalOrders = filteredOrders.length;
+              const totalRevenue = filteredOrders.reduce((sum, o) => sum + parseOrderPrice(o), 0);
+              const deliveredCount = filteredOrders.filter(o => o.status === "Delivered" || o.status === "Completed").length;
+              const preparingCount = filteredOrders.filter(o => o.status === "Preparing" || o.status === "Received" || o.status === "Pending").length;
+
+              const onlineOrders = filteredOrders.filter(o => !o.isOffline && !o.walkIn).length;
+              const onlineRevenue = filteredOrders.filter(o => !o.isOffline && !o.walkIn).reduce((sum, o) => sum + parseOrderPrice(o), 0);
+              const offlineOrders = filteredOrders.filter(o => o.isOffline || o.walkIn).length;
+              const offlineRevenue = filteredOrders.filter(o => o.isOffline || o.walkIn).reduce((sum, o) => sum + parseOrderPrice(o), 0);
+
+              // 4. PRODUCT SALES TALLY
+              const productMap = {};
+              filteredOrders.forEach(o => {
+                const ordPrice = parseOrderPrice(o);
+                if (Array.isArray(o.items) && o.items.length > 0) {
+                  const totalOrderItemsCount = o.items.reduce((s, it) => s + (parseInt(it.quantity || it.qty) || 1), 0);
+                  const hasItemPrices = o.items.some(it => {
+                    const pr = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || 0).replace(/[^\d.]/g, ""));
+                    return !isNaN(pr) && pr > 0;
+                  });
+
+                  o.items.forEach(it => {
+                    const name = String(it.name || it.item || 'Special Chai').trim();
+                    const qty = parseInt(it.quantity || it.qty) || 1;
+                    let rev = 0;
+                    if (hasItemPrices) {
+                      const pr = typeof it.price === "number" ? it.price : parseFloat(String(it.price || it.priceNum || 0).replace(/[^\d.]/g, "")) || 0;
+                      rev = pr * qty;
+                    } else {
+                      rev = totalOrderItemsCount > 0 ? (ordPrice * (qty / totalOrderItemsCount)) : ordPrice;
+                    }
+
+                    if (!productMap[name]) productMap[name] = { name, qty: 0, revenue: 0 };
+                    productMap[name].qty += qty;
+                    productMap[name].revenue += rev;
+                  });
+                } else {
+                  const name = String(o.item || 'Special Chai').trim();
+                  const qty = parseInt(o.quantity) || 1;
+                  if (!productMap[name]) productMap[name] = { name, qty: 0, revenue: 0 };
+                  productMap[name].qty += qty;
+                  productMap[name].revenue += ordPrice;
+                }
+              });
+
+              const topProducts = Object.values(productMap).sort((a, b) => b.qty - a.qty);
+              const totalItems = topProducts.reduce((sum, p) => sum + p.qty, 0);
+
+              // 5. DAILY TIMELINE
+              const dayMap = {};
+              filteredOrders.forEach(o => {
+                const d = getOrderDateString(o) || todayStr;
+                const rev = parseOrderPrice(o);
+                if (!dayMap[d]) dayMap[d] = { date: d, count: 0, revenue: 0, units: 0 };
+                dayMap[d].count += 1;
+                dayMap[d].revenue += rev;
+                const itemsCount = Array.isArray(o.items)
+                  ? o.items.reduce((s, it) => s + (parseInt(it.quantity || it.qty) || 1), 0)
+                  : (parseInt(o.quantity) || 1);
+                dayMap[d].units += itemsCount;
+              });
+              const dailyBreakdown = Object.values(dayMap).sort((a, b) => b.date.localeCompare(a.date));
+
+              // 6. LOCATION BREAKDOWN
+              const locationMap = {};
+              filteredOrders.forEach(o => {
+                const loc = (o.isOffline || o.walkIn)
+                  ? "Counter Walk-in"
+                  : (o.office || (typeof o.address === "string" ? o.address : (o.address?.address1 || o.address?.city || "Desk Delivery")));
+                const rev = parseOrderPrice(o);
+                if (!locationMap[loc]) locationMap[loc] = { location: loc, count: 0, revenue: 0 };
+                locationMap[loc].count += 1;
+                locationMap[loc].revenue += rev;
+              });
+              const locationBreakdown = Object.values(locationMap).sort((a, b) => b.count - a.count).slice(0, 6);
+
+              // 7. PAYMENT MODES & EXTENDED REVENUE BREAKDOWN
+              let paidRevenue = 0;
+              let paidOrders = 0;
+              let pendingRevenue = 0;
+              let pendingOrders = 0;
+              let upiRevenue = 0;
+              let upiOrders = 0;
+              let cashRevenue = 0;
+              let cashOrders = 0;
+
+              filteredOrders.forEach(o => {
+                const amt = parseOrderPrice(o);
+                const isPaid = (o.paymentStatus === "Paid" || o.status === "Delivered" || o.status === "Completed");
+                if (isPaid) {
+                  paidRevenue += amt;
+                  paidOrders += 1;
+                } else {
+                  pendingRevenue += amt;
+                  pendingOrders += 1;
+                }
+
+                const pm = String(o.paymentMethod || "").toLowerCase();
+                if (pm.includes("cash") || ((o.isOffline || o.walkIn) && (!pm || pm === "cash"))) {
+                  cashRevenue += amt;
+                  cashOrders += 1;
+                } else {
+                  upiRevenue += amt;
+                  upiOrders += 1;
+                }
+              });
+
+              const aov = totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0;
+              const avgCupPrice = totalItems > 0 ? Math.round(totalRevenue / totalItems) : 0;
+
+              const paymentBreakdown = {
+                paidRevenue,
+                paidOrders,
+                pendingRevenue,
+                pendingOrders,
+                upiRevenue,
+                upiOrders,
+                cashRevenue,
+                cashOrders,
+                aov,
+                avgCupPrice
+              };
+
+              // Payload for PDF generator
+              const statsPayload = {
+                totalOrders,
+                totalRevenue,
+                deliveredCount,
+                preparingCount,
+                totalItems,
+                aov,
+                avgCupPrice,
+                paymentBreakdown,
+                channelBreakdown: {
+                  onlineOrders,
+                  onlineRevenue,
+                  offlineOrders,
+                  offlineRevenue
+                },
+                topProducts,
+                dailyBreakdown,
+                locationBreakdown
+              };
+
+              return (
+                <div className="tab-body-wrapper tab-fade-in" style={{ padding: "28px 32px", maxWidth: "1280px", margin: "0 auto" }}>
+                  
+                  {/* HEADER HERO BANNER */}
+                  <div style={{
+                    background: "linear-gradient(135deg, #2c1b0d 0%, #432818 100%)",
+                    color: "#ffffff",
+                    padding: "26px 30px",
+                    borderRadius: "20px",
+                    boxShadow: "0 10px 25px rgba(44, 27, 13, 0.15)",
+                    marginBottom: "24px"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+                      <div>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.12)", padding: "4px 12px", borderRadius: "999px", fontSize: "11.5px", fontWeight: "800", color: "#fef3c7", marginBottom: "8px" }}>
+                          <span>📄</span> OFFICIAL BUSINESS INTELLIGENCE & PDF EXPORT
+                        </div>
+                        <h2 style={{ fontSize: "24px", fontWeight: "900", margin: "0 0 6px", color: "#ffffff" }}>
+                          Send Message Stats - PDF Report
+                        </h2>
+                        <p style={{ margin: 0, fontSize: "13px", color: "#f5d0b5", maxWidth: "720px", lineHeight: "1.5" }}>
+                          Generate real-time business performance summaries with date filters (today, 7 days, this month, custom ranges, or multiple months) and instantly dispatch a high-resolution PDF document to WhatsApp.
+                        </p>
+                      </div>
+
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadStatsPdf(statsPayload, filterPeriodTitle)}
+                          disabled={statsPdfDownloading}
+                          style={{
+                            background: "linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.12) 100%)",
+                            color: "#ffffff",
+                            border: "1.5px solid rgba(255,255,255,0.45)",
+                            padding: "11px 20px",
+                            borderRadius: "12px",
+                            fontWeight: "800",
+                            fontSize: "13px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                            backdropFilter: "blur(6px)",
+                            transition: "all 0.2s ease"
+                          }}
+                        >
+                          {statsPdfDownloading ? "⏳ Generating PDF..." : "📥 Download PDF Report"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSendStatsPdf(statsPayload, filterPeriodTitle)}
+                          disabled={statsPdfSending}
+                          style={{
+                            background: "#25D366",
+                            color: "#ffffff",
+                            border: "none",
+                            padding: "11px 22px",
+                            borderRadius: "12px",
+                            fontWeight: "900",
+                            fontSize: "13px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            boxShadow: "0 4px 15px rgba(37, 211, 102, 0.45)",
+                            transition: "all 0.2s ease"
+                          }}
+                        >
+                          {statsPdfSending ? "⏳ Sending WhatsApp..." : "🚀 Send to WhatsApp"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* NOTIFICATION MESSAGE ALERT */}
+                  {statsPdfMsg.text && (
+                    <div style={{
+                      padding: "12px 18px",
+                      borderRadius: "12px",
+                      marginBottom: "20px",
+                      fontSize: "13.5px",
+                      fontWeight: "750",
+                      background: statsPdfMsg.type === "success" ? "#dcfce7" : statsPdfMsg.type === "info" ? "#e0f2fe" : "#fee2e2",
+                      color: statsPdfMsg.type === "success" ? "#15803d" : statsPdfMsg.type === "info" ? "#0369a1" : "#b91c1c",
+                      border: `1px solid ${statsPdfMsg.type === "success" ? "#86efac" : statsPdfMsg.type === "info" ? "#7dd3fc" : "#fca5a5"}`
+                    }}>
+                      {statsPdfMsg.text}
+                    </div>
+                  )}
+
+                  {/* FILTER CONTROLS CARD */}
+                  <div style={{ background: "#ffffff", padding: "22px 24px", borderRadius: "16px", border: "1px solid #e4e4e7", boxShadow: "0 2px 12px rgba(0,0,0,0.03)", marginBottom: "22px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <span style={{ fontSize: "16px" }}>🔍</span>
+                        <h3 style={{ fontSize: "15px", fontWeight: "850", color: "#2c1b0d", margin: 0 }}>
+                          Select Time Period & Date Range Filter
+                        </h3>
+                      </div>
+                      <span style={{ fontSize: "12px", color: "#71717a", fontWeight: "700", background: "#f4f4f5", padding: "3px 10px", borderRadius: "8px" }}>
+                        Active: <strong style={{ color: "#2c1b0d" }}>{filterPeriodTitle}</strong> ({totalOrders} orders)
+                      </span>
+                    </div>
+
+                    {/* Quick Preset Buttons */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "16px" }}>
+                      {[
+                        { key: "today", label: "⚡ Today" },
+                        { key: "7days", label: "📅 Last 7 Days" },
+                        { key: "this_month", label: "🗓️ This Month" },
+                        { key: "last_month", label: "⏮️ Last Month" },
+                        { key: "this_year", label: "📆 This Year" },
+                        { key: "multiple_months", label: "🗂️ Multiple Months" },
+                        { key: "custom_range", label: "🗓️ Custom Range" },
+                        { key: "all", label: "🌐 All Time" }
+                      ].map(tab => (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setStatsPdfDateFilter(tab.key)}
+                          style={{
+                            padding: "8px 14px",
+                            borderRadius: "10px",
+                            border: statsPdfDateFilter === tab.key ? "none" : "1px solid #e4e4e7",
+                            background: statsPdfDateFilter === tab.key ? "#2c1b0d" : "#fafafa",
+                            color: statsPdfDateFilter === tab.key ? "#ffffff" : "#3f3f46",
+                            fontWeight: "800",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* DYNAMIC SUB-FILTER CONTROLS */}
+                    {/* 1. MULTIPLE MONTHS SELECTION */}
+                    {statsPdfDateFilter === "multiple_months" && (
+                      <div style={{ background: "#f8fafc", padding: "16px 18px", borderRadius: "12px", border: "1.5px solid #e2e8f0", marginBottom: "14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "12px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <span style={{ fontSize: "12.5px", fontWeight: "800", color: "#1e293b" }}>
+                              Pick Months to Combine:
+                            </span>
+                            <select
+                              value={statsPdfSelectedYear}
+                              onChange={(e) => setStatsPdfSelectedYear(Number(e.target.value))}
+                              style={{ padding: "6px 10px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "12.5px", fontWeight: "800", color: "#0f172a" }}
+                            >
+                              {[2026, 2025, 2024].map(y => (
+                                <option key={y} value={y}>{y}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <button
+                              type="button"
+                              onClick={() => setStatsPdfSelectedMonths([...MONTH_NAMES])}
+                              style={{ background: "#e0f2fe", border: "none", color: "#0369a1", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                            >
+                              ✓ Select All
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setStatsPdfSelectedMonths([])}
+                              style={{ background: "#f1f5f9", border: "none", color: "#64748b", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                            >
+                              ✕ Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Month Pills Grid */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(75px, 1fr))", gap: "8px" }}>
+                          {MONTH_NAMES.map(m => {
+                            const isSelected = statsPdfSelectedMonths.includes(m);
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setStatsPdfSelectedMonths(prev => prev.filter(item => item !== m));
+                                  } else {
+                                    setStatsPdfSelectedMonths(prev => [...prev, m]);
+                                  }
+                                }}
+                                style={{
+                                  padding: "8px 10px",
+                                  borderRadius: "8px",
+                                  border: isSelected ? "1.5px solid #0284c7" : "1px solid #cbd5e1",
+                                  background: isSelected ? "#0284c7" : "#ffffff",
+                                  color: isSelected ? "#ffffff" : "#334155",
+                                  fontSize: "12px",
+                                  fontWeight: "800",
+                                  cursor: "pointer",
+                                  transition: "all 0.12s ease"
+                                }}
+                              >
+                                {isSelected ? `✓ ${m}` : m}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 2. CUSTOM DATE RANGE PICKER */}
+                    {statsPdfDateFilter === "custom_range" && (
+                      <div style={{ background: "#f8fafc", padding: "16px 18px", borderRadius: "12px", border: "1.5px solid #e2e8f0", marginBottom: "14px", display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#475569", marginBottom: "4px" }}>
+                            FROM DATE:
+                          </label>
+                          <input
+                            type="date"
+                            value={statsPdfStartDate}
+                            onChange={(e) => setStatsPdfStartDate(e.target.value)}
+                            style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "12.5px", fontWeight: "700" }}
+                          />
+                        </div>
+
+                        <div>
+                          <label style={{ display: "block", fontSize: "11px", fontWeight: "800", color: "#475569", marginBottom: "4px" }}>
+                            TO DATE:
+                          </label>
+                          <input
+                            type="date"
+                            value={statsPdfEndDate}
+                            onChange={(e) => setStatsPdfEndDate(e.target.value)}
+                            style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", fontSize: "12.5px", fontWeight: "700" }}
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStatsPdfStartDate(todayStr);
+                            setStatsPdfEndDate(todayStr);
+                          }}
+                          style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", padding: "8px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "750", cursor: "pointer", marginTop: "16px" }}
+                        >
+                          Reset to Today
+                        </button>
+                      </div>
+                    )}
+
+                    {/* CHANNEL FILTER SELECTOR */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", paddingTop: "8px", borderTop: "1px solid #f4f4f5" }}>
+                      <span style={{ fontSize: "12px", fontWeight: "800", color: "#475569" }}>
+                        Channel:
+                      </span>
+                      {[
+                        { key: "all", label: "🌐 All Channels" },
+                        { key: "online", label: "📱 Online App Only" },
+                        { key: "offline", label: "🏪 Counter Walk-in Only" }
+                      ].map(ch => (
+                        <button
+                          key={ch.key}
+                          type="button"
+                          onClick={() => setStatsPdfChannelFilter(ch.key)}
+                          style={{
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            border: statsPdfChannelFilter === ch.key ? "none" : "1px solid #e4e4e7",
+                            background: statsPdfChannelFilter === ch.key ? "#432818" : "#ffffff",
+                            color: statsPdfChannelFilter === ch.key ? "#ffffff" : "#64748b",
+                            fontSize: "11.5px",
+                            fontWeight: "750",
+                            cursor: "pointer"
+                          }}
+                        >
+                          {ch.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* WHATSAPP RECIPIENT & SEND STATION (CONFIDENTIAL ADMIN DISPATCH) */}
+                  <div style={{
+                    background: "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)",
+                    padding: "24px 28px",
+                    borderRadius: "18px",
+                    border: "1.5px solid #86efac",
+                    boxShadow: "0 4px 20px rgba(22, 163, 74, 0.08)",
+                    marginBottom: "20px"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+                      <span style={{ fontSize: "22px" }}>📲</span>
+                      <div>
+                        <h4 style={{ fontSize: "16px", fontWeight: "900", color: "#14532d", margin: 0 }}>
+                          Dispatch Operations & Revenue PDF Report to Admin
+                        </h4>
+                        <span style={{ fontSize: "12.5px", color: "#15803d" }}>
+                          Selected recipient receives the complete PDF report along with full financial and sales summary on WhatsApp.
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 320px) 1fr auto", gap: "14px", alignItems: "flex-end", flexWrap: "wrap", marginBottom: "14px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "800", color: "#166534", marginBottom: "5px" }}>
+                          Recipient WhatsApp Phone Number:
+                        </label>
+                        <input
+                          type="tel"
+                          value={statsPdfRecipientPhone}
+                          onChange={(e) => setStatsPdfRecipientPhone(e.target.value)}
+                          placeholder="Enter 10-digit phone (e.g. 9667623123)"
+                          style={{
+                            width: "100%",
+                            padding: "11px 14px",
+                            borderRadius: "10px",
+                            border: "1.5px solid #86efac",
+                            fontSize: "14px",
+                            fontWeight: "800",
+                            background: "#ffffff",
+                            boxSizing: "border-box"
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: "800", color: "#166534", marginBottom: "5px" }}>
+                          Optional Shift Note / Remarks for Admin:
+                        </label>
+                        <input
+                          type="text"
+                          value={statsPdfCustomNote}
+                          onChange={(e) => setStatsPdfCustomNote(e.target.value)}
+                          placeholder="e.g. Shift closing report - all pending orders cleared"
+                          style={{
+                            width: "100%",
+                            padding: "11px 14px",
+                            borderRadius: "10px",
+                            border: "1px solid #cbd5e1",
+                            fontSize: "13px",
+                            background: "#ffffff",
+                            boxSizing: "border-box"
+                          }}
+                        />
+                      </div>
+
+                      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => handleSendStatsPdf(statsPayload, filterPeriodTitle)}
+                          disabled={statsPdfSending}
+                          style={{
+                            background: "#16a34a",
+                            color: "#ffffff",
+                            border: "none",
+                            padding: "11px 24px",
+                            borderRadius: "10px",
+                            fontWeight: "900",
+                            fontSize: "13px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            whiteSpace: "nowrap",
+                            boxShadow: "0 4px 14px rgba(22, 163, 74, 0.4)",
+                            opacity: statsPdfSending ? 0.7 : 1
+                          }}
+                        >
+                          {statsPdfSending ? "⏳ Dispatching PDF..." : "🚀 Send to WhatsApp"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadStatsPdf(statsPayload, filterPeriodTitle)}
+                          disabled={statsPdfDownloading}
+                          style={{
+                            background: "#ffffff",
+                            color: "#166534",
+                            border: "1.5px solid #86efac",
+                            padding: "11px 18px",
+                            borderRadius: "10px",
+                            fontWeight: "800",
+                            fontSize: "13px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            whiteSpace: "nowrap",
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.04)"
+                          }}
+                        >
+                          {statsPdfDownloading ? "⏳ Generating..." : "📥 Download PDF"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quick Phone Presets */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", paddingTop: "8px", borderTop: "1px solid rgba(134, 239, 172, 0.5)" }}>
+                      <span style={{ fontSize: "11.5px", fontWeight: "750", color: "#166534" }}>Quick recipient presets:</span>
+                      <button
+                        type="button"
+                        onClick={() => setStatsPdfRecipientPhone("+919667623123")}
+                        style={{ background: "#ffffff", border: "1px solid #86efac", color: "#15803d", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                      >
+                        👑 Store Admin (+91 9667623123)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStatsPdfRecipientPhone("+919389270607")}
+                        style={{ background: "#ffffff", border: "1px solid #86efac", color: "#15803d", padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "800", cursor: "pointer" }}
+                      >
+                        📱 Store Manager (+91 9389270607)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* SECURITY & CONFIDENTIALITY INFORMATION BANNER */}
+                  <div style={{
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "14px",
+                    padding: "16px 20px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px"
+                  }}>
+                    <span style={{ fontSize: "24px" }}>🔒</span>
+                    <div>
+                      <div style={{ fontSize: "13px", fontWeight: "800", color: "#1e293b" }}>
+                        Confidential Business Data Protection Active
+                      </div>
+                      <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#64748b", lineHeight: "1.4" }}>
+                        All financial sales, revenue figures, payment modes, and order analytics are securely bundled into the PDF report and delivered directly to the store admin's WhatsApp number. Financial revenue metrics are restricted from brewmaster operator screens.
+                      </p>
                     </div>
                   </div>
 
