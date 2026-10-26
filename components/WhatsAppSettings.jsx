@@ -2093,7 +2093,7 @@ export default function WhatsAppSettings() {
                   Automated Order Journey & Payment QR
                 </h2>
                 <p style={{ margin: 0, fontSize: "13px", color: "#94a3b8", maxWidth: "680px", lineHeight: "1.5" }}>
-                  Optimized 2-step customer delivery: Customers receive their Order Confirmation instantly, followed 15 seconds later by the official UPI Payment QR code. Intermediate status spam is automatically silenced until the final Delivered message.
+                  Optimized customer journey: When an order is placed, customer receives their Order Confirmation. When kitchen/admin changes status to <strong>Preparing</strong>, the official UPI Payment QR code is dispatched. Then only the final Delivered message is sent!
                 </p>
               </div>
 
@@ -2101,7 +2101,7 @@ export default function WhatsAppSettings() {
                 <span style={{ fontSize: "18px" }}>🔕</span>
                 <div style={{ fontSize: "11.5px", color: "#cbd5e1" }}>
                   <div style={{ fontWeight: "700", color: "#f1f5f9" }}>Spam Filter Active</div>
-                  Preparing & Out-for-Delivery updates silenced
+                  Ready & Out-for-Delivery updates silenced
                 </div>
               </div>
             </div>
@@ -2132,11 +2132,11 @@ export default function WhatsAppSettings() {
                   </div>
                   <div>
                     <div style={{ fontSize: "13.5px", fontWeight: "800", color: "#38bdf8" }}>Payment QR Code</div>
-                    <div style={{ fontSize: "11px", color: "#bae6fd" }}>⏱️ Sent +{paymentQrDelaySec}s After Order</div>
+                    <div style={{ fontSize: "11px", color: "#bae6fd" }}>🔥 Triggered on "Preparing" Status</div>
                   </div>
                 </div>
                 <p style={{ margin: 0, fontSize: "12px", color: "#e0f2fe", lineHeight: "1.4" }}>
-                  Chai Chaska UPI payment QR (<code style={{ color: "#38bdf8", fontWeight: "700" }}>chaiqr.jpeg</code>) with personalized caption is dispatched automatically for easy UPI payment.
+                  When brewmaster or admin updates order status to <strong>Preparing</strong>, Chai Chaska UPI payment QR (<code style={{ color: "#38bdf8", fontWeight: "700" }}>chaiqr.jpeg</code>) is dispatched automatically so customer can scan and pay!
                 </p>
               </div>
 
@@ -2308,7 +2308,7 @@ export default function WhatsAppSettings() {
                     </label>
                     <span style={{ fontSize: "12px", color: autoSendPaymentQr ? "#166534" : "#b91c1c" }}>
                       {autoSendPaymentQr
-                        ? `Payment QR code will be dispatched to customer 15 seconds after order confirmation.`
+                        ? `Payment QR code will be dispatched to customer when order status transitions to "Preparing".`
                         : `QR code will NOT be sent automatically. Only order text confirmation will be sent.`}
                     </span>
                   </div>

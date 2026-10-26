@@ -122,9 +122,33 @@ export async function POST(req) {
     };
 
     // -------------------------------------------------------------
-    // ACTION: DIRECT / TEST SEND PAYMENT QR CODE
+    // ORDER AUTOMATION STATUS EVALUATION
     // -------------------------------------------------------------
-    if (action === 'sendPaymentQr') {
+    const normStatus = String(status || '').toLowerCase();
+    const isOrderPlaced = !normStatus || normStatus.includes('received') || normStatus.includes('placed') || normStatus.includes('new');
+    const isPreparing = normStatus.includes('prepar') || normStatus.includes('brew');
+    const isDelivered = normStatus.includes('deliver') || normStatus.includes('served') || normStatus.includes('completed');
+
+    // -------------------------------------------------------------
+    // ACTION: SEND PAYMENT QR CODE (on direct action OR when order status is "Preparing")
+    // -------------------------------------------------------------
+    if (action === 'sendPaymentQr' || isPreparing) {
+      if (config.autoSendPaymentQr === false && action !== 'sendPaymentQr') {
+        return Response.json({ success: true, skipped: true, message: 'Payment QR automation is currently paused in settings.' });
+      }
+
+      // Deduplication guard for payment QR (within 15 seconds)
+      if (!global._waRecentDispatches) {
+        global._waRecentDispatches = new Map();
+      }
+      const dedupeKey = `${formattedTo}-${displayOrderId}-payment-qr`;
+      const now = Date.now();
+      const lastSent = global._waRecentDispatches.get(dedupeKey);
+      if (lastSent && (now - lastSent) < 15000) {
+        return Response.json({ success: true, skipped: true, message: 'Duplicate payment QR throttled within 15 seconds.' });
+      }
+      global._waRecentDispatches.set(dedupeKey, now);
+
       const qrBase64 = getPaymentQrBase64();
       if (!qrBase64) {
         return Response.json({ error: 'Payment QR image file /public/chaiqr.jpeg not found on server' }, { status: 404 });
@@ -155,17 +179,10 @@ export async function POST(req) {
       return Response.json({ success: mediaRes.ok, status: mediaRes.status, data: mediaData, qrSent: true });
     }
 
-    // -------------------------------------------------------------
-    // ORDER AUTOMATION STATUS EVALUATION
-    // -------------------------------------------------------------
-    const normStatus = String(status || '').toLowerCase();
-    const isOrderPlaced = !normStatus || normStatus.includes('received') || normStatus.includes('placed') || normStatus.includes('new');
-    const isDelivered = normStatus.includes('deliver') || normStatus.includes('served') || normStatus.includes('completed');
-
-    // ONLY allow Custom Messages, Order Placed (Message #1 + 15s QR), and Order Delivered (Message #2)
-    // Intermediate status changes (Preparing, Out for Delivery) are strictly skipped as per user requirement.
+    // ONLY allow Custom Messages, Order Placed (Confirmation), and Order Delivered
+    // Intermediate status changes (Ready, Out for Delivery, etc.) are strictly skipped
     if (!customMessage && !isOrderPlaced && !isDelivered) {
-      return Response.json({ success: true, skipped: true, message: 'Intermediate update messages disabled: only Order Placed (with 15s payment QR) and Order Delivered messages are sent.' });
+      return Response.json({ success: true, skipped: true, message: 'Intermediate update messages disabled: only Order Placed, Preparing (Payment QR), and Order Delivered messages are sent.' });
     }
 
     // Deduplication guard: prevent sending identical message to same number within 15 seconds
@@ -238,18 +255,8 @@ Thank you for choosing Chai Chaska! 🫖`;
       }
     }
 
-    // 2. IF ORDER PLACED: SCHEDULE 15-SECOND DELAYED PAYMENT QR DISPATCH
-    if (isOrderPlaced && config.autoSendPaymentQr !== false) {
-      const delaySec = Number(config.paymentQrDelaySec) || 15;
-      schedulePaymentQrDispatch({
-        formattedTo,
-        name,
-        displayOrderId,
-        amountStr,
-        config,
-        delaySec
-      });
-    }
+    // 2. Note: Payment QR is dispatched when order status transitions to "Preparing"
+    // (Intermediate updates are suppressed until Delivered)
 
     // 3. SEND ORDER PLACED AUTHENTIC PRODUCT IMAGE + CAPTION
     let resolvedImage = null;
