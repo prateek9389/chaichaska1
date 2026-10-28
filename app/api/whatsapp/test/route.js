@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { WhatsAppHubClient, cleanPhoneForApi } from '@/lib/whatsapp';
-import { getWhatsAppConfig } from '@/lib/firestore';
+import { WhatsAppHubClient, cleanPhoneForApi, sanitizeApiKey } from '@/lib/whatsapp';
+import { getWhatsAppConfig, updateWhatsAppConfig } from '@/lib/firestore';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,18 +52,6 @@ export async function POST(req) {
         return NextResponse.json({ ok: false, error: 'Recipient number and text message are required' }, { status: 400 });
       }
 
-      // Pre-check instance state so we never hang if instance is disconnected or connecting
-      const conn = await client.checkConnectionState();
-      const state = conn.data?.instance?.state || (conn.ok ? 'open' : 'disconnected');
-      if (state !== 'open' && state !== 'connected') {
-        return NextResponse.json({
-          ok: false,
-          error: state === 'connecting'
-            ? `WhatsApp instance "${effectiveInstance}" is still syncing with your phone. Please wait a few seconds until status is Green, or click Restart Session.`
-            : `WhatsApp instance "${effectiveInstance}" is disconnected. Please scan the QR code to connect WhatsApp first.`
-        }, { status: 400 });
-      }
-
       const result = await client.sendText(number, text);
       const latencyMs = Date.now() - startTime;
       return NextResponse.json({
@@ -77,18 +65,6 @@ export async function POST(req) {
     if (action === 'sendMedia') {
       if (!number || !mediaUrl) {
         return NextResponse.json({ ok: false, error: 'Recipient number and media URL are required' }, { status: 400 });
-      }
-
-      // Pre-check instance state so we never hang if instance is disconnected or connecting
-      const conn = await client.checkConnectionState();
-      const state = conn.data?.instance?.state || (conn.ok ? 'open' : 'disconnected');
-      if (state !== 'open' && state !== 'connected') {
-        return NextResponse.json({
-          ok: false,
-          error: state === 'connecting'
-            ? `WhatsApp instance "${effectiveInstance}" is still syncing with your phone. Please wait a few seconds until status is Green, or click Restart Session.`
-            : `WhatsApp instance "${effectiveInstance}" is disconnected. Please scan the QR code to connect WhatsApp first.`
-        }, { status: 400 });
       }
 
       const result = await client.sendMedia({
@@ -180,6 +156,36 @@ export async function POST(req) {
         action: 'createInstance',
         latencyMs,
         ...result
+      });
+    }
+
+    if (action === 'saveConfig') {
+      const cleanKey = sanitizeApiKey(effectiveApiKey);
+      const targetApiUrl = `${effectiveBaseUrl.replace(/\/+$/, '')}/message/sendText/${encodeURIComponent(effectiveInstance)}`;
+      const newConfig = {
+        baseUrl: effectiveBaseUrl,
+        instance: effectiveInstance,
+        apiKey: cleanKey,
+        apiUrl: targetApiUrl,
+        senderNumber: body.senderNumber || savedConfig.senderNumber || '+919667623123',
+        isEnabled: body.isEnabled !== undefined ? body.isEnabled : (savedConfig.isEnabled !== false),
+        autoSendPaymentQr: body.autoSendPaymentQr !== undefined ? body.autoSendPaymentQr : true,
+        paymentQrDelaySec: Number(body.paymentQrDelaySec) || savedConfig.paymentQrDelaySec || 15,
+        paymentQrCaption: body.paymentQrCaption || savedConfig.paymentQrCaption || ''
+      };
+      await updateWhatsAppConfig(newConfig);
+      return NextResponse.json({
+        ok: true,
+        action: 'saveConfig',
+        config: newConfig
+      });
+    }
+
+    if (action === 'getConfig') {
+      return NextResponse.json({
+        ok: true,
+        action: 'getConfig',
+        config: savedConfig
       });
     }
 

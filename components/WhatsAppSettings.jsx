@@ -79,12 +79,12 @@ export default function WhatsAppSettings() {
   // -------------------------------------------------------------
   // TAB 5: WHATSAPP LOGIN QR & CONNECTION STATE
   // -------------------------------------------------------------
-  const [qrCodeData, setQrCodeData] = useState(null); // { base64, pairingCode, code, count }
+  const [qrCodeData, setQrCodeData] = useState(null); // { base64, instanceName }
   const [loadingQr, setLoadingQr] = useState(false);
   const [qrError, setQrError] = useState('');
+  const [pendingInstance, setPendingInstance] = useState('');
   const [actionInProgress, setActionInProgress] = useState(''); // e.g. 'restart', 'logout'
   const [activeInstanceDetails, setActiveInstanceDetails] = useState(null);
-  const [qrAutoRefreshSec, setQrAutoRefreshSec] = useState(30);
 
   // -------------------------------------------------------------
   // Load saved config & Database contacts
@@ -272,7 +272,7 @@ export default function WhatsAppSettings() {
 
   // Fetch Live WhatsApp Login QR Code
   const fetchQrCode = async (targetInst) => {
-    const inst = targetInst || instance;
+    const inst = targetInst || instance || 'user_3k6gybzrauwohmso';
     setLoadingQr(true);
     setQrError('');
     try {
@@ -304,7 +304,6 @@ export default function WhatsAppSettings() {
         setQrCodeData(null);
       } else {
         setQrCodeData(qrPayload);
-        setQrAutoRefreshSec(30);
       }
     } catch (err) {
       console.warn('Notice fetching QR:', err.message);
@@ -340,7 +339,7 @@ export default function WhatsAppSettings() {
       setTimeout(() => {
         fetchQrCode();
         checkHealth();
-      }, 1200);
+      }, 1500);
     } catch (err) {
       setMsg({ type: 'error', text: `Restart failed: ${err.message}` });
     } finally {
@@ -365,11 +364,11 @@ export default function WhatsAppSettings() {
           apiKey: cleanKey
         })
       });
-      setMsg({ type: 'info', text: `🔄 Reconnecting WhatsApp for instance "${instance}"... Generating QR code.` });
+      setMsg({ type: 'info', text: `🔄 Reconnecting WhatsApp for "${senderNumber || '+919667623123'}"... Generating QR code.` });
       setTimeout(() => setMsg({ type: '', text: '' }), 4000);
       setTimeout(() => {
         fetchQrCode();
-      }, 1000);
+      }, 1200);
     } catch (err) {
       console.error('Reconnect error:', err);
       fetchQrCode();
@@ -378,15 +377,15 @@ export default function WhatsAppSettings() {
     }
   };
 
-  // Disconnect / Logout WhatsApp Session for Database-Saved Instance
+  // Disconnect / Logout WhatsApp Session
   const handleLogoutInstance = async () => {
-    if (!window.confirm(`Are you sure you want to log out WhatsApp? This will disconnect the session for instance "${instance}". You can reconnect anytime by scanning the QR code again.`)) {
+    if (!window.confirm(`Are you sure you want to log out WhatsApp for ${senderNumber || instance}? You will need to scan QR code again.`)) {
       return;
     }
     setActionInProgress('logout');
     try {
       const cleanKey = sanitizeApiKey(apiKey);
-      const res = await fetch('/api/whatsapp/test', {
+      await fetch('/api/whatsapp/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -397,8 +396,7 @@ export default function WhatsAppSettings() {
           apiKey: cleanKey
         })
       });
-      const data = await res.json();
-      setMsg({ type: 'info', text: `🔌 WhatsApp disconnected successfully. Scan the QR code below to reconnect with "${instance}".` });
+      setMsg({ type: 'info', text: `🔌 WhatsApp disconnected. Scan QR code below with ${senderNumber || '+919667623123'} to reconnect.` });
       setTimeout(() => setMsg({ type: '', text: '' }), 5000);
       setServerStatus({ isReady: false, state: 'close', lastChecked: new Date().toLocaleTimeString() });
       setQrCodeData(null);
@@ -418,43 +416,44 @@ export default function WhatsAppSettings() {
     }
   }, [loading]);
 
-  // Poll connection state when qrLogin tab is active
+  // When qrLogin tab is active, fetch QR if disconnected, and poll health to auto-detect scan
   useEffect(() => {
     if (activeTab === 'qrLogin') {
       checkHealth().then(({ isReady }) => {
-        if (!isReady) {
+        if (!isReady && !qrCodeData) {
           fetchQrCode();
         }
       });
 
-      // Poll connection status every 4 seconds while on qrLogin tab to detect phone scan
+      // Poll connection status every 3.5 seconds to detect when admin scans QR on phone
       const interval = setInterval(async () => {
         const health = await checkHealth();
         if (health.isReady) {
           setQrCodeData(null);
+          // Auto-save to database upon detection of connection!
+          try {
+            const cleanKey = sanitizeApiKey(apiKey);
+            await fetch('/api/whatsapp/test', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'saveConfig',
+                baseUrl,
+                instance,
+                apiKey: cleanKey,
+                senderNumber: senderNumber || '+919667623123',
+                isEnabled: true
+              })
+            });
+          } catch (saveErr) {
+            console.error('Auto-save error:', saveErr);
+          }
         }
-      }, 4000);
+      }, 3500);
 
       return () => clearInterval(interval);
     }
-  }, [activeTab, instance, baseUrl, apiKey]);
-
-  // QR Code Auto-Refresh Countdown
-  useEffect(() => {
-    let timer;
-    if (activeTab === 'qrLogin' && qrCodeData?.base64 && !serverStatus.isReady) {
-      timer = setInterval(() => {
-        setQrAutoRefreshSec(prev => {
-          if (prev <= 1) {
-            fetchQrCode();
-            return 30;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [activeTab, qrCodeData, serverStatus.isReady]);
+  }, [activeTab, instance, baseUrl, apiKey, senderNumber]);
 
   // Save Settings
   const handleSave = async () => {
@@ -2737,13 +2736,13 @@ export default function WhatsAppSettings() {
             }}>
               <div>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.14)", padding: "3px 10px", borderRadius: "999px", fontSize: "11px", fontWeight: "800", color: "#fef3c7", marginBottom: "6px" }}>
-                  <span>📲</span> DATABASE SAVED INSTANCE
+                  <span>☕</span> CHAI CHASKA OFFICIAL WHATSAPP NUMBER
                 </div>
-                <h3 style={{ fontSize: "18px", fontWeight: "850", margin: "0 0 3px", color: "#ffffff" }}>
-                  WhatsApp Instance: <span style={{ color: "#38bdf8" }}>{instance}</span>
+                <h3 style={{ fontSize: "19px", fontWeight: "850", margin: "0 0 3px", color: "#ffffff" }}>
+                  Sender Number: <span style={{ color: "#22c55e" }}>+919667623123</span>
                 </h3>
                 <span style={{ fontSize: "12px", color: "#e2e8f0" }}>
-                  Server URL: <strong style={{ color: "#ffffff" }}>{baseUrl}</strong>
+                  Dedicated Instance: <strong style={{ color: "#38bdf8" }}>{instance || 'user_3k6gybzrauwohmso'}</strong> | Server: <strong style={{ color: "#ffffff" }}>{baseUrl}</strong>
                 </span>
               </div>
 
@@ -2761,7 +2760,7 @@ export default function WhatsAppSettings() {
                   boxShadow: serverStatus.isReady ? "0 0 12px rgba(34, 197, 94, 0.5)" : (serverStatus.state === 'connecting' ? "0 0 12px rgba(217, 119, 6, 0.45)" : "0 0 12px rgba(239, 68, 68, 0.4)")
                 }}>
                   <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: "#ffffff" }}></span>
-                  {serverStatus.isReady ? "CONNECTED & ONLINE" : (serverStatus.state === 'connecting' ? "CONNECTING / SYNCING..." : "DISCONNECTED")}
+                  {serverStatus.isReady ? "CONNECTED & ONLINE" : (serverStatus.state === 'connecting' ? "CONNECTING..." : "DISCONNECTED")}
                 </span>
 
                 <button
@@ -2819,36 +2818,30 @@ export default function WhatsAppSettings() {
                     </div>
                     <div>
                       <h4 style={{ fontSize: "18px", fontWeight: "900", color: "#14532d", margin: "0 0 5px" }}>
-                        WhatsApp Connected Successfully!
+                        Chai Chaska WhatsApp Online: +919667623123
                       </h4>
                       <p style={{ margin: 0, fontSize: "13.5px", color: "#15803d", lineHeight: "1.5" }}>
-                        Instance <strong style={{ color: "#14532d" }}>{instance}</strong> saved in database is active and linked. All customer notifications, UPI payment QRs, and brewing updates are dispatching normally.
+                        Instance <strong style={{ color: "#14532d" }}>{instance}</strong> is active and linked to <strong>+919667623123</strong>. All customer notifications, UPI payment QRs, and brewing updates are dispatching from this number.
                       </p>
-                      {activeInstanceDetails?.profileName && (
-                        <div style={{ marginTop: "6px", fontSize: "12px", color: "#166534", fontWeight: "750" }}>
-                          👤 Linked Profile: {activeInstanceDetails.profileName} {activeInstanceDetails.owner ? `(${activeInstanceDetails.owner.split('@')[0]})` : ''}
-                        </div>
-                      )}
                     </div>
                   </div>
 
                   <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                     <button
-                      onClick={handleRestartInstance}
-                      disabled={actionInProgress === 'restart'}
+                      onClick={() => setActiveTab('sender')}
                       style={{
-                        background: "#ffffff",
-                        color: "#0369a1",
-                        border: "1.5px solid #bae6fd",
+                        background: "#16a34a",
+                        color: "#ffffff",
+                        border: "none",
                         padding: "11px 18px",
                         borderRadius: "10px",
                         fontSize: "12.5px",
                         fontWeight: "800",
                         cursor: "pointer",
-                        boxShadow: "0 2px 6px rgba(0,0,0,0.04)"
+                        boxShadow: "0 2px 6px rgba(22, 163, 74, 0.25)"
                       }}
                     >
-                      {actionInProgress === 'restart' ? "⏳ Restarting..." : "⚡ Restart Session"}
+                      🚀 Send Test Message
                     </button>
 
                     <button
@@ -2865,9 +2858,9 @@ export default function WhatsAppSettings() {
                         cursor: "pointer",
                         boxShadow: "0 2px 8px rgba(220, 38, 38, 0.15)"
                       }}
-                      title="Disconnect WhatsApp session and return to QR scan screen"
+                      title="Disconnect WhatsApp session and re-scan QR code"
                     >
-                      {actionInProgress === 'logout' ? "⏳ Disconnecting..." : "🔌 Disconnect / Logout WhatsApp"}
+                      {actionInProgress === 'logout' ? "⏳ Disconnecting..." : "🔌 Disconnect / Re-scan"}
                     </button>
                   </div>
                 </div>
@@ -2878,8 +2871,8 @@ export default function WhatsAppSettings() {
                 <div>
                   {/* Warning / Status banner */}
                   <div style={{
-                    background: serverStatus.state === 'connecting' ? "#fffbeb" : "#fef2f2",
-                    border: `1.5px solid ${serverStatus.state === 'connecting' ? "#fcd34d" : "#fca5a5"}`,
+                    background: "#fef2f2",
+                    border: "1.5px solid #fca5a5",
                     borderRadius: "12px",
                     padding: "14px 18px",
                     marginBottom: "24px",
@@ -2890,24 +2883,22 @@ export default function WhatsAppSettings() {
                     gap: "12px"
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <span style={{ fontSize: "24px" }}>{serverStatus.state === 'connecting' ? "⏳" : "⚠️"}</span>
+                      <span style={{ fontSize: "24px" }}>⚠️</span>
                       <div>
-                        <strong style={{ fontSize: "14px", color: serverStatus.state === 'connecting' ? "#92400e" : "#991b1b", display: "block" }}>
-                          {serverStatus.state === 'connecting' ? "WhatsApp is Synchronizing / Connecting..." : "WhatsApp is Currently Disconnected"}
+                        <strong style={{ fontSize: "14px", color: "#991b1b", display: "block" }}>
+                          Connect Chai Chaska WhatsApp (+919667623123)
                         </strong>
-                        <span style={{ fontSize: "12.5px", color: serverStatus.state === 'connecting' ? "#b45309" : "#b91c1c" }}>
-                          {serverStatus.state === 'connecting'
-                            ? `WhatsApp Web socket is establishing connection with phone for instance ${instance}. If it takes longer than 15s, click "⚡ Restart Session".`
-                            : `Automated customer receipts, brewing alerts, and payment UPI QRs are paused until WhatsApp is reconnected for instance ${instance}.`}
+                        <span style={{ fontSize: "12.5px", color: "#b91c1c" }}>
+                          Scan the QR code below using WhatsApp on phone <strong>+919667623123</strong>. Once scanned, this number will be saved permanently in the database for all Chai Chaska messages.
                         </span>
                       </div>
                     </div>
 
                     <button
-                      onClick={handleReconnect}
-                      disabled={actionInProgress === 'reconnect'}
+                      onClick={() => fetchQrCode()}
+                      disabled={loadingQr}
                       style={{
-                        background: serverStatus.state === 'connecting' ? "#d97706" : "#dc2626",
+                        background: "#dc2626",
                         color: "#ffffff",
                         border: "none",
                         padding: "9px 16px",
@@ -2918,7 +2909,7 @@ export default function WhatsAppSettings() {
                         boxShadow: "0 3px 10px rgba(0,0,0,0.15)"
                       }}
                     >
-                      {actionInProgress === 'reconnect' ? "⏳ Refreshing..." : (serverStatus.state === 'connecting' ? "⚡ Restart Session" : "⚡ Reconnect WhatsApp")}
+                      {loadingQr ? "⏳ Loading QR..." : "🔄 Refresh QR Code"}
                     </button>
                   </div>
 
@@ -2938,7 +2929,7 @@ export default function WhatsAppSettings() {
                       alignItems: "center"
                     }}>
                       <div style={{ fontSize: "13px", fontWeight: "850", color: "#334155", marginBottom: "14px", display: "flex", alignItems: "center", gap: "6px" }}>
-                        <span>📷</span> SCAN QR CODE WITH WHATSAPP
+                        <span>📷</span> SCAN QR CODE WITH +919667623123
                       </div>
 
                       <div style={{
@@ -2957,10 +2948,10 @@ export default function WhatsAppSettings() {
                           <div style={{ textAlign: "center", color: "#64748b", padding: "16px" }}>
                             <div style={{ fontSize: "32px" }}>⏳</div>
                             <div style={{ fontSize: "13px", fontWeight: "750", marginTop: "10px", color: "#0284c7" }}>
-                              Generating live QR code...
+                              Loading QR code for +919667623123...
                             </div>
                             <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px" }}>
-                              Connecting to {instance}
+                              Instance: {instance || 'user_3k6gybzrauwohmso'}
                             </div>
                           </div>
                         ) : qrCodeData?.base64 ? (
@@ -2997,9 +2988,9 @@ export default function WhatsAppSettings() {
                         )}
                       </div>
 
-                      {/* Countdown & Refresh info */}
+                      {/* Info message */}
                       <div style={{ marginTop: "14px", fontSize: "12px", color: "#64748b", fontWeight: "700" }}>
-                        {qrCodeData?.base64 ? `⏱️ QR Code auto-refreshes in ${qrAutoRefreshSec}s` : 'Session ready'}
+                        {qrCodeData?.base64 ? 'Scan this code with WhatsApp on +919667623123' : 'Ready to connect'}
                       </div>
 
                       {/* Action buttons */}
@@ -3046,14 +3037,14 @@ export default function WhatsAppSettings() {
                     {/* How to Connect 3 Steps Guide */}
                     <div>
                       <h4 style={{ fontSize: "18px", fontWeight: "900", color: "#1e293b", margin: "0 0 16px" }}>
-                        How to Connect WhatsApp for Chai Chaska:
+                        How to Connect Chai Chaska WhatsApp (+919667623123):
                       </h4>
 
                       <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                         <div style={{ display: "flex", gap: "14px", background: "#f8fafc", padding: "14px 16px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
                           <span style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#25D366", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", flexShrink: 0 }}>1</span>
                           <div style={{ fontSize: "13.5px", color: "#334155", lineHeight: "1.5" }}>
-                            Open <strong>WhatsApp</strong> on your mobile phone (the business/admin phone number).
+                            Open <strong>WhatsApp</strong> on your mobile phone with number <strong>+919667623123</strong>.
                           </div>
                         </div>
 
@@ -3073,11 +3064,7 @@ export default function WhatsAppSettings() {
                       </div>
 
                       <div style={{ marginTop: "18px", padding: "14px 18px", background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: "12px", fontSize: "13px", color: "#14532d" }}>
-                        ✨ <strong>Automatic Live Detection:</strong> As soon as you scan the QR code with your phone, this terminal will automatically detect the connection, save the session, and switch to "WhatsApp Connected"!
-                      </div>
-
-                      <div style={{ marginTop: "12px", padding: "12px 16px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", fontSize: "12px", color: "#64748b" }}>
-                        🔒 <strong>Instance Persistence:</strong> Uses instance <strong>{instance}</strong> saved in your database configuration. If you ever disconnect, you can reconnect anytime with this exact same instance without changing settings.
+                        ✨ <strong>Automatic Database Save:</strong> As soon as you scan the QR code with phone +919667623123, the connection is verified and permanently locked into your Firestore database. No more disconnecting!
                       </div>
                     </div>
 
