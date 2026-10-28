@@ -115,23 +115,22 @@ export default function ShopPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const [products, setProducts] = useState(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const cached = localStorage.getItem("cached_products") || sessionStorage.getItem("chai_products_cache");
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch (e) {}
-    }
-    return INITIAL_PRODUCTS_CACHE;
-  });
-
+  const [products, setProducts] = useState(INITIAL_PRODUCTS_CACHE);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Background real-time sync with Firestore
+    // 1. Read cached products after client mount to prevent SSR hydration mismatch
+    try {
+      const cached = localStorage.getItem("cached_products") || sessionStorage.getItem("chai_products_cache");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setProducts(parsed);
+        }
+      }
+    } catch (e) {}
+
+    // 2. Background real-time sync with Firestore
     const unsubscribe = onProductsSnapshot((items) => {
       if (items && items.length > 0) {
         const resolved = items.map(p => {
@@ -763,7 +762,7 @@ export default function ShopPage() {
                     className={`top-cat-pill ${isSelected ? "active" : ""}`}
                   >
                     {cat === "All" ? "✨ All Products" : cat}
-                    <span className="pill-badge-num">
+                    <span className="pill-badge-num" suppressHydrationWarning>
                       {categoryCounts[cat] || 0}
                     </span>
                   </button>
@@ -783,8 +782,8 @@ export default function ShopPage() {
                 {hasActiveFilters && <span className="active-dot"></span>}
               </button>
 
-              <span className="results-badge">
-                Showing <strong>{filteredProducts.length}</strong> items
+              <span className="results-badge" suppressHydrationWarning>
+                Showing <strong suppressHydrationWarning>{filteredProducts.length}</strong> items
               </span>
             </div>
           </div>

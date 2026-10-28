@@ -99,6 +99,66 @@ export async function POST(req) {
       });
     }
 
+    if (action === 'getQrCode') {
+      const result = await client.getQrCode(body.targetInstance || effectiveInstance);
+      const latencyMs = Date.now() - startTime;
+      return NextResponse.json({
+        action: 'getQrCode',
+        latencyMs,
+        ...result
+      });
+    }
+
+    if (action === 'fetchInstances') {
+      const result = await client.fetchInstances();
+      const latencyMs = Date.now() - startTime;
+      return NextResponse.json({
+        action: 'fetchInstances',
+        latencyMs,
+        ...result
+      });
+    }
+
+    if (action === 'restartInstance') {
+      const result = await client.restartInstance(body.targetInstance || effectiveInstance);
+      const latencyMs = Date.now() - startTime;
+      return NextResponse.json({
+        action: 'restartInstance',
+        latencyMs,
+        ...result
+      });
+    }
+
+    if (action === 'logoutInstance') {
+      const result = await client.logoutInstance(body.targetInstance || effectiveInstance);
+      const latencyMs = Date.now() - startTime;
+      return NextResponse.json({
+        action: 'logoutInstance',
+        latencyMs,
+        ...result
+      });
+    }
+
+    if (action === 'deleteInstance') {
+      const result = await client.deleteInstance(body.targetInstance || effectiveInstance);
+      const latencyMs = Date.now() - startTime;
+      return NextResponse.json({
+        action: 'deleteInstance',
+        latencyMs,
+        ...result
+      });
+    }
+
+    if (action === 'createInstance') {
+      const result = await client.createInstance(body.newInstanceName || body.targetInstance || effectiveInstance);
+      const latencyMs = Date.now() - startTime;
+      return NextResponse.json({
+        action: 'createInstance',
+        latencyMs,
+        ...result
+      });
+    }
+
     return NextResponse.json({ ok: false, error: `Unsupported test action: ${action}` }, { status: 400 });
   } catch (err) {
     console.error('WhatsApp Test API Error:', err);

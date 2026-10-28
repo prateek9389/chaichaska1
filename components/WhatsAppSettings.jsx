@@ -77,6 +77,16 @@ export default function WhatsAppSettings() {
   const stopRef = useRef(false);
 
   // -------------------------------------------------------------
+  // TAB 5: WHATSAPP LOGIN QR & CONNECTION STATE
+  // -------------------------------------------------------------
+  const [qrCodeData, setQrCodeData] = useState(null); // { base64, pairingCode, code, count }
+  const [loadingQr, setLoadingQr] = useState(false);
+  const [qrError, setQrError] = useState('');
+  const [actionInProgress, setActionInProgress] = useState(''); // e.g. 'restart', 'logout'
+  const [activeInstanceDetails, setActiveInstanceDetails] = useState(null);
+  const [qrAutoRefreshSec, setQrAutoRefreshSec] = useState(30);
+
+  // -------------------------------------------------------------
   // Load saved config & Database contacts
   // -------------------------------------------------------------
   useEffect(() => {
@@ -222,8 +232,9 @@ export default function WhatsAppSettings() {
   };
 
   // Quick Health Check
-  const checkHealth = async () => {
+  const checkHealth = async (targetInst) => {
     setCheckingStatus(true);
+    const inst = targetInst || instance;
     try {
       const cleanKey = sanitizeApiKey(apiKey);
       const res = await fetch('/api/whatsapp/test', {
@@ -232,7 +243,8 @@ export default function WhatsAppSettings() {
         body: JSON.stringify({
           action: 'checkStatus',
           baseUrl,
-          instance,
+          instance: inst,
+          targetInstance: inst,
           apiKey: cleanKey
         })
       });
@@ -245,14 +257,158 @@ export default function WhatsAppSettings() {
         state: stateVal,
         lastChecked: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
+      return { isReady, state: stateVal };
     } catch (err) {
       setServerStatus({
         isReady: false,
         state: 'error',
         lastChecked: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
+      return { isReady: false, state: 'error' };
     } finally {
       setCheckingStatus(false);
+    }
+  };
+
+  // Fetch Live WhatsApp Login QR Code
+  const fetchQrCode = async (targetInst) => {
+    const inst = targetInst || instance;
+    setLoadingQr(true);
+    setQrError('');
+    try {
+      const cleanKey = sanitizeApiKey(apiKey);
+      const res = await fetch('/api/whatsapp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'getQrCode',
+          baseUrl,
+          instance: inst,
+          targetInstance: inst,
+          apiKey: cleanKey
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to fetch QR code from WhatsApp server');
+      }
+
+      const qrPayload = data.data || {};
+      const stateVal = qrPayload.state || qrPayload.instance?.state;
+      if (stateVal === 'open' || stateVal === 'connected') {
+        setServerStatus({
+          isReady: true,
+          state: 'open',
+          lastChecked: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
+        setQrCodeData(null);
+      } else {
+        setQrCodeData(qrPayload);
+        setQrAutoRefreshSec(30);
+      }
+    } catch (err) {
+      console.error('Error fetching QR:', err);
+      setQrError(err.message || 'Error fetching QR Code');
+    } finally {
+      setLoadingQr(false);
+    }
+  };
+
+  // Restart WhatsApp Session for Saved Database Instance
+  const handleRestartInstance = async () => {
+    setActionInProgress('restart');
+    try {
+      const cleanKey = sanitizeApiKey(apiKey);
+      const res = await fetch('/api/whatsapp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restartInstance',
+          baseUrl,
+          instance,
+          targetInstance: instance,
+          apiKey: cleanKey
+        })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setMsg({ type: 'success', text: `⚡ WhatsApp session for "${instance}" restarted. Refreshing connection...` });
+      } else {
+        throw new Error(data.error || 'Failed to restart session');
+      }
+      setTimeout(() => setMsg({ type: '', text: '' }), 4000);
+      setTimeout(() => {
+        fetchQrCode();
+        checkHealth();
+      }, 1200);
+    } catch (err) {
+      setMsg({ type: 'error', text: `Restart failed: ${err.message}` });
+    } finally {
+      setActionInProgress('');
+    }
+  };
+
+  // Reconnect WhatsApp with Same Instance Saved in Database
+  const handleReconnect = async () => {
+    setActionInProgress('reconnect');
+    setQrError('');
+    try {
+      const cleanKey = sanitizeApiKey(apiKey);
+      await fetch('/api/whatsapp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'restartInstance',
+          baseUrl,
+          instance,
+          targetInstance: instance,
+          apiKey: cleanKey
+        })
+      });
+      setMsg({ type: 'info', text: `🔄 Reconnecting WhatsApp for instance "${instance}"... Generating QR code.` });
+      setTimeout(() => setMsg({ type: '', text: '' }), 4000);
+      setTimeout(() => {
+        fetchQrCode();
+      }, 1000);
+    } catch (err) {
+      console.error('Reconnect error:', err);
+      fetchQrCode();
+    } finally {
+      setActionInProgress('');
+    }
+  };
+
+  // Disconnect / Logout WhatsApp Session for Database-Saved Instance
+  const handleLogoutInstance = async () => {
+    if (!window.confirm(`Are you sure you want to log out WhatsApp? This will disconnect the session for instance "${instance}". You can reconnect anytime by scanning the QR code again.`)) {
+      return;
+    }
+    setActionInProgress('logout');
+    try {
+      const cleanKey = sanitizeApiKey(apiKey);
+      const res = await fetch('/api/whatsapp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'logoutInstance',
+          baseUrl,
+          instance,
+          targetInstance: instance,
+          apiKey: cleanKey
+        })
+      });
+      const data = await res.json();
+      setMsg({ type: 'info', text: `🔌 WhatsApp disconnected successfully. Scan the QR code below to reconnect with "${instance}".` });
+      setTimeout(() => setMsg({ type: '', text: '' }), 5000);
+      setServerStatus({ isReady: false, state: 'close', lastChecked: new Date().toLocaleTimeString() });
+      setQrCodeData(null);
+      setTimeout(() => {
+        fetchQrCode();
+      }, 1500);
+    } catch (err) {
+      setMsg({ type: 'error', text: `Logout failed: ${err.message}` });
+    } finally {
+      setActionInProgress('');
     }
   };
 
@@ -261,6 +417,44 @@ export default function WhatsAppSettings() {
       checkHealth();
     }
   }, [loading]);
+
+  // Poll connection state when qrLogin tab is active
+  useEffect(() => {
+    if (activeTab === 'qrLogin') {
+      checkHealth().then(({ isReady }) => {
+        if (!isReady) {
+          fetchQrCode();
+        }
+      });
+
+      // Poll connection status every 4 seconds while on qrLogin tab to detect phone scan
+      const interval = setInterval(async () => {
+        const health = await checkHealth();
+        if (health.isReady) {
+          setQrCodeData(null);
+        }
+      }, 4000);
+
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, instance, baseUrl, apiKey]);
+
+  // QR Code Auto-Refresh Countdown
+  useEffect(() => {
+    let timer;
+    if (activeTab === 'qrLogin' && qrCodeData?.base64 && !serverStatus.isReady) {
+      timer = setInterval(() => {
+        setQrAutoRefreshSec(prev => {
+          if (prev <= 1) {
+            fetchQrCode();
+            return 30;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [activeTab, qrCodeData, serverStatus.isReady]);
 
   // Save Settings
   const handleSave = async () => {
@@ -919,8 +1113,29 @@ export default function WhatsAppSettings() {
               </div>
             )}
           </div>
+          {!serverStatus.isReady && (
+            <button
+              onClick={() => {
+                setActiveTab('qrLogin');
+                fetchQrCode();
+              }}
+              style={{
+                background: "#dc2626",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "8px",
+                padding: "4px 10px",
+                fontSize: "11px",
+                fontWeight: "800",
+                cursor: "pointer",
+                marginLeft: "4px"
+              }}
+            >
+              📲 Scan QR
+            </button>
+          )}
           <button
-            onClick={checkHealth}
+            onClick={() => checkHealth()}
             disabled={checkingStatus}
             style={{
               background: "transparent",
@@ -955,7 +1170,7 @@ export default function WhatsAppSettings() {
       )}
 
       {/* TOP NAVIGATION TABS */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr 1.3fr 1fr", gap: "10px", marginBottom: "24px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px", marginBottom: "24px" }}>
         <button
           onClick={() => setActiveTab('sender')}
           style={{
@@ -965,7 +1180,7 @@ export default function WhatsAppSettings() {
             background: activeTab === 'sender' ? "#2c1b0d" : "#f4f4f5",
             color: activeTab === 'sender' ? "#ffffff" : "#3f3f46",
             fontWeight: "800",
-            fontSize: "13.5px",
+            fontSize: "13px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
@@ -987,7 +1202,7 @@ export default function WhatsAppSettings() {
             background: activeTab === 'bulk' ? "#25D366" : "#f0fdf4",
             color: activeTab === 'bulk' ? "#ffffff" : "#166534",
             fontWeight: "900",
-            fontSize: "13.5px",
+            fontSize: "13px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
@@ -1021,7 +1236,7 @@ export default function WhatsAppSettings() {
             background: activeTab === 'automation' ? "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)" : "#f0f9ff",
             color: activeTab === 'automation' ? "#ffffff" : "#0369a1",
             fontWeight: "900",
-            fontSize: "13.5px",
+            fontSize: "13px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
@@ -1031,7 +1246,44 @@ export default function WhatsAppSettings() {
             transition: "all 0.15s ease"
           }}
         >
-          <span>🤖</span> Order Automations & Payment QR
+          <span>🤖</span> Order Automations
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('qrLogin');
+            fetchQrCode();
+          }}
+          style={{
+            padding: "13px",
+            borderRadius: "12px",
+            border: activeTab === 'qrLogin' ? "none" : (serverStatus.isReady ? "1.5px solid #86efac" : "1.5px solid #f87171"),
+            background: activeTab === 'qrLogin' 
+              ? (serverStatus.isReady ? "linear-gradient(135deg, #15803d 0%, #166534 100%)" : "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)")
+              : (serverStatus.isReady ? "#f0fdf4" : "#fef2f2"),
+            color: activeTab === 'qrLogin' ? "#ffffff" : (serverStatus.isReady ? "#15803d" : "#b91c1c"),
+            fontWeight: "900",
+            fontSize: "13px",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            boxShadow: activeTab === 'qrLogin' ? "0 4px 16px rgba(0,0,0,0.2)" : "none",
+            transition: "all 0.15s ease"
+          }}
+        >
+          <span>📲</span> WhatsApp Login / QR
+          <span style={{
+            background: activeTab === 'qrLogin' ? "rgba(255,255,255,0.25)" : (serverStatus.isReady ? "#dcfce7" : "#fee2e2"),
+            color: activeTab === 'qrLogin' ? "#ffffff" : (serverStatus.isReady ? "#166534" : "#991b1b"),
+            padding: "2px 7px",
+            borderRadius: "999px",
+            fontSize: "10px",
+            fontWeight: "850"
+          }}>
+            {serverStatus.isReady ? "✓ Connected" : "● Disconnected"}
+          </span>
         </button>
 
         <button
@@ -1043,7 +1295,7 @@ export default function WhatsAppSettings() {
             background: activeTab === 'settings' ? "#2c1b0d" : "#f4f4f5",
             color: activeTab === 'settings' ? "#ffffff" : "#3f3f46",
             fontWeight: "800",
-            fontSize: "13.5px",
+            fontSize: "13px",
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
@@ -2446,6 +2698,384 @@ export default function WhatsAppSettings() {
 
             </div>
 
+          </div>
+
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 5: WHATSAPP CONNECTION & LIVE LOGIN QR */}
+      {/* ========================================================================= */}
+      {activeTab === 'qrLogin' && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "22px" }}>
+          
+          {/* MAIN WHATSAPP CONNECTION CARD */}
+          <div style={{ 
+            background: "#ffffff", 
+            borderRadius: "20px", 
+            border: "1.5px solid #e4e4e7", 
+            boxShadow: "0 10px 30px rgba(0,0,0,0.04)", 
+            overflow: "hidden" 
+          }}>
+            {/* Top Instance Status Bar */}
+            <div style={{
+              background: "linear-gradient(135deg, #2c1b0d 0%, #432818 100%)",
+              color: "#ffffff",
+              padding: "20px 24px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "12px"
+            }}>
+              <div>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.14)", padding: "3px 10px", borderRadius: "999px", fontSize: "11px", fontWeight: "800", color: "#fef3c7", marginBottom: "6px" }}>
+                  <span>📲</span> DATABASE SAVED INSTANCE
+                </div>
+                <h3 style={{ fontSize: "18px", fontWeight: "850", margin: "0 0 3px", color: "#ffffff" }}>
+                  WhatsApp Instance: <span style={{ color: "#38bdf8" }}>{instance}</span>
+                </h3>
+                <span style={{ fontSize: "12px", color: "#e2e8f0" }}>
+                  Server URL: <strong style={{ color: "#ffffff" }}>{baseUrl}</strong>
+                </span>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                <span style={{
+                  background: serverStatus.isReady ? "#22c55e" : "#ef4444",
+                  color: "#ffffff",
+                  padding: "7px 16px",
+                  borderRadius: "999px",
+                  fontSize: "12.5px",
+                  fontWeight: "900",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  boxShadow: serverStatus.isReady ? "0 0 12px rgba(34, 197, 94, 0.5)" : "0 0 12px rgba(239, 68, 68, 0.4)"
+                }}>
+                  <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: "#ffffff" }}></span>
+                  {serverStatus.isReady ? "CONNECTED & ONLINE" : (serverStatus.state === 'connecting' ? "CONNECTING..." : "DISCONNECTED")}
+                </span>
+
+                <button
+                  onClick={() => checkHealth()}
+                  disabled={checkingStatus}
+                  style={{
+                    background: "rgba(255,255,255,0.15)",
+                    color: "#ffffff",
+                    border: "1px solid rgba(255,255,255,0.3)",
+                    padding: "7px 13px",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    fontWeight: "800",
+                    cursor: "pointer"
+                  }}
+                  title="Check live connection status"
+                >
+                  {checkingStatus ? "⏳ Checking..." : "🔄 Refresh Status"}
+                </button>
+              </div>
+            </div>
+
+            {/* Content Area: Connected View OR Disconnected QR View */}
+            <div style={{ padding: "26px 28px" }}>
+              {serverStatus.isReady ? (
+                /* ================================================= */
+                /* ALREADY CONNECTED VIEW */
+                /* ================================================= */
+                <div style={{
+                  background: "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%)",
+                  border: "2px solid #86efac",
+                  borderRadius: "16px",
+                  padding: "26px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
+                  gap: "20px"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px", maxWidth: "680px" }}>
+                    <div style={{
+                      width: "60px",
+                      height: "60px",
+                      borderRadius: "50%",
+                      background: "#22c55e",
+                      color: "#ffffff",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "30px",
+                      boxShadow: "0 8px 20px rgba(34, 197, 94, 0.3)",
+                      flexShrink: 0
+                    }}>
+                      ✓
+                    </div>
+                    <div>
+                      <h4 style={{ fontSize: "18px", fontWeight: "900", color: "#14532d", margin: "0 0 5px" }}>
+                        WhatsApp Connected Successfully!
+                      </h4>
+                      <p style={{ margin: 0, fontSize: "13.5px", color: "#15803d", lineHeight: "1.5" }}>
+                        Instance <strong style={{ color: "#14532d" }}>{instance}</strong> saved in database is active and linked. All customer notifications, UPI payment QRs, and brewing updates are dispatching normally.
+                      </p>
+                      {activeInstanceDetails?.profileName && (
+                        <div style={{ marginTop: "6px", fontSize: "12px", color: "#166534", fontWeight: "750" }}>
+                          👤 Linked Profile: {activeInstanceDetails.profileName} {activeInstanceDetails.owner ? `(${activeInstanceDetails.owner.split('@')[0]})` : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <button
+                      onClick={handleRestartInstance}
+                      disabled={actionInProgress === 'restart'}
+                      style={{
+                        background: "#ffffff",
+                        color: "#0369a1",
+                        border: "1.5px solid #bae6fd",
+                        padding: "11px 18px",
+                        borderRadius: "10px",
+                        fontSize: "12.5px",
+                        fontWeight: "800",
+                        cursor: "pointer",
+                        boxShadow: "0 2px 6px rgba(0,0,0,0.04)"
+                      }}
+                    >
+                      {actionInProgress === 'restart' ? "⏳ Restarting..." : "⚡ Restart Session"}
+                    </button>
+
+                    <button
+                      onClick={handleLogoutInstance}
+                      disabled={actionInProgress === 'logout'}
+                      style={{
+                        background: "#fee2e2",
+                        color: "#b91c1c",
+                        border: "1.5px solid #fca5a5",
+                        padding: "11px 20px",
+                        borderRadius: "10px",
+                        fontSize: "12.5px",
+                        fontWeight: "900",
+                        cursor: "pointer",
+                        boxShadow: "0 2px 8px rgba(220, 38, 38, 0.15)"
+                      }}
+                      title="Disconnect WhatsApp session and return to QR scan screen"
+                    >
+                      {actionInProgress === 'logout' ? "⏳ Disconnecting..." : "🔌 Disconnect / Logout WhatsApp"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ================================================= */
+                /* DISCONNECTED VIEW: SHOW LIVE LOGIN QR CODE */
+                /* ================================================= */
+                <div>
+                  {/* Warning banner */}
+                  <div style={{
+                    background: "#fef2f2",
+                    border: "1.5px solid #fca5a5",
+                    borderRadius: "12px",
+                    padding: "14px 18px",
+                    marginBottom: "24px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "12px"
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <span style={{ fontSize: "24px" }}>⚠️</span>
+                      <div>
+                        <strong style={{ fontSize: "14px", color: "#991b1b", display: "block" }}>
+                          WhatsApp is Currently Disconnected
+                        </strong>
+                        <span style={{ fontSize: "12.5px", color: "#b91c1c" }}>
+                          Automated customer receipts, brewing alerts, and payment UPI QRs are paused until WhatsApp is reconnected for instance <strong style={{ textDecoration: "underline" }}>{instance}</strong>.
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleReconnect}
+                      disabled={actionInProgress === 'reconnect'}
+                      style={{
+                        background: "#dc2626",
+                        color: "#ffffff",
+                        border: "none",
+                        padding: "9px 16px",
+                        borderRadius: "8px",
+                        fontWeight: "800",
+                        fontSize: "12.5px",
+                        cursor: "pointer",
+                        boxShadow: "0 3px 10px rgba(220, 38, 38, 0.3)"
+                      }}
+                    >
+                      {actionInProgress === 'reconnect' ? "⏳ Reconnecting..." : "⚡ Reconnect WhatsApp"}
+                    </button>
+                  </div>
+
+                  {/* QR Box and Guide */}
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 360px) 1fr", gap: "32px", alignItems: "flex-start" }}>
+                    
+                    {/* QR Code Container */}
+                    <div style={{
+                      background: "#ffffff",
+                      border: "2px solid #e2e8f0",
+                      borderRadius: "18px",
+                      padding: "22px",
+                      textAlign: "center",
+                      boxShadow: "0 6px 24px rgba(0,0,0,0.06)",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center"
+                    }}>
+                      <div style={{ fontSize: "13px", fontWeight: "850", color: "#334155", marginBottom: "14px", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span>📷</span> SCAN QR CODE WITH WHATSAPP
+                      </div>
+
+                      <div style={{
+                        width: "270px",
+                        height: "270px",
+                        background: "#f8fafc",
+                        border: "2px dashed #cbd5e1",
+                        borderRadius: "16px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        position: "relative",
+                        overflow: "hidden"
+                      }}>
+                        {loadingQr ? (
+                          <div style={{ textAlign: "center", color: "#64748b", padding: "16px" }}>
+                            <div style={{ fontSize: "32px" }}>⏳</div>
+                            <div style={{ fontSize: "13px", fontWeight: "750", marginTop: "10px", color: "#0284c7" }}>
+                              Generating live QR code...
+                            </div>
+                            <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "4px" }}>
+                              Connecting to {instance}
+                            </div>
+                          </div>
+                        ) : qrCodeData?.base64 ? (
+                          <img 
+                            src={qrCodeData.base64} 
+                            alt="WhatsApp Login QR" 
+                            style={{ width: "250px", height: "250px", objectFit: "contain", borderRadius: "10px" }}
+                          />
+                        ) : qrError ? (
+                          <div style={{ padding: "16px", textAlign: "center", color: "#dc2626" }}>
+                            <div style={{ fontSize: "28px", marginBottom: "8px" }}>⚠️</div>
+                            <div style={{ fontSize: "12px", fontWeight: "750", marginBottom: "10px" }}>{qrError}</div>
+                            <button
+                              onClick={() => fetchQrCode()}
+                              style={{
+                                background: "#dc2626",
+                                color: "#ffffff",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "6px",
+                                fontSize: "11.5px",
+                                fontWeight: "800",
+                                cursor: "pointer"
+                              }}
+                            >
+                              Retry
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: "center", color: "#64748b", padding: "16px" }}>
+                            <div style={{ fontSize: "32px", marginBottom: "8px" }}>📲</div>
+                            <div style={{ fontSize: "13px", fontWeight: "750" }}>Click below to generate WhatsApp QR code</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Countdown & Refresh info */}
+                      <div style={{ marginTop: "14px", fontSize: "12px", color: "#64748b", fontWeight: "700" }}>
+                        {qrCodeData?.base64 ? `⏱️ QR Code auto-refreshes in ${qrAutoRefreshSec}s` : 'Session ready'}
+                      </div>
+
+                      {/* Action buttons */}
+                      <div style={{ display: "flex", gap: "8px", marginTop: "14px", width: "100%" }}>
+                        <button
+                          onClick={() => fetchQrCode()}
+                          disabled={loadingQr}
+                          style={{
+                            flex: 1,
+                            background: "#25D366",
+                            color: "#ffffff",
+                            border: "none",
+                            padding: "11px 14px",
+                            borderRadius: "10px",
+                            fontSize: "13px",
+                            fontWeight: "800",
+                            cursor: "pointer",
+                            boxShadow: "0 4px 12px rgba(37, 211, 102, 0.3)"
+                          }}
+                        >
+                          {loadingQr ? "⏳ Loading..." : "🔄 Refresh QR Code"}
+                        </button>
+
+                        <button
+                          onClick={handleReconnect}
+                          disabled={actionInProgress === 'reconnect'}
+                          style={{
+                            background: "#f1f5f9",
+                            color: "#334155",
+                            border: "1.5px solid #cbd5e1",
+                            padding: "11px 14px",
+                            borderRadius: "10px",
+                            fontSize: "12px",
+                            fontWeight: "800",
+                            cursor: "pointer"
+                          }}
+                          title="Restart session and generate new QR code"
+                        >
+                          {actionInProgress === 'reconnect' ? "⏳..." : "⚡ Reconnect"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* How to Connect 3 Steps Guide */}
+                    <div>
+                      <h4 style={{ fontSize: "18px", fontWeight: "900", color: "#1e293b", margin: "0 0 16px" }}>
+                        How to Connect WhatsApp for Chai Chaska:
+                      </h4>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                        <div style={{ display: "flex", gap: "14px", background: "#f8fafc", padding: "14px 16px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+                          <span style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#25D366", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", flexShrink: 0 }}>1</span>
+                          <div style={{ fontSize: "13.5px", color: "#334155", lineHeight: "1.5" }}>
+                            Open <strong>WhatsApp</strong> on your mobile phone (the business/admin phone number).
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "14px", background: "#f8fafc", padding: "14px 16px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+                          <span style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#25D366", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", flexShrink: 0 }}>2</span>
+                          <div style={{ fontSize: "13.5px", color: "#334155", lineHeight: "1.5" }}>
+                            Tap <strong>Menu (⋮)</strong> on Android or <strong>Settings (⚙️)</strong> on iPhone and tap <strong>Linked Devices</strong>.
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "14px", background: "#f8fafc", padding: "14px 16px", borderRadius: "12px", border: "1px solid #e2e8f0" }}>
+                          <span style={{ width: "26px", height: "26px", borderRadius: "50%", background: "#25D366", color: "#ffffff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: "900", flexShrink: 0 }}>3</span>
+                          <div style={{ fontSize: "13.5px", color: "#334155", lineHeight: "1.5" }}>
+                            Tap <strong>"Link a Device"</strong> and scan the QR code displayed on the left.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ marginTop: "18px", padding: "14px 18px", background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: "12px", fontSize: "13px", color: "#14532d" }}>
+                        ✨ <strong>Automatic Live Detection:</strong> As soon as you scan the QR code with your phone, this terminal will automatically detect the connection, save the session, and switch to "WhatsApp Connected"!
+                      </div>
+
+                      <div style={{ marginTop: "12px", padding: "12px 16px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", fontSize: "12px", color: "#64748b" }}>
+                        🔒 <strong>Instance Persistence:</strong> Uses instance <strong>{instance}</strong> saved in your database configuration. If you ever disconnect, you can reconnect anytime with this exact same instance without changing settings.
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
         </div>
