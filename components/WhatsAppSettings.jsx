@@ -248,8 +248,8 @@ export default function WhatsAppSettings() {
           apiKey: cleanKey
         })
       });
-      const data = await res.json();
-      const stateVal = data?.data?.instance?.state || data?.state || (res.ok ? 'open' : 'disconnected');
+      const data = await res.json().catch(() => ({ ok: false }));
+      const stateVal = data?.data?.instance?.state || data?.state || (data.ok ? 'unknown' : 'disconnected');
       const isReady = stateVal === 'open' || stateVal === 'connected';
 
       setServerStatus({
@@ -288,13 +288,13 @@ export default function WhatsAppSettings() {
           apiKey: cleanKey
         })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ ok: false, error: 'Could not parse response from server' }));
       if (!res.ok || !data.ok) {
         throw new Error(data.error || 'Failed to fetch QR code from WhatsApp server');
       }
 
       const qrPayload = data.data || {};
-      const stateVal = qrPayload.state || qrPayload.instance?.state;
+      const stateVal = qrPayload.state || qrPayload.instance?.state || (data.isConnected ? 'open' : null);
       if (stateVal === 'open' || stateVal === 'connected') {
         setServerStatus({
           isReady: true,
@@ -307,7 +307,7 @@ export default function WhatsAppSettings() {
         setQrAutoRefreshSec(30);
       }
     } catch (err) {
-      console.error('Error fetching QR:', err);
+      console.warn('Notice fetching QR:', err.message);
       setQrError(err.message || 'Error fetching QR Code');
     } finally {
       setLoadingQr(false);
@@ -711,7 +711,12 @@ export default function WhatsAppSettings() {
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { ok: false, error: 'Server returned a non-JSON or timeout response' };
+      }
 
       if (res.ok && data.ok) {
         setLastSentStatus({
@@ -724,15 +729,17 @@ export default function WhatsAppSettings() {
         setAttachedFile(null);
         setMediaUrlInput('');
       } else {
+        const errorDetail = data.data?.response?.message || data.error || 'Failed to deliver message';
         setLastSentStatus({
           success: false,
-          error: data.data?.response?.message || data.error || 'Failed to deliver message'
+          error: errorDetail
         });
-        setMsg({ type: 'error', text: `❌ Could not send: ${data.data?.response?.message || data.error || 'Check server status'}` });
+        setMsg({ type: 'error', text: `❌ Could not send: ${errorDetail}` });
       }
     } catch (err) {
-      setLastSentStatus({ success: false, error: err.message });
-      setMsg({ type: 'error', text: `❌ Error: ${err.message}` });
+      const errorMsg = err.name === 'AbortError' ? 'Request timed out' : (err.message || 'Network error');
+      setLastSentStatus({ success: false, error: errorMsg });
+      setMsg({ type: 'error', text: `❌ Error: ${errorMsg}` });
     } finally {
       setSending(false);
       setTimeout(() => setMsg({ type: '', text: '' }), 5000);
@@ -2742,7 +2749,7 @@ export default function WhatsAppSettings() {
 
               <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                 <span style={{
-                  background: serverStatus.isReady ? "#22c55e" : "#ef4444",
+                  background: serverStatus.isReady ? "#22c55e" : (serverStatus.state === 'connecting' ? "#d97706" : "#ef4444"),
                   color: "#ffffff",
                   padding: "7px 16px",
                   borderRadius: "999px",
@@ -2751,10 +2758,10 @@ export default function WhatsAppSettings() {
                   display: "inline-flex",
                   alignItems: "center",
                   gap: "7px",
-                  boxShadow: serverStatus.isReady ? "0 0 12px rgba(34, 197, 94, 0.5)" : "0 0 12px rgba(239, 68, 68, 0.4)"
+                  boxShadow: serverStatus.isReady ? "0 0 12px rgba(34, 197, 94, 0.5)" : (serverStatus.state === 'connecting' ? "0 0 12px rgba(217, 119, 6, 0.45)" : "0 0 12px rgba(239, 68, 68, 0.4)")
                 }}>
                   <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: "#ffffff" }}></span>
-                  {serverStatus.isReady ? "CONNECTED & ONLINE" : (serverStatus.state === 'connecting' ? "CONNECTING..." : "DISCONNECTED")}
+                  {serverStatus.isReady ? "CONNECTED & ONLINE" : (serverStatus.state === 'connecting' ? "CONNECTING / SYNCING..." : "DISCONNECTED")}
                 </span>
 
                 <button
@@ -2869,10 +2876,10 @@ export default function WhatsAppSettings() {
                 /* DISCONNECTED VIEW: SHOW LIVE LOGIN QR CODE */
                 /* ================================================= */
                 <div>
-                  {/* Warning banner */}
+                  {/* Warning / Status banner */}
                   <div style={{
-                    background: "#fef2f2",
-                    border: "1.5px solid #fca5a5",
+                    background: serverStatus.state === 'connecting' ? "#fffbeb" : "#fef2f2",
+                    border: `1.5px solid ${serverStatus.state === 'connecting' ? "#fcd34d" : "#fca5a5"}`,
                     borderRadius: "12px",
                     padding: "14px 18px",
                     marginBottom: "24px",
@@ -2883,13 +2890,15 @@ export default function WhatsAppSettings() {
                     gap: "12px"
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                      <span style={{ fontSize: "24px" }}>⚠️</span>
+                      <span style={{ fontSize: "24px" }}>{serverStatus.state === 'connecting' ? "⏳" : "⚠️"}</span>
                       <div>
-                        <strong style={{ fontSize: "14px", color: "#991b1b", display: "block" }}>
-                          WhatsApp is Currently Disconnected
+                        <strong style={{ fontSize: "14px", color: serverStatus.state === 'connecting' ? "#92400e" : "#991b1b", display: "block" }}>
+                          {serverStatus.state === 'connecting' ? "WhatsApp is Synchronizing / Connecting..." : "WhatsApp is Currently Disconnected"}
                         </strong>
-                        <span style={{ fontSize: "12.5px", color: "#b91c1c" }}>
-                          Automated customer receipts, brewing alerts, and payment UPI QRs are paused until WhatsApp is reconnected for instance <strong style={{ textDecoration: "underline" }}>{instance}</strong>.
+                        <span style={{ fontSize: "12.5px", color: serverStatus.state === 'connecting' ? "#b45309" : "#b91c1c" }}>
+                          {serverStatus.state === 'connecting'
+                            ? `WhatsApp Web socket is establishing connection with phone for instance ${instance}. If it takes longer than 15s, click "⚡ Restart Session".`
+                            : `Automated customer receipts, brewing alerts, and payment UPI QRs are paused until WhatsApp is reconnected for instance ${instance}.`}
                         </span>
                       </div>
                     </div>
@@ -2898,7 +2907,7 @@ export default function WhatsAppSettings() {
                       onClick={handleReconnect}
                       disabled={actionInProgress === 'reconnect'}
                       style={{
-                        background: "#dc2626",
+                        background: serverStatus.state === 'connecting' ? "#d97706" : "#dc2626",
                         color: "#ffffff",
                         border: "none",
                         padding: "9px 16px",
@@ -2906,10 +2915,10 @@ export default function WhatsAppSettings() {
                         fontWeight: "800",
                         fontSize: "12.5px",
                         cursor: "pointer",
-                        boxShadow: "0 3px 10px rgba(220, 38, 38, 0.3)"
+                        boxShadow: "0 3px 10px rgba(0,0,0,0.15)"
                       }}
                     >
-                      {actionInProgress === 'reconnect' ? "⏳ Reconnecting..." : "⚡ Reconnect WhatsApp"}
+                      {actionInProgress === 'reconnect' ? "⏳ Refreshing..." : (serverStatus.state === 'connecting' ? "⚡ Restart Session" : "⚡ Reconnect WhatsApp")}
                     </button>
                   </div>
 
