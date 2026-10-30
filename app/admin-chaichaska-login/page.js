@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { getProductMeta } from "@/lib/productMeta";
-import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, getLeaveRequests, addLeaveRequest, updateLeaveRequest, deleteLeaveRequest, onBrewmastersSnapshot, getBrewmasters, addBrewmaster, updateBrewmaster, deleteBrewmaster, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback, getRestockHistory } from "@/lib/firestore";
+import { onOrdersSnapshot, getMenuItems, getCombos, onStockSnapshot, updateOrder, addMenuItem, addStockItem, updateStockItem, onProductsSnapshot, addProduct, deleteProduct, updateProduct, onRestockRequestsSnapshot, updateRestockRequest, onLeaveRequestsSnapshot, getLeaveRequests, addLeaveRequest, updateLeaveRequest, deleteLeaveRequest, onBrewmastersSnapshot, getBrewmasters, addBrewmaster, updateBrewmaster, deleteBrewmaster, getProfileSettings, updateProfileSettings, getContactInfo, updateContactInfo, getPendingFeedback, approveFeedback, deleteFeedback, getFeedback, getRestockHistory, onCategoriesSnapshot, addCategory, deleteCategory, DEFAULT_PRODUCT_CATEGORIES } from "@/lib/firestore";
 import { loginWithEmail, signUpWithEmail, signOut, signInWithGoogle, onAuthStateChange } from "@/lib/auth";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -924,6 +924,15 @@ export default function AdminDashboard() {
   const [newProdImage, setNewProdImage] = useState("");
   const [newProdGallery, setNewProdGallery] = useState([]);
 
+  // Category Management States
+  const [customCategories, setCustomCategories] = useState([]);
+  const [removedCategories, setRemovedCategories] = useState([]);
+  const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
+  const [showInlineAddCat, setShowInlineAddCat] = useState(false);
+  const [inlineCatInput, setInlineCatInput] = useState("");
+  const [isAddingCat, setIsAddingCat] = useState(false);
+  const [newCategoryModalInput, setNewCategoryModalInput] = useState("");
+
   // Product Edit States
   const [editingProduct, setEditingProduct] = useState(null);
   const [editProdName, setEditProdName] = useState("");
@@ -932,6 +941,36 @@ export default function AdminDashboard() {
   const [editProdDesc, setEditProdDesc] = useState("");
   const [editProdImage, setEditProdImage] = useState("");
   const [editProdGallery, setEditProdGallery] = useState([]);
+  const [showEditInlineAddCat, setShowEditInlineAddCat] = useState(false);
+  const [editInlineCatInput, setEditInlineCatInput] = useState("");
+
+  // Unified Categories List (Default + Custom from Firestore + Any on Products, minus removed)
+  const allCategories = useMemo(() => {
+    const defaultList = Array.isArray(DEFAULT_PRODUCT_CATEGORIES) && DEFAULT_PRODUCT_CATEGORIES.length > 0
+      ? DEFAULT_PRODUCT_CATEGORIES
+      : ["Chai", "Coffee", "Sandwich", "Snacks", "Toast", "Maggi", "Drinks", "Water"];
+    const list = [...defaultList];
+    const seen = new Set(list.map((c) => c.toLowerCase()));
+
+    (customCategories || []).forEach((c) => {
+      const name = typeof c === "string" ? c : c?.name;
+      if (name && name.trim() && !seen.has(name.trim().toLowerCase())) {
+        seen.add(name.trim().toLowerCase());
+        list.push(name.trim());
+      }
+    });
+
+    (productsList || []).forEach((p) => {
+      if (p.category && p.category.trim() && !seen.has(p.category.trim().toLowerCase())) {
+        seen.add(p.category.trim().toLowerCase());
+        list.push(p.category.trim());
+      }
+    });
+
+    // Filter out any removed categories
+    const removedSet = new Set((removedCategories || []).map((r) => r.toLowerCase()));
+    return list.filter((cat) => !removedSet.has(cat.toLowerCase()));
+  }, [customCategories, removedCategories, productsList]);
 
   // Sidebar visibility state
   const [showPendingSidebar, setShowPendingSidebar] = useState(false);
@@ -1147,6 +1186,14 @@ export default function AdminDashboard() {
     const unsubStock = onStockSnapshot((data) => setStocks(data));
     getFeedback().then(setFeedbackList);
     const unsubProducts = onProductsSnapshot((data) => setProductsList(data));
+    const unsubCategories = onCategoriesSnapshot((data) => {
+      if (Array.isArray(data)) {
+        setCustomCategories(data);
+      } else if (data) {
+        setCustomCategories(data.categories || []);
+        setRemovedCategories(data.removedCategories || []);
+      }
+    });
     const unsubRestock = onRestockRequestsSnapshot((data) => setRestockRequests(data));
     const unsubLeave = onLeaveRequestsSnapshot((data) => setLeaveRequests(data));
     const unsubBrew = onBrewmastersSnapshot((data) => setBrewmasters(data));
@@ -1154,6 +1201,7 @@ export default function AdminDashboard() {
     return () => {
       unsubOrders();
       unsubProducts();
+      unsubCategories();
       unsubRestock();
       unsubLeave();
       unsubBrew();
@@ -1694,6 +1742,86 @@ export default function AdminDashboard() {
       setTimeout(() => setToastMsg(""), 4000);
     } catch (err) {
       setToastMsg(`❌ Error: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 4000);
+    }
+  };
+
+  const handleCreateCategory = async (catName, autoSelectFor = "new") => {
+    const clean = String(catName || "").trim();
+    if (!clean) {
+      setToastMsg("⚠️ Please enter a category name.");
+      setTimeout(() => setToastMsg(""), 3000);
+      return false;
+    }
+    const alreadyExists = allCategories.some((c) => c.toLowerCase() === clean.toLowerCase());
+    if (alreadyExists) {
+      if (autoSelectFor === "new") setNewProdCategory(clean);
+      if (autoSelectFor === "edit") setEditProdCategory(clean);
+      setToastMsg(`ℹ️ Category "${clean}" already exists and is selected.`);
+      setTimeout(() => setToastMsg(""), 3000);
+      return true;
+    }
+    setIsAddingCat(true);
+    try {
+      await addCategory(clean);
+      if (autoSelectFor === "new") setNewProdCategory(clean);
+      if (autoSelectFor === "edit") setEditProdCategory(clean);
+      setToastMsg(`✨ Added category "${clean}" successfully!`);
+      setTimeout(() => setToastMsg(""), 3500);
+      return true;
+    } catch (err) {
+      setToastMsg(`❌ Error adding category: ${err.message}`);
+      setTimeout(() => setToastMsg(""), 4000);
+      return false;
+    } finally {
+      setIsAddingCat(false);
+    }
+  };
+
+  const handleDeleteCategory = async (catItem) => {
+    if (!catItem) return;
+    const catName = typeof catItem === "string" ? catItem.trim() : (catItem.name || catItem.id || "").trim();
+    if (!catName) return;
+
+    // Check if any product is using this category
+    const affectedProducts = (productsList || []).filter(
+      (p) => (p.category || "").toLowerCase() === catName.toLowerCase()
+    );
+
+    let confirmMsg = `Are you sure you want to remove the category "${catName}"?`;
+    if (affectedProducts.length > 0) {
+      confirmMsg = `⚠️ Notice: ${affectedProducts.length} product(s) currently use category "${catName}".\n\nRemoving it will reassign these products to "Chai".\n\nDo you want to proceed?`;
+    }
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      // 1. If products were using it, reassign them to "Chai"
+      if (affectedProducts.length > 0) {
+        for (const p of affectedProducts) {
+          try {
+            await updateProduct(p.id, { category: "Chai" });
+          } catch (e) {
+            console.warn(`Failed to reassign product ${p.id}:`, e);
+          }
+        }
+      }
+
+      // 2. Remove category from Firestore
+      await deleteCategory(catName);
+
+      // 3. Reset selected categories if they matched the deleted one
+      if (newProdCategory.toLowerCase() === catName.toLowerCase()) {
+        setNewProdCategory("Chai");
+      }
+      if (editProdCategory.toLowerCase() === catName.toLowerCase()) {
+        setEditProdCategory("Chai");
+      }
+
+      setToastMsg(`🗑️ Category "${catName}" removed successfully.`);
+      setTimeout(() => setToastMsg(""), 3500);
+    } catch (err) {
+      setToastMsg(`❌ Error removing category: ${err.message}`);
       setTimeout(() => setToastMsg(""), 4000);
     }
   };
@@ -2329,7 +2457,7 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                 <span className="btn-emoji">📞</span> Contact Info
               </button>
               <button onClick={() => setActiveTab("employees")} className={`menu-icon-btn ${activeTab === "employees" ? "active" : ""}`}>
-                <span className="btn-emoji">👥</span> Staff & Attendance
+                <span className="btn-emoji">📋</span> Attendance Data
               </button>
 
               <button onClick={() => setActiveTab("leave")} className={`menu-icon-btn ${activeTab === "leave" ? "active" : ""}`} style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -5873,38 +6001,59 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       Manage all products, pricing, categories, and cover images in real-time.
                     </p>
                   </div>
-                  <button
-                    onClick={() => {
-                      setNewProdName("");
-                      setNewProdPrice("");
-                      setNewProdDesc("");
-                      setNewProdImage("");
-                      setNewProdCategory("Chai");
-                      setNewProdCaffeine("Medium");
-                      setNewProdSweetness("Medium");
-                      setNewProdSteepTime("5 mins");
-                      setNewProdPairing("Biscuits");
-                      setNewProdRating(4.8);
-                      setShowAddProductModal(true);
-                    }}
-                    style={{
-                      background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
-                      color: "#ffffff",
-                      border: "none",
-                      padding: "12px 24px",
-                      borderRadius: "14px",
-                      fontWeight: "800",
-                      fontSize: "13.5px",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      boxShadow: "0 8px 20px rgba(44,27,13,0.25)",
-                      transition: "transform 0.2s, box-shadow 0.2s"
-                    }}
-                  >
-                    <span style={{ fontSize: "16px" }}>+</span> Add New Product
-                  </button>
+                  <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                    <button
+                      onClick={() => setShowManageCategoriesModal(true)}
+                      style={{
+                        background: "#fdf8f3",
+                        color: "#2c1b0d",
+                        border: "1px solid rgba(44,27,13,0.15)",
+                        padding: "12px 18px",
+                        borderRadius: "14px",
+                        fontWeight: "800",
+                        fontSize: "13px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        boxShadow: "0 2px 8px rgba(44,27,13,0.04)"
+                      }}
+                    >
+                      🏷️ Categories ({allCategories.length})
+                    </button>
+                    <button
+                      onClick={() => {
+                        setNewProdName("");
+                        setNewProdPrice("");
+                        setNewProdDesc("");
+                        setNewProdImage("");
+                        setNewProdCategory("Chai");
+                        setNewProdCaffeine("Medium");
+                        setNewProdSweetness("Medium");
+                        setNewProdSteepTime("5 mins");
+                        setNewProdPairing("Biscuits");
+                        setNewProdRating(4.8);
+                        setShowAddProductModal(true);
+                      }}
+                      style={{
+                        background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                        color: "#ffffff",
+                        border: "none",
+                        padding: "12px 24px",
+                        borderRadius: "14px",
+                        fontWeight: "800",
+                        fontSize: "13.5px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        boxShadow: "0 8px 20px rgba(44,27,13,0.25)",
+                        transition: "transform 0.2s, box-shadow 0.2s"
+                      }}
+                    >
+                      <span style={{ fontSize: "16px" }}>+</span> Add New Product
+                    </button>
+                  </div>
                 </div>
 
                 {/* Catalog Grid */}
@@ -6050,6 +6199,24 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         Delete Selected ({selectedProducts.length})
                       </button>
                     )}
+                    <button
+                      onClick={() => setShowManageCategoriesModal(true)}
+                      style={{
+                        background: "#fdf8f3",
+                        color: "#2c1b0d",
+                        border: "1px solid rgba(44,27,13,0.15)",
+                        padding: "10px 16px",
+                        borderRadius: "12px",
+                        fontWeight: "800",
+                        fontSize: "12.5px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px"
+                      }}
+                    >
+                      🏷️ Categories ({allCategories.length})
+                    </button>
                     <button
                       onClick={() => {
                         setNewProdName("");
@@ -6434,12 +6601,120 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       </div>
 
                       <div>
-                        <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
-                          Category *
-                        </label>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
+                          <label style={{ fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px" }}>
+                            Category *
+                          </label>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <button
+                              type="button"
+                              onClick={() => setShowInlineAddCat(!showInlineAddCat)}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "#8a583c",
+                                fontSize: "11px",
+                                fontWeight: "800",
+                                cursor: "pointer",
+                                padding: "0 4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "3px"
+                              }}
+                            >
+                              {showInlineAddCat ? "✕ Close" : "+ New Category"}
+                            </button>
+                            {newProdCategory && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(newProdCategory)}
+                                title={`Remove "${newProdCategory}" category`}
+                                style={{
+                                  background: "rgba(231,76,60,0.08)",
+                                  border: "none",
+                                  color: "#e74c3c",
+                                  fontSize: "10.5px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                  padding: "2px 6px",
+                                  borderRadius: "6px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "3px"
+                                }}
+                              >
+                                🗑️ Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {showInlineAddCat && (
+                          <div style={{ marginBottom: "8px", padding: "8px 10px", borderRadius: "10px", background: "#fbf6f0", border: "1px dashed #c9935a", display: "flex", gap: "6px", alignItems: "center" }}>
+                            <input
+                              type="text"
+                              placeholder="New category name..."
+                              value={inlineCatInput}
+                              onChange={(e) => setInlineCatInput(e.target.value)}
+                              onKeyDown={async (e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  const ok = await handleCreateCategory(inlineCatInput, "new");
+                                  if (ok) {
+                                    setInlineCatInput("");
+                                    setShowInlineAddCat(false);
+                                  }
+                                }
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                border: "1px solid rgba(44,27,13,0.18)",
+                                fontSize: "12px",
+                                background: "#fff",
+                                color: "#2c1b0d",
+                                outline: "none"
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const ok = await handleCreateCategory(inlineCatInput, "new");
+                                if (ok) {
+                                  setInlineCatInput("");
+                                  setShowInlineAddCat(false);
+                                }
+                              }}
+                              disabled={isAddingCat || !inlineCatInput.trim()}
+                              style={{
+                                background: "#2c1b0d",
+                                color: "#fff",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: "700",
+                                cursor: isAddingCat || !inlineCatInput.trim() ? "not-allowed" : "pointer",
+                                opacity: isAddingCat || !inlineCatInput.trim() ? 0.6 : 1,
+                                whiteSpace: "nowrap"
+                              }}
+                            >
+                              {isAddingCat ? "Saving..." : "Save"}
+                            </button>
+                          </div>
+                        )}
+
                         <select
                           value={newProdCategory}
-                          onChange={(e) => setNewProdCategory(e.target.value)}
+                          onChange={(e) => {
+                            if (e.target.value === "__ADD_NEW__") {
+                              setShowInlineAddCat(true);
+                            } else {
+                              setNewProdCategory(e.target.value);
+                            }
+                          }}
                           style={{
                             width: "100%",
                             padding: "10px 14px",
@@ -6453,14 +6728,14 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             cursor: "pointer"
                           }}
                         >
-                          <option value="Chai">Chai</option>
-                          <option value="Coffee">Coffee</option>
-                          <option value="Sandwich">Sandwich</option>
-                          <option value="Snacks">Snacks</option>
-                          <option value="Toast">Toast</option>
-                          <option value="Maggi">Maggi</option>
-                          <option value="Drinks">Drinks</option>
-                          <option value="Water">Water</option>
+                          {allCategories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                          <option value="__ADD_NEW__" style={{ fontWeight: "700", color: "#8a583c" }}>
+                            ➕ Add New Category...
+                          </option>
                         </select>
                       </div>
                     </div>
@@ -6836,12 +7111,120 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       </div>
 
                       <div>
-                        <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "5px" }}>
-                          Category *
-                        </label>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
+                          <label style={{ fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px" }}>
+                            Category *
+                          </label>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                            <button
+                              type="button"
+                              onClick={() => setShowEditInlineAddCat(!showEditInlineAddCat)}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                color: "#8a583c",
+                                fontSize: "11px",
+                                fontWeight: "800",
+                                cursor: "pointer",
+                                padding: "0 4px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "3px"
+                              }}
+                            >
+                              {showEditInlineAddCat ? "✕ Close" : "+ New Category"}
+                            </button>
+                            {editProdCategory && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteCategory(editProdCategory)}
+                                title={`Remove "${editProdCategory}" category`}
+                                style={{
+                                  background: "rgba(231,76,60,0.08)",
+                                  border: "none",
+                                  color: "#e74c3c",
+                                  fontSize: "10.5px",
+                                  fontWeight: "700",
+                                  cursor: "pointer",
+                                  padding: "2px 6px",
+                                  borderRadius: "6px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "3px"
+                                }}
+                              >
+                                🗑️ Remove
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {showEditInlineAddCat && (
+                          <div style={{ marginBottom: "8px", padding: "8px 10px", borderRadius: "10px", background: "#fbf6f0", border: "1px dashed #c9935a", display: "flex", gap: "6px", alignItems: "center" }}>
+                            <input
+                              type="text"
+                              placeholder="New category name..."
+                              value={editInlineCatInput}
+                              onChange={(e) => setEditInlineCatInput(e.target.value)}
+                              onKeyDown={async (e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  const ok = await handleCreateCategory(editInlineCatInput, "edit");
+                                  if (ok) {
+                                    setEditInlineCatInput("");
+                                    setShowEditInlineAddCat(false);
+                                  }
+                                }
+                              }}
+                              style={{
+                                flex: 1,
+                                padding: "6px 10px",
+                                borderRadius: "8px",
+                                border: "1px solid rgba(44,27,13,0.18)",
+                                fontSize: "12px",
+                                background: "#fff",
+                                color: "#2c1b0d",
+                                outline: "none"
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const ok = await handleCreateCategory(editInlineCatInput, "edit");
+                                if (ok) {
+                                  setEditInlineCatInput("");
+                                  setShowEditInlineAddCat(false);
+                                }
+                              }}
+                              disabled={isAddingCat || !editInlineCatInput.trim()}
+                              style={{
+                                background: "#2c1b0d",
+                                color: "#fff",
+                                border: "none",
+                                padding: "6px 12px",
+                                borderRadius: "8px",
+                                fontSize: "11.5px",
+                                fontWeight: "700",
+                                cursor: isAddingCat || !editInlineCatInput.trim() ? "not-allowed" : "pointer",
+                                opacity: isAddingCat || !editInlineCatInput.trim() ? 0.6 : 1,
+                                whiteSpace: "nowrap"
+                              }}
+                            >
+                              {isAddingCat ? "Saving..." : "Save"}
+                            </button>
+                          </div>
+                        )}
+
                         <select
                           value={editProdCategory}
-                          onChange={(e) => setEditProdCategory(e.target.value)}
+                          onChange={(e) => {
+                            if (e.target.value === "__ADD_NEW__") {
+                              setShowEditInlineAddCat(true);
+                            } else {
+                              setEditProdCategory(e.target.value);
+                            }
+                          }}
                           style={{
                             width: "100%",
                             padding: "10px 14px",
@@ -6855,14 +7238,14 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             cursor: "pointer"
                           }}
                         >
-                          <option value="Chai">Chai</option>
-                          <option value="Coffee">Coffee</option>
-                          <option value="Sandwich">Sandwich</option>
-                          <option value="Snacks">Snacks</option>
-                          <option value="Toast">Toast</option>
-                          <option value="Maggi">Maggi</option>
-                          <option value="Drinks">Drinks</option>
-                          <option value="Water">Water</option>
+                          {allCategories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                          <option value="__ADD_NEW__" style={{ fontWeight: "700", color: "#8a583c" }}>
+                            ➕ Add New Category...
+                          </option>
                         </select>
                       </div>
                     </div>
@@ -6928,6 +7311,203 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                       </button>
                     </div>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {/* ================= MANAGE CATEGORIES MODAL ================= */}
+            {showManageCategoriesModal && (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(18, 11, 7, 0.75)",
+                  backdropFilter: "blur(10px)",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  zIndex: 10003,
+                  padding: "20px"
+                }}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setShowManageCategoriesModal(false);
+                }}
+              >
+                <div
+                  className="no-scrollbar"
+                  style={{
+                    background: "#ffffff",
+                    borderRadius: "26px",
+                    width: "100%",
+                    maxWidth: "520px",
+                    maxHeight: "88vh",
+                    overflowY: "auto",
+                    boxShadow: "0 25px 60px rgba(0,0,0,0.35)",
+                    padding: "28px 30px",
+                    animation: "fadeIn 0.2s ease-out"
+                  }}
+                >
+                  {/* Header */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      <div style={{ width: "44px", height: "44px", borderRadius: "14px", background: "linear-gradient(135deg, #f5ece1 0%, #ecd9c6 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "22px" }}>
+                        🏷️
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: "19px", fontWeight: "800", color: "#2c1b0d" }}>
+                          Product Categories
+                        </h3>
+                        <p style={{ margin: "2px 0 0", fontSize: "12.5px", color: "#7a6b5e" }}>
+                          Add new categories or manage existing ones ({allCategories.length} total).
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowManageCategoriesModal(false)}
+                      style={{
+                        background: "#f7f2ed",
+                        border: "none",
+                        width: "32px",
+                        height: "32px",
+                        borderRadius: "50%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "14px",
+                        fontWeight: "800",
+                        color: "#555",
+                        cursor: "pointer"
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Add Category Form */}
+                  <div style={{ background: "#fbf6f0", padding: "16px", borderRadius: "16px", border: "1px solid rgba(44,27,13,0.08)", marginBottom: "22px" }}>
+                    <label style={{ display: "block", fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#555", letterSpacing: "0.5px", marginBottom: "8px" }}>
+                      Add New Category
+                    </label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        placeholder="e.g. Pastry, Shakes, Desserts..."
+                        value={newCategoryModalInput}
+                        onChange={(e) => setNewCategoryModalInput(e.target.value)}
+                        onKeyDown={async (e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            const ok = await handleCreateCategory(newCategoryModalInput, "new");
+                            if (ok) setNewCategoryModalInput("");
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: "10px 14px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(44,27,13,0.15)",
+                          fontSize: "13px",
+                          fontWeight: "600",
+                          background: "#fff",
+                          color: "#2c1b0d",
+                          outline: "none"
+                        }}
+                      />
+                      <button
+                        onClick={async () => {
+                          const ok = await handleCreateCategory(newCategoryModalInput, "new");
+                          if (ok) setNewCategoryModalInput("");
+                        }}
+                        disabled={isAddingCat || !newCategoryModalInput.trim()}
+                        style={{
+                          background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
+                          color: "#ffffff",
+                          border: "none",
+                          padding: "10px 18px",
+                          borderRadius: "12px",
+                          fontWeight: "800",
+                          fontSize: "13px",
+                          cursor: isAddingCat || !newCategoryModalInput.trim() ? "not-allowed" : "pointer",
+                          opacity: isAddingCat || !newCategoryModalInput.trim() ? 0.6 : 1,
+                          whiteSpace: "nowrap"
+                        }}
+                      >
+                        {isAddingCat ? "Adding..." : "+ Add"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Categories List */}
+                  <div>
+                    <h4 style={{ margin: "0 0 12px", fontSize: "13px", fontWeight: "800", textTransform: "uppercase", color: "#8a583c", letterSpacing: "0.5px" }}>
+                      Current Categories ({allCategories.length})
+                    </h4>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                      {allCategories.map((cat) => {
+                        const isDefault = (DEFAULT_PRODUCT_CATEGORIES || []).includes(cat);
+                        const count = productsList.filter((p) => p.category === cat).length;
+                        const customDoc = (customCategories || []).find((c) => (c.name || c.id) === cat || c.id === cat.toLowerCase().replace(/[^a-z0-9_-]/g, "_"));
+                        return (
+                          <div
+                            key={cat}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              padding: "10px 14px",
+                              borderRadius: "12px",
+                              background: "#ffffff",
+                              border: "1px solid rgba(44,27,13,0.08)",
+                              boxShadow: "0 2px 6px rgba(0,0,0,0.02)"
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                              <span style={{ fontSize: "16px" }}>📂</span>
+                              <span style={{ fontSize: "14px", fontWeight: "700", color: "#2c1b0d" }}>{cat}</span>
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  padding: "2px 8px",
+                                  borderRadius: "12px",
+                                  background: count > 0 ? "rgba(44,27,13,0.08)" : "#f5f5f5",
+                                  color: count > 0 ? "#2c1b0d" : "#888",
+                                  fontWeight: "700"
+                                }}
+                              >
+                                {count} {count === 1 ? "product" : "products"}
+                              </span>
+                              {isDefault && (
+                                <span style={{ fontSize: "10.5px", padding: "2px 7px", borderRadius: "6px", background: "#f0ede8", color: "#8a583c", fontWeight: "700" }}>
+                                  System Default
+                                </span>
+                              )}
+                            </div>
+
+                            <button
+                              onClick={() => handleDeleteCategory(cat)}
+                              title={`Remove category "${cat}"`}
+                              style={{
+                                background: "rgba(231,76,60,0.08)",
+                                border: "1px solid rgba(231,76,60,0.2)",
+                                color: "#e74c3c",
+                                padding: "5px 12px",
+                                borderRadius: "8px",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "5px",
+                                cursor: "pointer",
+                                fontSize: "12px",
+                                fontWeight: "700",
+                                transition: "all 0.2s"
+                              }}
+                            >
+                              <span>🗑️</span> Remove
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -7209,10 +7789,10 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                   <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "16px", marginBottom: "22px", background: "#ffffff", padding: "20px 24px", borderRadius: "20px", border: "1px solid rgba(44,27,13,0.06)", boxShadow: "0 4px 16px rgba(44,27,13,0.02)" }}>
                     <div>
                       <h2 style={{ margin: 0, fontSize: "20px", fontWeight: "800", color: "#2c1b0d", display: "flex", alignItems: "center", gap: "10px" }}>
-                        <span>👥</span> Staff & Attendance Management
+                        <span>📋</span> Staff Attendance Records & Monitoring
                       </h2>
                       <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#7a6b5e" }}>
-                        Track employee records, mark daily attendance, and review monthly work stats.
+                        View real-time daily staff check-ins, monthly attendance tally, and trace records (Attendance Data Only).
                       </p>
                     </div>
 
@@ -7319,37 +7899,6 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         }}
                       >
                         <span>➕</span> Add Leave
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingEmployee(null);
-                          setEmpName("");
-                          setEmpRole("Head Brewmaster");
-                          setEmpPhone("");
-                          setEmpSalary("");
-                          setEmpShift("Morning (07:00 AM - 03:00 PM)");
-                          setEmpJoiningDate(new Date().toISOString().split('T')[0]);
-                          setEmpStatus("Active");
-                          setShowAddEmployeeModal(true);
-                        }}
-                        style={{
-                          background: "linear-gradient(135deg, #2c1b0d 0%, #442a17 100%)",
-                          color: "#ffffff",
-                          border: "none",
-                          padding: "11px 22px",
-                          borderRadius: "12px",
-                          fontWeight: "800",
-                          fontSize: "13px",
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          boxShadow: "0 6px 18px rgba(44,27,13,0.2)"
-                        }}
-                      >
-                        <span style={{ fontSize: "16px" }}>+</span> Add Employee
                       </button>
                     </div>
                   </div>
@@ -7497,14 +8046,6 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                         >
                           <span>🏖️</span> Check Leaves {pendingLeaveCount > 0 ? `(${pendingLeaveCount} Pending)` : `(${leaveRequests.length})`}
                         </button>
-
-                        <button
-                          type="button"
-                          onClick={handleMarkAllPresent}
-                          style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0", padding: "8px 16px", borderRadius: "10px", fontSize: "12.5px", fontWeight: "750", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
-                        >
-                          ✓ Mark All Active as Present
-                        </button>
                       </div>
                     )}
                   </div>
@@ -7566,9 +8107,10 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                             <tr style={{ background: "#fbf8f5", borderBottom: "1px solid rgba(44,27,13,0.08)", color: "#7a6b5e", fontWeight: "800", textTransform: "uppercase", fontSize: "11px", letterSpacing: "0.5px" }}>
                               <th style={{ padding: "14px 20px" }}>Employee / Brewmaster</th>
                               <th style={{ padding: "14px 16px" }}>Role & Designation</th>
+                              <th style={{ padding: "14px 16px" }}>Shift Schedule</th>
                               <th style={{ padding: "14px 16px" }}>Attendance Status</th>
-                              <th style={{ padding: "14px 16px", textAlign: "center" }}>Mark Attendance</th>
-                              <th style={{ padding: "14px 20px", textAlign: "right" }}>Trace & Actions</th>
+                              <th style={{ padding: "14px 16px" }}>Check-in / Marked Time</th>
+                              <th style={{ padding: "14px 20px", textAlign: "right" }}>Attendance History</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -7616,7 +8158,14 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     <div style={{ fontWeight: "750", color: "#442a17" }}>{emp.role}</div>
                                   </td>
 
-                                  {/* 3. Attendance Status for Date */}
+                                  {/* 3. Shift Schedule */}
+                                  <td style={{ padding: "16px 16px" }}>
+                                    <div style={{ fontWeight: "650", color: "#555", fontSize: "12px", background: "#fbf8f5", padding: "4px 8px", borderRadius: "6px", border: "1px solid rgba(44,27,13,0.08)", display: "inline-block" }}>
+                                      🕒 {emp.shift || "Morning (07:00 AM - 03:00 PM)"}
+                                    </div>
+                                  </td>
+
+                                  {/* 4. Attendance Status for Date */}
                                   <td style={{ padding: "16px 16px" }}>
                                     {activeLeaveForEmp && activeLeaveForEmp.status === "Approved" ? (
                                       <span style={{ background: "#eff6ff", color: "#1e40af", border: "1.5px solid #bfdbfe", padding: "5px 10px", borderRadius: "8px", fontWeight: "850", fontSize: "11.5px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -7658,136 +8207,27 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
                                     )}
                                   </td>
 
-                                  {/* 4. Mark Attendance Buttons (Prominent & Clear) */}
-                                  <td style={{ padding: "16px 16px", textAlign: "center" }}>
-                                    <div style={{ display: "inline-flex", gap: "6px", background: "#fbf8f5", padding: "4px", borderRadius: "12px", border: "1px solid rgba(44,27,13,0.1)" }}>
-                                      {/* PRESENT BUTTON */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleMarkAttendance(emp, "present")}
-                                        style={{
-                                          padding: "6px 12px",
-                                          borderRadius: "8px",
-                                          border: "none",
-                                          background: currentStatus === "present" ? "#16a34a" : "#ffffff",
-                                          color: currentStatus === "present" ? "#ffffff" : "#16a34a",
-                                          fontWeight: "850",
-                                          fontSize: "11.5px",
-                                          cursor: "pointer",
-                                          boxShadow: currentStatus === "present" ? "0 2px 6px rgba(22, 163, 74, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "4px"
-                                        }}
-                                      >
-                                        ✓ Present
-                                      </button>
-
-                                      {/* HALF DAY BUTTON */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleMarkAttendance(emp, "half_day")}
-                                        style={{
-                                          padding: "6px 10px",
-                                          borderRadius: "8px",
-                                          border: "none",
-                                          background: currentStatus === "half_day" ? "#d97706" : "#ffffff",
-                                          color: currentStatus === "half_day" ? "#ffffff" : "#d97706",
-                                          fontWeight: "850",
-                                          fontSize: "11.5px",
-                                          cursor: "pointer",
-                                          boxShadow: currentStatus === "half_day" ? "0 2px 6px rgba(217, 119, 6, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "3px"
-                                        }}
-                                      >
-                                        ⏱️ Half Day
-                                      </button>
-
-                                      {/* LEAVE BUTTON */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleMarkAttendance(emp, "leave")}
-                                        style={{
-                                          padding: "6px 10px",
-                                          borderRadius: "8px",
-                                          border: "none",
-                                          background: currentStatus === "leave" ? "#2563eb" : "#ffffff",
-                                          color: currentStatus === "leave" ? "#ffffff" : "#2563eb",
-                                          fontWeight: "850",
-                                          fontSize: "11.5px",
-                                          cursor: "pointer",
-                                          boxShadow: currentStatus === "leave" ? "0 2px 6px rgba(37, 99, 235, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "3px"
-                                        }}
-                                      >
-                                        🏖️ Leave
-                                      </button>
-
-                                      {/* ABSENT BUTTON */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleMarkAttendance(emp, "absent")}
-                                        style={{
-                                          padding: "6px 12px",
-                                          borderRadius: "8px",
-                                          border: "none",
-                                          background: currentStatus === "absent" ? "#dc2626" : "#ffffff",
-                                          color: currentStatus === "absent" ? "#ffffff" : "#dc2626",
-                                          fontWeight: "850",
-                                          fontSize: "11.5px",
-                                          cursor: "pointer",
-                                          boxShadow: currentStatus === "absent" ? "0 2px 6px rgba(220, 38, 38, 0.3)" : "0 1px 2px rgba(0,0,0,0.05)",
-                                          display: "flex",
-                                          alignItems: "center",
-                                          gap: "3px"
-                                        }}
-                                      >
-                                        ✕ Absent
-                                      </button>
-                                    </div>
+                                  {/* 5. Check-in / Marked Time */}
+                                  <td style={{ padding: "16px 16px" }}>
+                                    {att?.updatedAt ? (
+                                      <span style={{ fontSize: "12px", color: "#2c1b0d", fontWeight: "750", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                                        🕒 {new Date(att.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                      </span>
+                                    ) : (
+                                      <span style={{ fontSize: "12px", color: "#aaa" }}>—</span>
+                                    )}
                                   </td>
 
-                                  {/* 5. Trace & Actions */}
+                                  {/* 6. Trace Log Button */}
                                   <td style={{ padding: "16px 20px", textAlign: "right" }}>
-                                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", alignItems: "center" }}>
-                                      {/* Trace Button */}
-                                      <button
-                                        type="button"
-                                        onClick={() => setSelectedTraceEmployee(emp)}
-                                        title="Trace attendance history log for this Brewmaster"
-                                        style={{ background: "#2c1b0d", color: "#fdf5e9", border: "none", padding: "6px 12px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", boxShadow: "0 2px 6px rgba(44,27,13,0.15)" }}
-                                      >
-                                        <span>🔍</span> Trace Log
-                                      </button>
-
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setEditingEmployee(emp);
-                                          setEmpName(emp.name);
-                                          setEmpRole(emp.role);
-                                          setEmpPhone(emp.phone || "");
-                                          setEmpSalary(emp.salary || "");
-                                          setEmpJoiningDate(emp.joiningDate || new Date().toISOString().split('T')[0]);
-                                          setEmpStatus(emp.status || "Active");
-                                          setShowAddEmployeeModal(true);
-                                        }}
-                                        style={{ background: "#fdf8f3", color: "#2c1b0d", border: "1px solid rgba(44,27,13,0.12)", padding: "6px 10px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
-                                      >
-                                        Edit
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleDeleteEmployee(emp.id, emp.name)}
-                                        style={{ background: "rgba(231,76,60,0.08)", color: "#e74c3c", border: "1px solid rgba(231,76,60,0.2)", padding: "6px 10px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "700", cursor: "pointer" }}
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSelectedTraceEmployee(emp)}
+                                      title="Trace attendance history log for this staff member"
+                                      style={{ background: "#2c1b0d", color: "#fdf5e9", border: "none", padding: "6px 14px", borderRadius: "8px", fontSize: "11.5px", fontWeight: "800", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "5px", boxShadow: "0 2px 6px rgba(44,27,13,0.15)" }}
+                                    >
+                                      <span>🔍</span> Trace Log
+                                    </button>
                                   </td>
                                 </tr>
                               );
@@ -7795,17 +8235,10 @@ Enjoy your freshly brewed Chai Chaska! ☕✨`;
 
                             {filteredEmployees.length === 0 && (
                               <tr>
-                                <td colSpan="5" style={{ textAlign: "center", padding: "50px 20px", color: "#888" }}>
+                                <td colSpan="6" style={{ textAlign: "center", padding: "50px 20px", color: "#888" }}>
                                   <div style={{ fontSize: "36px", marginBottom: "8px" }}>👥</div>
-                                  <p style={{ margin: 0, fontWeight: "700", color: "#2c1b0d" }}>No employees found.</p>
-                                  <p style={{ margin: "4px 0 16px", fontSize: "12px" }}>Add staff members to start marking attendance.</p>
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowAddEmployeeModal(true)}
-                                    style={{ background: "#2c1b0d", color: "#fff", border: "none", padding: "8px 18px", borderRadius: "8px", fontSize: "12px", fontWeight: "750", cursor: "pointer" }}
-                                  >
-                                    + Add First Employee
-                                  </button>
+                                  <p style={{ margin: 0, fontWeight: "700", color: "#2c1b0d" }}>No staff attendance records found.</p>
+                                  <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#7a6b5e" }}>Staff management and attendance marking is managed via the Brewmaster portal.</p>
                                 </td>
                               </tr>
                             )}
